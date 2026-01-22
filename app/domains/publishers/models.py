@@ -12,4 +12,3 @@ class Publisher(Base):
     name = Column(String, unique=True, nullable=False) # 언론사명 (예: '조선일보')
     code = Column(String, unique=True) # 내부 관리 코드 (예: 'chosun') - 사이트 식별용
     home_url = Column(String) # 홈페이지 URL
-    is_active = Column(Boolean, default=True) # 크롤링 활성화 여부

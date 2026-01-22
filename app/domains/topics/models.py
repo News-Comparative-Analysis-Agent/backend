@@ -11,7 +11,7 @@ class Topic(Base):
     __tablename__ = "topics"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False) # 주제명
+    name = Column(String, nullable=False) # 주제명 예: ["의대정원"]
     keywords = Column(ARRAY(Text)) # 주제와 관련된 키워드 리스트 (예: ["의대", "정원", "의사"])
     
     created_at = Column(DateTime, default=func.now()) # 생성 일시

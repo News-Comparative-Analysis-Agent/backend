@@ -38,12 +38,13 @@ class Article(Base):
 class ArticleBody(Base):
     """
     기사 본문(Body) 테이블
-    - 기사의 원문 텍스트를 저장합니다. 별도 테이블로 분리하여 성능 최적화(Cold Storage).
+    - 기사의 원문 텍스트를 저장합니다. 별도 테이블로 분리.
     """
-    __tablename__ = "article_bodies"
+    __tablename__ = "article_body"
 
     article_id = Column(Integer, ForeignKey("articles.id"), primary_key=True)
     raw_content = Column(Text) # 본문 전체 텍스트
     collected_at = Column(DateTime, default=func.now()) # 수집 일시
 
+    # 관계 설정
     article = relationship("Article", back_populates="body")
