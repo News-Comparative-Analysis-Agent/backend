@@ -7,7 +7,6 @@ class Article(Base):
     """
     기사(Article) 테이블
     - 수집된 뉴스의 메타데이터와 AI 분석 결과를 저장합니다.
-    - 가장 빈번하게 조회되는 Hot Storage입니다.
     """
     __tablename__ = "articles"
 

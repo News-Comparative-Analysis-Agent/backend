@@ -15,6 +15,5 @@ class User(Base):
     # OAuth 정보
     provider = Column(String, nullable=False) # 로그인 제공자 (예: 'google', 'kakao')
     provider_id = Column(String, nullable=False) # 제공자 측의 유저 고유 ID
-    profile_image_url = Column(String) # 프로필 이미지 URL
     
     created_at = Column(DateTime, default=func.now()) # 가입 일시

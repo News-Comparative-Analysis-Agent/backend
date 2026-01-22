@@ -9,7 +9,6 @@ class UserBase(BaseModel):
     """
     email: EmailStr
     nickname: Optional[str] = None
-    profile_image_url: Optional[str] = None
 
 class UserCreate(UserBase):
     """
@@ -25,7 +24,6 @@ class UserUpdate(BaseModel):
     - 수정 가능한 필드만 포함 (이메일, provider 정보 수정 불가)
     """
     nickname: Optional[str] = None
-    profile_image_url: Optional[str] = None
 
 class UserResponse(UserBase):
     """
