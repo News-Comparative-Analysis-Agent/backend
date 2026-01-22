@@ -32,8 +32,7 @@ class UserRepository:
             email=user_data.email,
             nickname=user_data.nickname,
             provider=user_data.provider,
-            provider_id=user_data.provider_id,
-            profile_image_url=user_data.profile_image_url
+            provider_id=user_data.provider_id
         )
         self.db.add(db_user)
         self.db.commit()

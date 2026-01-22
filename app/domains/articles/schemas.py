@@ -1,0 +1,31 @@
+from pydantic import BaseModel, HttpUrl
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+class ArticleBase(BaseModel):
+    title: str
+    url: str
+    published_at: datetime
+    summary: Optional[str] = None
+    bias: Optional[str] = None
+    bias_score: Optional[float] = None
+    key_arguments: Optional[Dict[str, Any]] = None # JSON 데이터
+
+class ArticleCreate(ArticleBase):
+    topic_id: Optional[int] = None
+    publisher_id: Optional[int] = None
+
+class ArticleResponse(ArticleBase):
+    id: int
+    topic_id: Optional[int]
+    publisher_id: Optional[int]
+    
+    # 추가 정보 (Relation)
+    publisher_name: Optional[str] = None 
+
+    class Config:
+        from_attributes = True
+
+class ArticleDetail(ArticleResponse):
+    """상세 조회 시 본문 포함"""
+    content: Optional[str] = None 
