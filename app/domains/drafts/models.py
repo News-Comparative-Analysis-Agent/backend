@@ -17,7 +17,6 @@ class Draft(Base):
     title = Column(String) # 초안 제목
     content = Column(Text) # 작성 중인 본문 내용
     image_urls = Column(ARRAY(Text)) # 삽입된 이미지들
-    generated_perspective = Column(Text) # AI가 제안한 관점/가이드
     
     status = Column(String, default="draft") # 상태 (draft: 작성중, completed: 완료, published: 발행)
     
@@ -41,5 +40,6 @@ class DraftReference(Base):
     
     similarity_score = Column(Float) # 주제 유사도 (선택적)
 
+    # 관계 설정
     draft = relationship("Draft", back_populates="references")
     article = relationship("Article")

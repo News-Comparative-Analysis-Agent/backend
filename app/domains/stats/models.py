@@ -14,11 +14,10 @@ class DailyTopicStats(Base):
     topic_id = Column(Integer, ForeignKey("topics.id"), primary_key=True)
     
     article_count = Column(Integer, default=0) # 해당 일자 기사 수
-    avg_sentiment = Column(Float) # 평균 감정 점수
-    
     bias_distribution = Column(JSONB) # 성향 분포 (예: {"neutral": 60, "conservative": 20})
     top_keywords = Column(JSONB) # 상위 키워드 (예: {"의사": 50, "파업": 30})
 
+    # 관계 설정
     topic = relationship("Topic")
 
 class KeywordRelation(Base):
@@ -30,10 +29,12 @@ class KeywordRelation(Base):
     __tablename__ = "keyword_relations"
 
     date = Column(Date, primary_key=True)
+    
     topic_id = Column(Integer, ForeignKey("topics.id"), primary_key=True)
     keyword_a = Column(String, primary_key=True) # 키워드 A
     keyword_b = Column(String, primary_key=True) # 키워드 B
     
     frequency = Column(Integer, default=0) # 동시 출현 빈도
 
+    # 관계 설정
     topic = relationship("Topic")
