@@ -11,7 +11,8 @@ class Article(Base):
     __tablename__ = "articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id")) # 관련 주제 ID
+    topic_id = Column(Integer, ForeignKey("topics.id")) # 관련 주제 ID (정책/검색어)
+    issue_label_id = Column(Integer, ForeignKey("issue_labels.id"), nullable=True) # 소속 이슈 (클러스터링 결과)
     publisher_id = Column(Integer, ForeignKey("publishers.id")) # 언론사 ID
     
     title = Column(String, nullable=False) # 기사 제목
@@ -25,13 +26,15 @@ class Article(Base):
     summary = Column(Text) # 3줄 요약
     bias = Column(String) # 정치 성향 (neutral, conservative, liberal)
     bias_score = Column(Float) # 성향 강도 (0.0 ~ 10.0)
-    key_arguments = Column(JSONB) # 핵심 논점/키워드 리스트 (JSON)
+    key_arguments = Column(Text) # 핵심 논점 (Text)
+    # keywords 컬럼 삭제 (IssueLabel/Stats에서 관리)
     
     analyzed_at = Column(DateTime, default=func.now()) # 분석 완료 일시
 
     # 관계 설정
     topic = relationship("Topic", backref="articles")
-    publisher = relationship("Publisher", backref="articles")
+    issue_label = relationship("IssueLabel", back_populates="articles")
+    publisher = relationship("Publisher", back_populates="articles")
     body = relationship("ArticleBody", uselist=False, back_populates="article") # 1:1 관계
 
 class ArticleBody(Base):
@@ -43,7 +46,7 @@ class ArticleBody(Base):
 
     article_id = Column(Integer, ForeignKey("articles.id"), primary_key=True)
     raw_content = Column(Text) # 본문 전체 텍스트
-    collected_at = Column(DateTime, default=func.now()) # 수집 일시
+
 
     # 관계 설정
     article = relationship("Article", back_populates="body")
