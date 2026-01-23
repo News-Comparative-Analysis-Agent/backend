@@ -9,7 +9,8 @@ class ArticleBase(BaseModel):
     summary: Optional[str] = None
     bias: Optional[str] = None
     bias_score: Optional[float] = None
-    key_arguments: Optional[Dict[str, Any]] = None # JSON 데이터
+    key_arguments: Optional[str] = None # 핵심 논점 (Text)
+    keywords: List[str] = [] # 핵심 키워드 리스트
 
 class ArticleCreate(ArticleBase):
     topic_id: Optional[int] = None

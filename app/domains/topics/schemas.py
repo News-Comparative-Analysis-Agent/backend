@@ -3,8 +3,8 @@ from typing import List, Optional, Any
 from datetime import datetime
 
 class TopicBase(BaseModel):
-    name: str # 주제명
-    keywords: List[str] = [] # 키워드 리스트
+    topic: str # 주제명
+    total_count: int = 0
     graph_data: Optional[Any] = None # 네트워크 차트용 데이터 (JSON)
 
 class TopicCreate(TopicBase):

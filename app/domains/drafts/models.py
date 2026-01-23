@@ -18,6 +18,7 @@ class Draft(Base):
     content = Column(Text) # 작성 중인 본문 내용
     image_urls = Column(ARRAY(Text)) # 삽입된 이미지들
     
+    generated_perspective = Column(String) # AI가 사용한 논점
     status = Column(String, default="draft") # 상태 (draft: 작성중, completed: 완료, published: 발행)
     
     created_at = Column(DateTime, default=func.now())

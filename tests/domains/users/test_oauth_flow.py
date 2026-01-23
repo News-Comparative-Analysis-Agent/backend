@@ -1,6 +1,7 @@
 from app.domains.users.schemas import UserCreate
 from app.domains.users.service import UserService
 
+# 이 파일은 OAuth 가입 및 로그인 시나리오 테스트를 위한 파일입니다.
 def test_oauth_flow(db_session):
     """
     OAuth 가입 및 로그인 시나리오 테스트
