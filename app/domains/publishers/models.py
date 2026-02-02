@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean
 from app.core.database import Base
+from sqlalchemy.orm import relationship
 
 class Publisher(Base):
     """
@@ -11,4 +12,6 @@ class Publisher(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False) # 언론사명 (예: '조선일보')
     code = Column(String, unique=True) # 내부 관리 코드 (예: 'chosun') - 사이트 식별용
+
+    articles = relationship("Article", back_populates="publisher")
 
