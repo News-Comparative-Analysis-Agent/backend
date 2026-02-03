@@ -51,3 +51,34 @@ class KeywordRelationService:
         ]
 
         return GraphData(nodes=nodes, links=links)
+
+    def get_keyword_graph(self, keyword: str) -> GraphData:
+        """
+        특정 키워드와 연관된 키워드 네트워크 조회 (1단계 Ego Network)
+        """
+        # 1. 특정 키워드가 포함된 모든 관계 조회 (keyword_a 또는 keyword_b)
+        relations = self.db.query(KeywordRelation)\
+            .filter((KeywordRelation.keyword_a == keyword) | (KeywordRelation.keyword_b == keyword))\
+            .all()
+            
+        if not relations:
+            return GraphData(nodes=[GraphNode(id=keyword)], links=[])
+
+        # 2. 통합 분석 (여러 이슈에서 동일한 키워드 쌍이 나타날 경우 빈도 합산)
+        all_keywords = {keyword}
+        link_map = defaultdict(int)
+        
+        for rel in relations:
+            pair = tuple(sorted([rel.keyword_a, rel.keyword_b]))
+            link_map[pair] += rel.frequency
+            all_keywords.add(rel.keyword_a)
+            all_keywords.add(rel.keyword_b)
+
+        # 3. 시각화 데이터 구조로 변환
+        nodes = [GraphNode(id=kw) for kw in sorted(list(all_keywords))]
+        links = [
+            GraphLink(source=pair[0], target=pair[1], value=freq)
+            for pair, freq in link_map.items()
+        ]
+
+        return GraphData(nodes=nodes, links=links)

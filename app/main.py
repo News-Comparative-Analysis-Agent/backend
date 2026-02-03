@@ -26,7 +26,7 @@ app.include_router(users_router.router, prefix="/user", tags=["users"])
 app.include_router(topics_router.router, prefix="/topics", tags=["topics"])
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
-app.include_router(kw_relation_router.router, prefix="/keyword-network", tags=["keyword-network"])
+app.include_router(kw_relation_router.router, prefix="/keyword-relation", tags=["keyword-relation"])
 
 @app.get("/")
 def health_check():
