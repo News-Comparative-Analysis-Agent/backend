@@ -1,9 +1,5 @@
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from app.domains.articles.models import Article, ArticleBody
-from app.domains.articles.schemas import ArticleResponse, ArticleDetail
 
-class ArticleService:
+class ArticleRepository:
     def __init__(self, db: Session):
         self.db = db
 
@@ -23,4 +19,10 @@ class ArticleService:
         """이슈 라벨(클러스터)별 기사 목록 조회"""
         return self.db.query(Article).filter(
             Article.issue_label_id == issue_label_id
+        ).order_by(Article.published_at.desc()).limit(limit).all()
+
+    def get_articles_by_publisher(self, publisher_id: int, limit: int = 20) -> List[Article]:
+        """언론사별 기사 목록 조회"""
+        return self.db.query(Article).filter(
+            Article.publisher_id == publisher_id
         ).order_by(Article.published_at.desc()).limit(limit).all()

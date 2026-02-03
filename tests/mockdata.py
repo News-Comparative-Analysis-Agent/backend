@@ -106,7 +106,7 @@ def insert_seed_data(db: Session):
             for k in range(3):
                 p_idx = random.randint(0, 3)
                 pub = publishers[p_idx]
-                title = f"[{issue.name}] 관련 보도 {k+1}: {issue.keyword[0]} 이슈"
+                title = f"기사 제목입니다. {k+1}"
                 
                 art = Article(
                     topic_id=topic.id,
@@ -115,11 +115,10 @@ def insert_seed_data(db: Session):
                     title=title,
                     url=f"http://news.example.com/{issue.id}_{k}",
                     published_at=datetime.now() - timedelta(hours=random.randint(1, 48)),
-                    summary=f"{title}에 대한 요약입니다.",
+                    summary=f"{title}에 대한 요약문.",
                     bias=random.choice(["conservative", "liberal", "neutral"]),
-                    bias_score=round(random.uniform(0, 10), 1),
-                    key_arguments=f"핵심 논점: {issue.keyword[0]} vs {issue.keyword[1]}"
-                    # keywords 컬럼은 Article에서 제거됨
+                    bias_score=round(random.uniform(-5, 5), 1),
+                    key_arguments=f"{title}기사 에 대한 핵심 요약문"
                 )
                 
                 # 본문
@@ -154,6 +153,14 @@ if __name__ == "__main__":
     
     # 기존 데이터 초기화
     print("Resetting database...")
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS daily_topic_stats CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS keyword_relations CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS topics CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS issue_labels CASCADE"))
+        conn.commit()
+
     Base.metadata.drop_all(bind=engine)
     
     # 테이블 생성
