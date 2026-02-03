@@ -5,6 +5,15 @@ from app.domains.topics import router as topics_router
 from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
 
+# SQLAlchemy 모델 로드 (관계 설정을 위해 모든 모델이 레지스트리에 등록되어야 함)
+from app.domains.users import models
+from app.domains.topics import models
+from app.domains.publishers import models
+from app.domains.articles import models
+from app.domains.issues import models
+from app.domains.keywordrelation import models
+from app.domains.drafts import models
+
 app = FastAPI(
     title="Aigent Backend API",
     version="1.0.0",
