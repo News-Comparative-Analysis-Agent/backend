@@ -2,20 +2,20 @@ version: '3.8'
 
 services:
   # 1. FastAPI 애플리케이션 (Backend)
-  # api_server: # docker compose 내부에서 사용하는 이름
-  #   build: .
-  #   container_name: api_server
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - .:/app # 코드 수정 시 즉시 반영 (Hot Reload)
-  #   environment:
-  #     # 컨테이너 내부에서는 'localhost' 대신 서비스 이름 'db_server'를 씁니다.
-  #     - DATABASE_URL=postgresql://admin:1234@db_server:5432/aigent_db
-  #     - TZ=Asia/Seoul
-  #   depends_on:
-  #     - db_server
-  #   restart: always
+  api_server: # docker compose 내부에서 사용하는 이름
+    build: .
+    container_name: api_server
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app # 코드 수정 시 즉시 반영 (Hot Reload)
+    environment:
+      # 컨테이너 내부에서는 'localhost' 대신 서비스 이름 'db_server'를 씁니다.
+      - DATABASE_URL=postgresql://admin:1234@db_server:5432/aigent_db
+      - TZ=Asia/Seoul
+    depends_on:
+      - db_server
+    restart: always
 
   # 2. PostgreSQL 데이터베이스
   db_server: # Docker compose 내부에서 사용하는 이름
