@@ -1,36 +1,32 @@
 from sqlalchemy.orm import Session
 from typing import List
 from collections import defaultdict
-from sqlalchemy import func
-from app.domains.issues.models import IssueLabel
-from app.domains.keywordrelation.models import KeywordRelation
+from app.domains.issues.repository import IssueRepository
+from app.domains.keywordrelation.repository import KeywordRelationRepository
 from app.domains.keywordrelation.schemas import GraphData, GraphNode, GraphLink, KeywordMentionResponse, KeywordMentionPoint
 
 class KeywordRelationService:
     def __init__(self, db: Session):
         self.db = db
+        self.repo = KeywordRelationRepository(db)
+        self.issue_repo = IssueRepository(db)
 
     def get_trend_graph(self, limit: int = 10) -> GraphData:
         """
         상위 N개 트렌드 이슈의 통합 키워드 관계도 분석 및 조회
         """
-        # 1. 분석 대상이 될 상위 트렌드 이슈 조회
-        top_issues = self.db.query(IssueLabel)\
-            .order_by(IssueLabel.total_count.desc())\
-            .limit(limit)\
-            .all()
+        # 1. 선정된 상위 이슈 조회
+        top_issues = self.issue_repo.get_top_issues(limit=limit)
         
         if not top_issues:
             return GraphData(nodes=[], links=[])
 
         issue_ids = [issue.id for issue in top_issues]
         
-        # 2. 해당 이슈들의 원천 키워드 관계 데이터 추출
-        relations = self.db.query(KeywordRelation)\
-            .filter(KeywordRelation.issue_label_id.in_(issue_ids))\
-            .all()
+        # 2. 해당 이슈들의 원천 데이터 추출
+        relations = self.repo.get_relations_by_issue_ids(issue_ids)
 
-        # 3. 네트워크 데이터 통합 분석 (중복 제거 및 빈도 합산)
+        # 3. 네트워크 데이터 통합 분석
         all_keywords = set()
         for issue in top_issues:
             if issue.keyword:
@@ -38,7 +34,6 @@ class KeywordRelationService:
 
         link_map = defaultdict(int)
         for rel in relations:
-            # 무향 그래프 처리를 위한 정렬된 키 생성
             pair = tuple(sorted([rel.keyword_a, rel.keyword_b]))
             link_map[pair] += rel.frequency
             all_keywords.add(rel.keyword_a)
@@ -57,15 +52,13 @@ class KeywordRelationService:
         """
         특정 키워드와 연관된 키워드 네트워크 조회 (1단계 Ego Network)
         """
-        # 1. 특정 키워드가 포함된 모든 관계 조회 (keyword_a 또는 keyword_b)
-        relations = self.db.query(KeywordRelation)\
-            .filter((KeywordRelation.keyword_a == keyword) | (KeywordRelation.keyword_b == keyword))\
-            .all()
+        # 1. 특정 키워드 포함 관계 조회
+        relations = self.repo.get_relations_by_keyword(keyword)
             
         if not relations:
             return GraphData(nodes=[GraphNode(id=keyword)], links=[])
 
-        # 2. 통합 분석 (여러 이슈에서 동일한 키워드 쌍이 나타날 경우 빈도 합산)
+        # 2. 통합 분석
         all_keywords = {keyword}
         link_map = defaultdict(int)
         
@@ -87,24 +80,14 @@ class KeywordRelationService:
     def get_keyword_mentions(self, keyword: str) -> KeywordMentionResponse:
         """
         특정 키워드의 시계열 언급량 추이 조회
-        - KeywordRelation의 frequency를 일자별로 합산하여 산출합니다.
         """
-        # 1. 일자별 빈도 합계 쿼리 (keyword_a 또는 keyword_b에 포함된 경우)
-        mention_query = self.db.query(
-            KeywordRelation.date,
-            func.sum(KeywordRelation.frequency).label("total_count")
-        ).filter(
-            (KeywordRelation.keyword_a == keyword) | (KeywordRelation.keyword_b == keyword)
-        ).group_by(
-            KeywordRelation.date
-        ).order_by(
-            KeywordRelation.date.asc()
-        ).all()
+        # 1. 일자별 빈도 합계 통계 조회
+        mention_stats = self.repo.get_mention_stats_by_keyword(keyword)
 
         # 2. 결과 가공
         mentions = [
             KeywordMentionPoint(date=row.date, count=row.total_count)
-            for row in mention_query
+            for row in mention_stats
         ]
 
         return KeywordMentionResponse(
