@@ -25,6 +25,8 @@ app.include_router(users_router.router, prefix="/user", tags=["users"])
 app.include_router(topics_router.router, prefix="/topics", tags=["topics"])
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
+from app.scroller import router as scroller_router
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 
 @app.get("/")
 def health_check():

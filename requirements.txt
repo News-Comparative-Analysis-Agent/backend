@@ -30,3 +30,6 @@ pytest==8.0.0
 httpx==0.27.0
 pytest-asyncio==0.23.5
 email-validator==2.1.0
+
+google-generativeai==0.8.6  # gemini api 
+newspaper3k
