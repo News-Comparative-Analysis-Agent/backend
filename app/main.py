@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.domains.users import router as users_router
 from app.domains.topics import router as topics_router
@@ -19,6 +20,15 @@ app = FastAPI(
     title="Aigent Backend API",
     version="1.0.0",
     description="Aigent Backend API"
+)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # 개발 환경에서는 모두 허용, 운영 시 특정 도메인으로 제한 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 라우터 등록 prefix: /users가 자동으로 붙음. tags: API 문서용.
