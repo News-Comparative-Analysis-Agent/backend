@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
 from typing import List
 from collections import defaultdict
+from sqlalchemy import func
 from app.domains.issues.models import IssueLabel
 from app.domains.keywordrelation.models import KeywordRelation
-from app.domains.keywordrelation.schemas import GraphData, GraphNode, GraphLink
+from app.domains.keywordrelation.schemas import GraphData, GraphNode, GraphLink, KeywordMentionResponse, KeywordMentionPoint
 
 class KeywordRelationService:
     def __init__(self, db: Session):
@@ -82,3 +83,31 @@ class KeywordRelationService:
         ]
 
         return GraphData(nodes=nodes, links=links)
+
+    def get_keyword_mentions(self, keyword: str) -> KeywordMentionResponse:
+        """
+        특정 키워드의 시계열 언급량 추이 조회
+        - KeywordRelation의 frequency를 일자별로 합산하여 산출합니다.
+        """
+        # 1. 일자별 빈도 합계 쿼리 (keyword_a 또는 keyword_b에 포함된 경우)
+        mention_query = self.db.query(
+            KeywordRelation.date,
+            func.sum(KeywordRelation.frequency).label("total_count")
+        ).filter(
+            (KeywordRelation.keyword_a == keyword) | (KeywordRelation.keyword_b == keyword)
+        ).group_by(
+            KeywordRelation.date
+        ).order_by(
+            KeywordRelation.date.asc()
+        ).all()
+
+        # 2. 결과 가공
+        mentions = [
+            KeywordMentionPoint(date=row.date, count=row.total_count)
+            for row in mention_query
+        ]
+
+        return KeywordMentionResponse(
+            keyword=keyword,
+            mentions=mentions
+        )

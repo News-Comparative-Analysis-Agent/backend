@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.domains.keywordrelation.service import KeywordRelationService
-from app.domains.keywordrelation.schemas import GraphData
+from app.domains.keywordrelation.schemas import GraphData, KeywordMentionResponse
 
 router = APIRouter()
 
@@ -33,3 +33,17 @@ def get_keyword_graph(
     """
     service = KeywordRelationService(db)
     return service.get_keyword_graph(keyword=keyword)
+
+@router.get("/keyword-mentions", 
+            response_model=KeywordMentionResponse,
+            summary="키워드 시계열 언급량 추이",
+            description="특정 키워드가 뉴스에서 언급된 횟수(관계 빈도 합계)의 시계열 추이를 반환합니다.")
+def get_keyword_mentions(
+    keyword: str = Query(..., description="조회할 키워드"),
+    db: Session = Depends(get_db)
+):
+    """
+    특정 키워드 언급량 추이 조회 API
+    """
+    service = KeywordRelationService(db)
+    return service.get_keyword_mentions(keyword=keyword)
