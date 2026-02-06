@@ -1,6 +1,13 @@
-import pandas as pd
+import sys
 import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(BASE_DIR)
+
 from dotenv import load_dotenv
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+import pandas as pd
 import numpy as np
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
@@ -14,19 +21,18 @@ import json
 from itertools import combinations
 from collections import Counter
 from konlpy.tag import Okt
-# ==========================================
-# [설정] API 키 및 환경 설정
-# ==========================================
-# Load .env from backend root
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+from datetime import datetime
+from app.core.database import SessionLocal, Base, engine
+from app.domains.issues.models import IssueLabel
+from app.domains.articles.models import Article, ArticleBody
+from app.domains.topics.models import Topic
+from app.domains.publishers.models import Publisher
+from app.domains.keywordrelation.models import KeywordRelation
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # .env 파일에서 로드
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# ==========================================
-# 1. 유틸리티 함수 (중복제거, 토크나이저)
-# ==========================================
+
 def remove_duplicates_fast(df, threshold=0.90):
     if df.empty: return df
     df = df.reset_index(drop=True)
@@ -69,18 +75,12 @@ def simple_tokenizer(text):
         '그', '이', '저', '수', '것', '등', '안', '전', '후', '약', '중'
     ]
     
-    # 2. 명사 추출 (nouns 함수 사용)
     nouns = okt.nouns(str(text))
-    
-    # 3. 불용어 제거 및 2글자 이상만 선택
-    # (단, '당'(Party), '법'(Law) 처럼 1글자여도 중요한 건 살려야 함 -> 일단은 2글자 이상으로 필터링)
     filtered_nouns = [n for n in nouns if n not in stopwords and len(n) >= 2]
     
     return filtered_nouns
 
-# ==========================================
-# 2. [NEW] 키워드 네트워크 분석 함수
-# ==========================================
+
 def extract_issue_network(texts, top_n_nodes=20, top_n_edges=30):
     """
     특정 이슈에 속한 기사 텍스트들을 받아 '키워드 네트워크 JSON'을 생성합니다.
@@ -89,21 +89,17 @@ def extract_issue_network(texts, top_n_nodes=20, top_n_edges=30):
     node_counter = Counter()
 
     for text in texts:
-        # 기사 하나에서 단어 추출 (중복 제거하여 관계 생성)
+        
         tokens = list(set(simple_tokenizer(text)))
         node_counter.update(tokens)
         
-        # 동시 출현(Co-occurrence) 관계 형성
         for pair in combinations(tokens, 2):
             edges.append(tuple(sorted(pair)))
 
-    # 상위 N개 키워드 추출
     top_nodes = [node for node, count in node_counter.most_common(top_n_nodes)]
     
-    # 상위 M개 연결 관계 추출
     edge_counts = Counter(edges).most_common(top_n_edges)
     
-    # JSON 구조 생성 (DB의 'graph_data' 컬럼에 들어갈 데이터)
     network_data = {
         "nodes": [{"id": node, "count": node_counter[node]} for node in top_nodes],
         "links": [{"source": u, "target": v, "weight": w} 
@@ -111,17 +107,13 @@ def extract_issue_network(texts, top_n_nodes=20, top_n_edges=30):
                   if u in top_nodes and v in top_nodes]
     }
     
-    # 키워드 리스트 (문자열 배열 형태)
     keyword_list = top_nodes[:10]
     
-    return json.dumps(network_data, ensure_ascii=False), keyword_list
+    return json.dumps(network_data, ensure_ascii=False), keyword_list, edge_counts
 
-# ==========================================
-# 3. Gemini 제목 생성
-# ==========================================
 def generate_title_with_gemini(titles):
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         prompt = f"""
         다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
         {titles[:10]} (총 {len(titles)}건)
@@ -140,19 +132,118 @@ def generate_title_with_gemini(titles):
         print(f"   ⚠️ Gemini 호출 실패: {e}")
         return titles[0]
 
-# ==========================================
-# 4. 메인 분석 로직
-# ==========================================
+def save_to_db(df_articles, top_topics, keyword_data_map):
+    """
+    분석된 이슈, 기사, 키워드 관계를 DB에 저장합니다.
+    keyword_data_map: topic_id -> (graph_json, keyword_list, edge_counts) 매핑
+    """
+    print("\n💾 데이터베이스 저장 시작...")
+    
+    Base.metadata.create_all(bind=engine)
+    
+    db = SessionLocal()
+    saved_issue_count = 0
+    
+    try:
+        
+        topic_name = "정치"
+        topic = db.query(Topic).filter(Topic.topic == topic_name).first()
+        if not topic:
+            topic = Topic(topic=topic_name)
+            db.add(topic)
+            db.flush()
+        
+        for idx, row in top_topics.iterrows():
+            topic_id = row['Topic']
+            count = row['Count']
+            
+            if count < 7: continue
+            
+            ai_label = row.get('ai_label', f"이슈_{idx+1}")
+            graph_json, keyword_list, edge_counts = keyword_data_map.get(topic_id, ({}, [], []))
+            
+            issue = IssueLabel(
+                name=ai_label,
+                keyword=keyword_list,
+                total_count=int(count),
+                created_at=datetime.now()
+            )
+            db.add(issue)
+            db.flush() 
+            
+            today = datetime.now().date()
+            for (u, v), w in edge_counts:
+                if u in keyword_list and v in keyword_list:
+                    rel = KeywordRelation(
+                        date=today,
+                        issue_label_id=issue.id,
+                        keyword_a=min(u, v), 
+                        keyword_b=max(u, v),
+                        frequency=w
+                    )
+                    db.add(rel)
+
+            topic_indices = df_articles[df_articles['topic_id'] == topic_id].index
+            topic_articles = df_articles.loc[topic_indices]
+            topic_articles = topic_articles.sort_values(by='prob', ascending=False)
+            
+            for rank, (_, row_art) in enumerate(topic_articles.iterrows(), 1):
+                press_name = row_art['press']
+                publisher = db.query(Publisher).filter(Publisher.name == press_name).first()
+                if not publisher:
+                    publisher = Publisher(name=press_name, code=press_name) # code가 없으면 name 사용
+                    db.add(publisher)
+                    db.flush()
+                
+                # 2. 기사(Article) 중복 확인 (URL 기준)
+                existing_article = db.query(Article).filter(Article.url == row_art['link']).first()
+                if existing_article:
+                    continue # 이미 있으면 스킵
+                
+                article = Article(
+                    topic_id=topic.id,
+                    issue_label_id=issue.id,
+                    publisher_id=publisher.id,
+                    title=row_art['title'],
+                    url=row_art['link'],
+                    image_urls=[row_art['image_url']] if row_art.get('image_url') else [],
+                    published_at=pd.to_datetime(row_art['pub_date']),
+                    analyzed_at=datetime.now()
+                )
+                db.add(article)
+                db.flush()
+                
+                # 3. 본문(ArticleBody) 저장
+                # content가 너무 길면 자르거나 처리 (Postgres TEXT는 1GB까지 가능하므로 괜찮음)
+                body = ArticleBody(
+                    article_id=article.id,
+                    raw_content=row_art['content']
+                )
+                db.add(body)
+                
+            saved_issue_count += 1
+            
+        db.commit()
+        print(f"🎉 DB 저장 완료! 총 {saved_issue_count}개의 이슈가 저장되었습니다.")
+        
+    except Exception as e:
+        db.rollback()
+        import traceback
+        print(f"⚠️ DB 저장 중 오류 발생: {e}")
+        traceback.print_exc()
+        print(f"   👉 문제 발생 구간 추적: issue_idx={saved_issue_count}")
+    finally:
+        db.close()
+
+
 def analyze_weekly_top10(csv_path):
-    print("📥 데이터 로딩 중...")
+    print("데이터 로딩 중")
     df = pd.read_csv(csv_path)
     
-    # 1. 중복 제거
     df_clean = remove_duplicates_fast(df)
     
-    print("🚀 BERTopic 학습 시작 (Full Analysis Mode)...")
+    print("BERTopic 학습 시작")
     
-    # 불용어 설정
     korean_stopwords = [
         "뉴스", "종합", "속보", "기자", "특파원", "위해", "밝혔다", "대해", "관련", 
         "오늘", "오후", "오전", "것으로", "따르면", "있는", "했다", "말했다",
@@ -160,7 +251,6 @@ def analyze_weekly_top10(csv_path):
     ]
     vectorizer = CountVectorizer(stop_words=korean_stopwords)
     
-    # 군집화 모델 설정
     hdbscan_model = HDBSCAN(min_cluster_size=7, min_samples=3, prediction_data=True)
     
     topic_model = BERTopic(
@@ -173,7 +263,6 @@ def analyze_weekly_top10(csv_path):
         verbose=True
     )
     
-    # 제목 가중치 강화
     docs = [str(t) + " " + str(t) + " " + str(t) + " " + str(c)[:100] 
             for t, c in zip(df_clean['title'], df_clean['content'])]
             
@@ -185,14 +274,14 @@ def analyze_weekly_top10(csv_path):
     else:
         df_clean['prob'] = 1.0
 
-    print("\n🤖 이슈 분석 및 키워드 추출 중...")
+    print("\n이슈 분석 및 키워드 추출 중...")
     
     topic_info = topic_model.get_topic_info()
-    top_topics = topic_info[topic_info['Topic'] != -1].head(15)
+    top_topics = topic_info[topic_info['Topic'] != -1].head(15).copy() # 복사본 사용
     
-    final_results = []
+    keyword_data_map = {} 
     
-    print(f"\n🏆 최종 이슈 리스트 (제목 + 키워드 + 그래프):")
+    print(f"\n최종 이슈 리스트 추론 중:")
     
     for idx, row in top_topics.iterrows():
         topic_id = row['Topic']
@@ -208,45 +297,20 @@ def analyze_weekly_top10(csv_path):
         # 1) Gemini 제목 생성
         time.sleep(1.0) 
         ai_label = generate_title_with_gemini(topic_titles)
+        top_topics.at[idx, 'ai_label'] = ai_label # DataFrame에 저장
         
         # 2) [NEW] 키워드 네트워크 데이터 생성 (JSON)
         # 제목과 본문을 합쳐서 분석 텍스트 준비
         analysis_texts = (topic_articles['title'] + " " + topic_articles['content'].fillna('')).tolist()
-        graph_json, keyword_list = extract_issue_network(analysis_texts)
+        graph_json, keyword_list, edge_counts = extract_issue_network(analysis_texts)
+        
+        keyword_data_map[topic_id] = (graph_json, keyword_list, edge_counts)
             
         print(f"   [{idx+1}위] {ai_label} (기사 {count}건)")
         print(f"       ㄴ 핵심 키워드: {', '.join(keyword_list[:5])}...")
         
-        # 대표 기사 추출 (상위 10개만)
-        representative_docs = topic_articles.sort_values(by='prob', ascending=False).head(10)
-        
-        for rank, (_, article) in enumerate(representative_docs.iterrows(), 1):
-            final_results.append({
-                "issue_rank": idx + 1,
-                "issue_label": ai_label,       # AI 제목
-                "keywords": ",".join(keyword_list), # 키워드 (콤마로 구분된 문자열)
-                "graph_data": graph_json,      # 지식 그래프용 JSON 데이터
-                "total_count": count,
-                "article_rank": rank,
-                "title": article['title'],
-                "press": article['press'],
-                "pub_date": article['pub_date'],
-                "link": article['link'],
-                "image_url": article.get('image_url', '') # 이미지 URL 있으면 저장
-            })
-
-    if final_results:
-        result_df = pd.DataFrame(final_results)
-        # CSV 파일명 설정
-        filename = "weekly_top_issues_complete.csv"
-        result_df.to_csv(filename, index=False, encoding="utf-8-sig")
-        print(f"\n🎉 저장 완료! '{filename}' 파일을 확인하세요.")
-        
-        # JSON 데이터 샘플 출력 (디버깅용)
-        print("\n[Sample Graph JSON Data - 1위 이슈]")
-        print(result_df.iloc[0]['graph_data'][:200] + "...") 
-    else:
-        print("⚠️ 추출된 이슈가 없습니다.")
+    # DB 저장 호출
+    save_to_db(df_clean, top_topics, keyword_data_map)
 
 if __name__ == "__main__":
     analyze_weekly_top10("weekly_politics_news_clean.csv")
