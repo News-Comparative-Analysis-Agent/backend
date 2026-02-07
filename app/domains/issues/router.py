@@ -10,7 +10,7 @@ router = APIRouter()
 @router.get("/daily-issues", 
             response_model=List[IssueResponse],
             summary="실시간 속보 이슈 (최신순)",
-            description="가장 최근에 생성된 따끈따끈한 이슈 목록을 반환합니다. (신규성 위주)")
+            description="가장 최근에 생성된 이슈 목록을 반환합니다.")
 def get_daily_issues(
     limit: int = Query(10, description="조회할 이슈 개수"),
     db: Session = Depends(get_db)
@@ -24,7 +24,7 @@ def get_daily_issues(
 @router.get("/daily-trends", 
             response_model=List[IssueResponse],
             summary="주요 핫 트렌드 (인기순)",
-            description="누적 기사 수가 가장 많은 굵직한 이슈 목록을 반환합니다. (화제성 위주)")
+            description="누적 기사 수가 가장 많은 이슈 목록을 반환합니다.")
 def get_daily_trends(
     limit: int = Query(10, description="조회할 이슈 개수"),
     db: Session = Depends(get_db)

@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from app.domains.issues.repository import IssueRepository
 from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse
+from app.domains.articles.schemas import ArticleResponse
 from app.domains.publishers.schemas import PublisherAnalysis
 from fastapi import HTTPException
 from collections import defaultdict
@@ -22,6 +23,7 @@ class IssueService:
             result.append(IssueResponse(
                 id=issue.id,
                 name=issue.name,
+                description=issue.description,
                 article_count=issue.total_count,
                 rank=idx + 1,
                 created_at=issue.created_at
@@ -40,6 +42,7 @@ class IssueService:
             result.append(IssueResponse(
                 id=issue.id,
                 name=issue.name,
+                description=issue.description,
                 article_count=issue.total_count,
                 rank=idx + 1,
                 created_at=issue.created_at
@@ -90,5 +93,6 @@ class IssueService:
         return IssueAnalysisResponse(
             issue_id=issue.id,
             issue_name=issue.name,
+            issue_description=issue.description,
             publisher_analyses=publisher_analyses
         )
