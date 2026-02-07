@@ -11,7 +11,6 @@ class Article(Base):
     __tablename__ = "articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id")) # 관련 주제 ID (정책/검색어)
     issue_label_id = Column(Integer, ForeignKey("issue_labels.id"), nullable=True) # 소속 이슈 (클러스터링 결과)
     publisher_id = Column(Integer, ForeignKey("publishers.id")) # 언론사 ID
     
@@ -20,6 +19,7 @@ class Article(Base):
     image_urls = Column(ARRAY(Text)) # 기사 내 이미지 URL 리스트
     
     published_at = Column(DateTime, nullable=False) # 기사 발행 일시
+    reporter = Column(String, nullable=True) # 기자 이름
     
     
     # AI 분석 결과 데이터
@@ -32,7 +32,6 @@ class Article(Base):
     analyzed_at = Column(DateTime, default=func.now()) # 분석 완료 일시
 
     # 관계 설정
-    topic = relationship("Topic", backref="articles")
     issue_label = relationship("IssueLabel", back_populates="articles")
     publisher = relationship("Publisher", back_populates="articles")
     body = relationship("ArticleBody", uselist=False, back_populates="article") # 1:1 관계
