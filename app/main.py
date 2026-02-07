@@ -5,6 +5,7 @@ from app.domains.users import router as users_router
 from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
 from app.domains.keywordrelation import router as kw_relation_router
+from app.scroller import router as scroller_router
 
 # SQLAlchemy 모델 로드 (관계 설정을 위해 모든 모델이 레지스트리에 등록되어야 함)
 from app.domains.users import models
@@ -33,7 +34,10 @@ app.add_middleware(
 app.include_router(users_router.router, prefix="/user", tags=["users"])
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
-app.include_router(kw_relation_router.router, prefix="/keyword-relation", tags=["keyword-relation"])
+
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
+app.include_router(kw_relation_router.router, prefix="/keyword-network", tags=["keyword-network"])
+
 
 @app.get("/")
 def health_check():
