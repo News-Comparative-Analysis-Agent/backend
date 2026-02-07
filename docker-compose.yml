@@ -25,7 +25,7 @@ services:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=1234 
       - POSTGRES_DB=aigent_db # 데이터 베이스 이름
-      - TZ=Asia/Seoul
+      - TZ=Asia/Seoulx
     ports:
       - "5432:5432" # 로컬 DB 툴(DBeaver 등)에서 접속 가능하게 포트 개방
     volumes:

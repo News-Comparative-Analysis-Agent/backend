@@ -12,7 +12,6 @@ class Draft(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id")) # 작성자 ID
-    topic_id = Column(Integer, ForeignKey("topics.id")) # 관련 주제 ID
     
     title = Column(String) # 초안 제목
     content = Column(Text) # 작성 중인 본문 내용
@@ -26,7 +25,6 @@ class Draft(Base):
 
     # 관계 설정
     user = relationship("User", backref="drafts")
-    topic = relationship("Topic", backref="drafts")
     references = relationship("DraftReference", back_populates="draft")
 
 class DraftReference(Base):
