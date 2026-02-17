@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     NAVER_CLIENT_ID: Optional[str] = None
     NAVER_CLIENT_SECRET: Optional[str] = None
     
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/user/auth/google/callback"
+    
+    # Kakao OAuth
+    KAKAO_CLIENT_ID: Optional[str] = None
+    KAKAO_CLIENT_SECRET: Optional[str] = None
+    KAKAO_REDIRECT_URI: str = "http://localhost:8000/user/auth/kakao/callback"
+    
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
 

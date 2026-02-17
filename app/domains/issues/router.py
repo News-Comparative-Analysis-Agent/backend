@@ -3,10 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.domains.issues.service import IssueService
-from app.domains.issues.schemas import IssueResponse
+from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse
 
 router = APIRouter()
-
 
 @router.get("/daily-issues", 
             response_model=List[IssueResponse],
@@ -35,3 +34,17 @@ def get_daily_trends(
     """
     service = IssueService(db)
     return service.get_daily_trends(limit=limit)
+
+@router.get("/{issue_id}/analysis",
+            response_model=IssueAnalysisResponse,
+            summary="이슈 상세 분석 (언론사별 요약 및 성향)",
+            description="특정 이슈에 포함된 기사들을 언론사별로 그룹화하여 AI 요약과 정치 성향 등의 상세 분석 정보를 제공합니다.")
+def get_issue_analysis(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 이슈의 언론사별 분석 데이터 조회
+    """
+    service = IssueService(db)
+    return service.get_issue_analysis(issue_id)

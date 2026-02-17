@@ -18,6 +18,4 @@ class IssueLabel(Base):
     total_count = Column(Integer, default=0) # 해당 이슈에 속한 기사 수
     created_at = Column(DateTime, default=func.now()) # 생성 일시
 
-    # 관계 설정 (Stats, Relations는 여기서 관리)
     articles = relationship("Article", back_populates="issue_label")
-    keyword_relations = relationship("KeywordRelation", back_populates="issue_label")
