@@ -14,10 +14,11 @@ from app.domains.issues import models
 from app.domains.drafts import models
 
 app = FastAPI(
-    title="Aigent Backend API",
-    version="1.0.0",
     description="Aigent Backend API"
 )
+
+
+
 
 # CORS 설정
 app.add_middleware(
@@ -34,6 +35,18 @@ app.include_router(articles_router.router, prefix="/articles", tags=["articles"]
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 
 app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
+
+from app.draft import ai_draft
+app.include_router(ai_draft.router, prefix="/api/draft", tags=["draft"])
+
+from app.draft import three_perspect
+app.include_router(three_perspect.router, prefix="/api/draft", tags=["draft-perspective"])
+
+from app.draft import similarity
+app.include_router(similarity.router, prefix="/api/draft", tags=["draft-similarity"])
+
+from app.draft import images
+app.include_router(images.router, prefix="/api/draft", tags=["draft-images"])
 
 
 @app.get("/")

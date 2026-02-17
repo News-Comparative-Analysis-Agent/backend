@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
 
+    # Google Gemini
+    GOOGLE_API_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
 
