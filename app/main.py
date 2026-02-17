@@ -16,9 +16,17 @@ from app.domains.keywordrelation import models
 from app.domains.drafts import models
 
 app = FastAPI(
-    title="Aigent Backend API",
-    version="1.0.0",
     description="Aigent Backend API"
+)
+
+# 프론트랑 연결해봐야 할것 같아서 잠만 쓸게 ㅎㅎ
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 라우터 등록 prefix: /users가 자동으로 붙음. tags: API 문서용.
@@ -29,6 +37,18 @@ app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 from app.scroller import router as scroller_router
 app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 app.include_router(kw_relation_router.router, prefix="/keyword-network", tags=["keyword-network"])
+
+from app.draft import ai_draft
+app.include_router(ai_draft.router, prefix="/api/draft", tags=["draft"])
+
+from app.draft import three_perspect
+app.include_router(three_perspect.router, prefix="/api/draft", tags=["draft-perspective"])
+
+from app.draft import similarity
+app.include_router(similarity.router, prefix="/api/draft", tags=["draft-similarity"])
+
+from app.draft import images
+app.include_router(images.router, prefix="/api/draft", tags=["draft-images"])
 
 
 @app.get("/")
