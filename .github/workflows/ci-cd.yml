@@ -55,7 +55,6 @@ jobs:
       env:
         # DB 접속 정보 (비밀번호는 GitHub Secrets에서 안전하게 가져옴)
         DATABASE_URL: postgresql://admin:${{ secrets.DB_PASSWORD }}@localhost:5432/aigent_db
-        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       run: |
         pytest
 
@@ -69,3 +68,33 @@ jobs:
     - name: Build Docker image
       run: |
         docker build . -t aigent-backend-api:latest
+
+  # 실제 운영 서버 배포 잡 (Job)
+  deploy:
+    # 테스트와 빌드가 성공했을 때만 실행
+    needs: [lint-and-test, docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Deploy to Remote Server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: root
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          # 1. 기존 프로젝트 폴더 삭제 (클린 배포)
+          rm -rf ~/aigent-backend
+
+          # 2. 새로운 코드 다시 복제
+          git clone https://${{ secrets.GH_TOKEN }}@github.com/News-Comparative-Analysis-Agent/backend.git ~/aigent-backend
+
+          # 3. GitHub Secrets에서 .env 파일 생성
+          # ENV_FILE 시크릿에 .env 내용 전체를 넣어주세요.
+          echo "${{ secrets.ENV_FILE }}" > ~/aigent-backend/.env
+
+          # 4. 서버 빌드 및 실행
+          cd ~/aigent-backend
+          docker compose up -d --build
+          docker image prune -f
