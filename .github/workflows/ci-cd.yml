@@ -55,6 +55,7 @@ jobs:
       env:
         # DB 접속 정보 (비밀번호는 GitHub Secrets에서 안전하게 가져옴)
         DATABASE_URL: postgresql://admin:${{ secrets.DB_PASSWORD }}@localhost:5432/aigent_db
+        PYTHONPATH: .
       run: |
         pytest
 
