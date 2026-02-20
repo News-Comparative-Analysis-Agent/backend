@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+
+# .env 파일 로드
+load_dotenv()
 
 db_url = os.getenv("DATABASE_URL")
 
