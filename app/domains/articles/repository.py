@@ -1,4 +1,8 @@
 
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from app.domains.articles.models import Article
+
 class ArticleRepository:
     def __init__(self, db: Session):
         self.db = db
