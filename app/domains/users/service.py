@@ -3,8 +3,6 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from app.domains.users.repository import UserRepository
 from app.domains.users.schemas import UserCreate, UserResponse, TokenResponse
-from app.core.security import create_access_token
-from app.core.config import settings
 
 class UserService:
     """
