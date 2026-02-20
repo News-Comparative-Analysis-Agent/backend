@@ -7,11 +7,9 @@ class ArticleRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_articles(self, topic_id: Optional[int] = None, limit: int = 20) -> List[Article]:
+    def get_articles(self, limit: int = 20) -> List[Article]:
         """기사 목록 조회 (최신순)"""
         query = self.db.query(Article)
-        if topic_id:
-            query = query.filter(Article.topic_id == topic_id)
         
         return query.order_by(Article.published_at.desc()).limit(limit).all()
 

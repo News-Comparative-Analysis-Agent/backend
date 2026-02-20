@@ -25,9 +25,7 @@ from datetime import datetime
 from app.core.database import SessionLocal, Base, engine
 from app.domains.issues.models import IssueLabel
 from app.domains.articles.models import Article, ArticleBody
-from app.domains.topics.models import Topic
 from app.domains.publishers.models import Publisher
-from app.domains.keywordrelation.models import KeywordRelation
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") # .env 파일에서 로드
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -146,13 +144,6 @@ def save_to_db(df_articles, top_topics, keyword_data_map):
     
     try:
         
-        topic_name = "정치"
-        topic = db.query(Topic).filter(Topic.topic == topic_name).first()
-        if not topic:
-            topic = Topic(topic=topic_name)
-            db.add(topic)
-            db.flush()
-        
         for idx, row in top_topics.iterrows():
             topic_id = row['Topic']
             count = row['Count']
@@ -201,7 +192,6 @@ def save_to_db(df_articles, top_topics, keyword_data_map):
                     continue # 이미 있으면 스킵
                 
                 article = Article(
-                    topic_id=topic.id,
                     issue_label_id=issue.id,
                     publisher_id=publisher.id,
                     title=row_art['title'],
