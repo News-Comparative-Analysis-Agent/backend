@@ -14,6 +14,7 @@ class IssueLabel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False) # 이슈명 (예: 전공의 집단 사직)
     keyword = Column(ARRAY(String)) # 이슈 대표 키워드 (집계용)
+    description = Column(Text) # 이슈 배경 설명
     
     total_count = Column(Integer, default=0) # 해당 이슈에 속한 기사 수
     created_at = Column(DateTime, default=func.now()) # 생성 일시
