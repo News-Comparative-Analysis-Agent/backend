@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
+from app.core.database import engine, Base
+
 from app.domains.users import router as users_router
 from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
@@ -12,6 +13,9 @@ from app.domains.publishers import models
 from app.domains.articles import models
 from app.domains.issues import models
 from app.domains.drafts import models
+
+# DB 테이블 생성 (서버 시작 시 스키마 자동 적용)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     description="Aigent Backend API"

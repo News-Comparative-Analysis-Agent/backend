@@ -3,16 +3,16 @@ from fastapi.responses import StreamingResponse
 import google.generativeai as genai
 import time
 import json
+import os
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.domains.issues.models import IssueLabel
 from app.domains.articles.models import Article
-from app.core.config import settings
 
 router = APIRouter()
 
 # model = genai.GenerativeModel('gemini-2.0-flash-exp')
-genai.configure(api_key=settings.GOOGLE_API_KEY)
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 async def stream_generator(prompt: str):

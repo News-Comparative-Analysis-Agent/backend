@@ -3,16 +3,16 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
+import os
 from app.core.database import get_db
 from app.domains.issues.models import IssueLabel
 from app.domains.articles.models import Article
 from app.domains.publishers.models import Publisher
-from app.core.config import settings
 
 router = APIRouter()
 
 # Gemini Configuration
-genai.configure(api_key=settings.GOOGLE_API_KEY)
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Publisher Stance Mapping

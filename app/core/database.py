@@ -1,9 +1,8 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core.config import settings
 
-# Force pg8000 driver
-db_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+pg8000://")
+db_url = os.getenv("DATABASE_URL")
 
 engine = create_engine(
     db_url
