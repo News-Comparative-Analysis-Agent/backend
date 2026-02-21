@@ -30,11 +30,11 @@ async def stream_generator(prompt: str):
         yield f"data: {error_msg}\n\n"
         
 
+from app.domains.publishers.models import Publisher
+
 @router.post("/stream")
 async def generate_draft_stream(request: dict, db: Session = Depends(get_db)):
-    video_prompt = None # Placeholder or remove if not needed. Actually just remove the line.
-    is_video_mode = False # Placeholder
-    # No user prompt needed.
+    # stream=True 옵션이 핵심! (한 번에 안 기다리고 줄 때마다 받음)
     issue_id = request.get("issue_id")
     
     context_text = ""
@@ -43,16 +43,22 @@ async def generate_draft_stream(request: dict, db: Session = Depends(get_db)):
         # 1. 이슈 정보 조회
         issue = db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
         if issue:
-            # 2. 관련 기사 조회 (상위 5개 정도)
-            articles = db.query(Article).filter(Article.issue_label_id == issue_id).limit(5).all()
+            # 2. 관련 기사 조회 (상위 5개, 언론사 정보 포함)
+            articles = db.query(Article).join(Publisher).filter(Article.issue_label_id == issue_id).limit(5).all()
             
             article_summaries = []
             for idx, art in enumerate(articles, 1):
-                article_summaries.append(f"[{idx}] 제목: {art.title}\n요약: {art.summary or '내용 없음'}")
-                
+                publisher_name = art.publisher.name if art.publisher else "알 수 없는 언론사"
+                article_summaries.append(f"[{idx}] 언론사: {publisher_name} | 제목: {art.title}\n요약: {art.summary or '내용 없음'}")
+            
+            # 이슈 키워드 (배열을 문자열로 변환)
+            keywords_str = ", ".join(issue.keyword) if issue.keyword else "없음"
+            
             context_text = f"""
             [참고 자료]
             주제: {issue.name}
+            핵심 키워드: {keywords_str}
+            
             관련 기사 요약:
             {chr(10).join(article_summaries)}
             """

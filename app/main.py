@@ -48,6 +48,9 @@ app.include_router(similarity.router, prefix="/api/draft", tags=["draft-similari
 from app.draft import images
 app.include_router(images.router, prefix="/api/draft", tags=["draft-images"])
 
+from app.draft import chat
+app.include_router(chat.router, prefix="/api/draft", tags=["draft-chat"])
+
 
 @app.get("/")
 def health_check():

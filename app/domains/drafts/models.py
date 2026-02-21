@@ -12,7 +12,9 @@ class Draft(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id")) # 작성자 ID
-    topic_id = Column(Integer, ForeignKey("topics.id")) # 관련 주제 ID
+    
+    # 수정: topics -> issue_labels
+    issue_label_id = Column(Integer, ForeignKey("issue_labels.id")) # 관련 이슈(주제) ID
     
     title = Column(String) # 초안 제목
     content = Column(Text) # 작성 중인 본문 내용
@@ -25,7 +27,13 @@ class Draft(Base):
 
     # 관계 설정
     user = relationship("User", backref="drafts")
-    topic = relationship("Topic", backref="drafts")
+    
+    # 수정: Topic -> IssueLabel
+    # 문자열로 "IssueLabel"을 참조하되, 순환 참조 방지 등을 위해 'app.domains.issues.models.IssueLabel' 처럼 명시하거나
+    # 단순히 "IssueLabel"로 쓰고 Base.metadata가 공유되는지 확인해야 함.
+    # 여기서는 다른 파일들처럼 문자열 참조를 사용.
+    issue_label = relationship("IssueLabel", backref="drafts")
+    
     references = relationship("DraftReference", back_populates="draft")
 
 class DraftReference(Base):

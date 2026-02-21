@@ -19,7 +19,7 @@ class Article(Base):
     image_urls = Column(ARRAY(Text)) # 기사 내 이미지 URL 리스트
     
     published_at = Column(DateTime, nullable=False) # 기사 발행 일시
-    reporter = Column(String, nullable=True) # 기자 이름
+    # reporter = Column(String, nullable=True) # 기자 이름 (DB 컬럼 없음)
     
     
     # AI 분석 결과 데이터
