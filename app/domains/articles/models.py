@@ -3,6 +3,10 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from app.core.database import Base
 
+# 외래키 관계(relationship)를 위해 모델 명시적 임포트
+from app.domains.issues.models import IssueLabel 
+from app.domains.publishers.models import Publisher
+
 class Article(Base):
     """
     기사(Article) 테이블
