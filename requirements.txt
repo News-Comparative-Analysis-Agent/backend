@@ -28,7 +28,8 @@ openai==1.10.0
 networkx==3.2.1
 python-louvain==0.16
 pandas==2.2.0
-
+bertopic
+pyarrow
 # Testing
 pytest==8.0.0
 httpx==0.27.0
