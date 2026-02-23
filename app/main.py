@@ -8,21 +8,20 @@ from app.domains.issues import router as issues_router
 from app.scroller import router as scroller_router
 
 # SQLAlchemy 모델 로드 (관계 설정을 위해 모든 모델이 레지스트리에 등록되어야 함)
-from app.domains.users import models
-from app.domains.publishers import models
-from app.domains.articles import models
-from app.domains.issues import models
-from app.domains.drafts import models
+from app.domains.users import models as user_models
+from app.domains.publishers import models as pub_models
+from app.domains.articles import models as art_models
+from app.domains.issues import models as issue_models
+from app.domains.drafts import models as draft_models
+from app.domains.drafts.router import router as drafts_router
 
 # DB 테이블 생성 (서버 시작 시 스키마 자동 적용)
 Base.metadata.create_all(bind=engine)
+print(f"DB 테이블 생성 완료: {Base.metadata.tables.keys()}")
 
 app = FastAPI(
     description="Aigent Backend API"
 )
-
-
-
 
 # CORS 설정
 app.add_middleware(
@@ -40,7 +39,6 @@ app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 
 app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 
-from app.domains.drafts.router import router as drafts_router
 app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
 
 
