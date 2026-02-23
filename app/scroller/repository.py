@@ -2,8 +2,10 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta
-
-from app.scroller.models import Article, ArticleBody, Publisher, IssueLabel
+from app.domains.articles.models import Article
+from app.domains.articles.models import ArticleBody
+from app.domains.publishers.models import Publisher
+from app.domains.issues.models import IssueLabel
 
 class ScrollerRepository:
     

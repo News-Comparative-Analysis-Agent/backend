@@ -10,7 +10,6 @@ class ArticleBase(BaseModel):
     bias: Optional[str] = None
     bias_score: Optional[float] = None
     reporter: Optional[str] = None # 기자 이름
-    key_arguments: Optional[str] = None # 핵심 논점 (Text)
 
 class ArticleCreate(ArticleBase):
     publisher_id: Optional[int] = None
