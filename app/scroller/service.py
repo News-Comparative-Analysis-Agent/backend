@@ -385,13 +385,11 @@ class ScrollerService:
                 analysis_texts = (topic_articles['title'] + " " + topic_articles['content'].fillna('')).tolist()
                 graph_json, keyword_list, edge_counts = self._extract_issue_network(analysis_texts)
                     
-                article_ids_to_update = topic_articles['article_id'].tolist()
                 self.repo.save_issue_and_relations(
                     ai_label=ai_label,
                     keyword_list=keyword_list,
                     description=description,
                     count=count,
-                    edge_counts=edge_counts,
                     article_ids_to_update=article_ids_to_update
                 )
                 print(f"   [{idx+1}위] {ai_label} (기사 {count}건 저장완료)")
