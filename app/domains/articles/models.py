@@ -3,6 +3,10 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from app.core.database import Base
 
+# 외래키 관계(relationship)를 위해 모델 명시적 임포트
+from app.domains.issues.models import IssueLabel 
+from app.domains.publishers.models import Publisher
+
 class Article(Base):
     """
     기사(Article) 테이블
@@ -19,7 +23,7 @@ class Article(Base):
     image_urls = Column(ARRAY(Text)) # 기사 내 이미지 URL 리스트
     
     published_at = Column(DateTime, nullable=False) # 기사 발행 일시
-    reporter = Column(String, nullable=True) # 기자 이름
+    # reporter = Column(String, nullable=True) # 기자 이름 (DB 컬럼 없음)
     
     
     # AI 분석 결과 데이터

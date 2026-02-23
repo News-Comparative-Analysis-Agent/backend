@@ -40,17 +40,8 @@ app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 
 app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 
-from app.draft import ai_draft
-app.include_router(ai_draft.router, prefix="/api/draft", tags=["draft"])
-
-from app.draft import three_perspect
-app.include_router(three_perspect.router, prefix="/api/draft", tags=["draft-perspective"])
-
-from app.draft import similarity
-app.include_router(similarity.router, prefix="/api/draft", tags=["draft-similarity"])
-
-from app.draft import images
-app.include_router(images.router, prefix="/api/draft", tags=["draft-images"])
+from app.domains.drafts.router import router as drafts_router
+app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
 
 
 @app.get("/")

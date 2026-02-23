@@ -20,3 +20,19 @@ class IssueLabel(Base):
     created_at = Column(DateTime, default=func.now()) # 생성 일시
 
     articles = relationship("Article", back_populates="issue_label")
+
+class KeywordRelation(Base):
+    """
+    키워드 네트워크 관계 테이블
+    - 특정 이슈 내에서 동시 출현한 키워드들의 관계와 빈도를 저장합니다.
+    """
+    __tablename__ = "keyword_relations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(DateTime, default=func.now())
+    issue_label_id = Column(Integer, ForeignKey("issue_labels.id"))
+    keyword_a = Column(String, nullable=False)
+    keyword_b = Column(String, nullable=False)
+    frequency = Column(Integer, default=1)
+    
+    issue_label = relationship("IssueLabel")
