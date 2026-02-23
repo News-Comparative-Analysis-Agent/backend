@@ -2,20 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.scroller.schemas import SearchRequest, SearchResponse
+from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse
+from app.scroller.service import ScrollerService
+from app.scroller.service import NLPSearchService
 
 router = APIRouter()
 
 @router.post("/nlp", response_model=SearchResponse)
 async def search_news_nlp(request: SearchRequest, db: Session = Depends(get_db)):
     # 내부 db 검색(nlp 자연어 검색)
-    from app.scroller.service import NLPSearchService
     service = NLPSearchService(db)
     result = service.execute_search_briefing(request.query)
     return result
-
-
-from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse
-from app.scroller.service import ScrollerService
 
 @router.post("/crawl", response_model=CrawlResponse, summary="최신 정치 뉴스 크롤링")
 def crawl_news(db: Session = Depends(get_db)):
