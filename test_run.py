@@ -20,5 +20,5 @@ service = ScrollerService(db)
 service.execute_truncate()
 db.close()
 
-from app.scroller.run_pipeline import run_daily_pipeline
+from app.scroller.scroller_test.run_pipeline import run_daily_pipeline
 run_daily_pipeline()
