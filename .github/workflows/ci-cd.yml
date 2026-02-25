@@ -86,16 +86,16 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           # 1. 기존 프로젝트 폴더 삭제 (클린 배포)
-          rm -rf ~/aigent-backend
+          rm -rf ~/backend
 
           # 2. 새로운 코드 다시 복제
-          git clone https://${{ secrets.GH_TOKEN }}@github.com/News-Comparative-Analysis-Agent/backend.git ~/aigent-backend
+          git clone https://${{ secrets.GH_TOKEN }}@github.com/News-Comparative-Analysis-Agent/backend.git
 
           # 3. GitHub Secrets에서 .env 파일 생성
           # ENV_FILE 시크릿에 .env 내용 전체를 넣어주세요.
-          echo "${{ secrets.ENV_FILE }}" > ~/aigent-backend/.env
+          echo "${{ secrets.ENV_FILE }}" > ~/backend/.env
 
           # 4. 서버 빌드 및 실행
-          cd ~/aigent-backend
+          cd ~/backend
           docker compose up -d --build
           docker image prune -f

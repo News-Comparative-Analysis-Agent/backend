@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   # 1. FastAPI 애플리케이션 (Backend)
@@ -6,7 +6,7 @@ services:
     build: .
     container_name: api_server
     ports:
-      - "8000:8000"
+      - "8000:8000" 
     volumes:
       - .:/app # 코드 수정 시 즉시 반영 (Hot Reload)
     environment:
