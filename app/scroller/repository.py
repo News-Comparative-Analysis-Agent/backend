@@ -40,7 +40,7 @@ class ScrollerRepository:
         return existing is not None
 
     def save_article_with_body(self, publisher_id: int, title: str, url: str, image_urls: list, published_at: datetime, content: str,
-                               summary: str = None, bias: str = None, bias_score: float = None) -> Article:
+                               summary: str = None, bias: str = None, bias_score: float = None, reporter: str = None) -> Article:
         # 기사 본문을 데베에 저장!!
         article = Article(
             publisher_id=publisher_id,
@@ -51,6 +51,7 @@ class ScrollerRepository:
             summary=summary,
             bias=bias,
             bias_score=bias_score,
+            reporter=reporter
         )
         self.db.add(article)
         self.db.flush()
@@ -74,8 +75,8 @@ class ScrollerRepository:
             (ArticleBody.raw_content.ilike(search_pattern))
         ).order_by(Article.published_at.desc()).limit(limit).all()
         
-    def save_issue_and_relations(self, ai_label: str, keyword_list: list, description: str, count: int, edge_counts: list, article_ids_to_update: list) -> IssueLabel:
-        # 새로운 이슈를 만들고 관련된 키워드망을 저장하며, 매칭되는 기사들의 id를 업데이트
+    def save_issue_and_relations(self, ai_label: str, description: str, count: int, article_ids_to_update: list) -> IssueLabel:
+        # 새로운 이슈를 생성하고, 매칭되는 기사들의 id를 업데이트
         issue = IssueLabel(
             name=ai_label,
             description=description,
@@ -85,18 +86,6 @@ class ScrollerRepository:
         self.db.add(issue)
         self.db.flush() 
         
-        today = datetime.now().date()
-        for (u, v), w in edge_counts:
-            if u in keyword_list and v in keyword_list:
-                rel = KeywordRelation(
-                    date=today,
-                    issue_label_id=issue.id,
-                    keyword_a=min(u, v), 
-                    keyword_b=max(u, v),
-                    frequency=w
-                )
-                self.db.add(rel)
-
         # 연관된 기존 기사들의 issue_label_id 업데이트
         self.db.query(Article).filter(Article.id.in_(article_ids_to_update)).update(
             {"issue_label_id": issue.id}, synchronize_session=False
