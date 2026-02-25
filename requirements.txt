@@ -30,6 +30,7 @@ python-louvain==0.16
 pandas==2.2.0
 bertopic
 pyarrow
+langgraph
 # Testing
 pytest==8.0.0
 httpx==0.27.0
