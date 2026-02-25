@@ -4,7 +4,6 @@ from app.domains.issues.models import IssueLabel
 from app.domains.topics.models import Topic
 from app.domains.publishers.models import Publisher
 from app.domains.articles.models import Article, ArticleBody
-from app.domains.keywordrelation.models import KeywordRelation
 from datetime import date, datetime, timedelta
 import random
 
@@ -57,28 +56,6 @@ def insert_seed_data(db: Session):
         db.commit()
         for i in issue_objs: db.refresh(i)
         print(f"생성되었습니다. {len(issue_objs)} IssueLabels")
-
-        # 2-1. 키워드 관계 생성 (KeywordRelation) - IssueLabel에 연결
-        today = date.today()
-        # 간단하게 이슈별로 키워드 조합해서 관계 생성
-        k_relations = []
-        for issue in issue_objs:
-            keywords = issue.keyword
-            if len(keywords) >= 2:
-                # 0-1, 1-2, 2-3... 순차적으로 연결
-                for i in range(len(keywords)-1):
-                    rel = KeywordRelation(
-                        date=today,
-                        issue_label_id=issue.id,
-                        keyword_a=keywords[i],
-                        keyword_b=keywords[i+1],
-                        frequency=random.randint(5, 15)
-                    )
-                    k_relations.append(rel)
-                    
-        db.add_all(k_relations)
-        db.commit()
-        print(f"Created {len(k_relations)} Keyword Relations")
 
         # 3. 언론사 생성 (Publishers)
         publishers = [
@@ -149,14 +126,12 @@ def insert_seed_data(db: Session):
 
 if __name__ == "__main__":
     from app.domains.issues.models import IssueLabel
-    from app.domains.keywordrelation.models import KeywordRelation
     
     # 기존 데이터 초기화
     print("Resetting database...")
     from sqlalchemy import text
     with engine.connect() as conn:
         conn.execute(text("DROP TABLE IF EXISTS daily_topic_stats CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS keyword_relations CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS topics CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS issue_labels CASCADE"))
         conn.commit()
