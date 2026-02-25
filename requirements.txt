@@ -36,3 +36,5 @@ email-validator==2.1.0
 
 google-generativeai==0.8.6  # gemini api 
 newspaper3k
+pandas
+openpyxl

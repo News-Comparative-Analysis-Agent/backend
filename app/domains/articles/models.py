@@ -27,7 +27,6 @@ class Article(Base):
     bias = Column(String) # 정치 성향 (neutral, conservative, liberal)
     bias_score = Column(Float) # 성향 강도 (0.0 ~ 10.0)
     key_arguments = Column(Text) # 핵심 논점 (Text)
-    # keywords 컬럼 삭제 (IssueLabel/Stats에서 관리)
     
     analyzed_at = Column(DateTime, default=func.now()) # 분석 완료 일시
 

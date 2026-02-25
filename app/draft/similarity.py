@@ -7,14 +7,6 @@ from app.domains.articles.models import Article
 
 router = APIRouter()
 
-class SimilarityRequest(BaseModel):
-    issue_id: int
-    draft_text: str
-
-class SimilarityResponse(BaseModel):
-    score: int  # 0 to 100
-    message: str
-    status: str # 'safe', 'warning', 'critical'
 
 def calculate_similarity(text1: str, text2: str) -> float:
     """
