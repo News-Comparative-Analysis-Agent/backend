@@ -31,7 +31,6 @@ class UserResponse(UserBase):
     - DB의 ID와 생성일시 정보를 포함합니다.
     """
     id: int
-    provider: str
     created_at: datetime
 
     class Config:

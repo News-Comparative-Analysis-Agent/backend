@@ -1,56 +1,58 @@
+import os
 from datetime import datetime, timedelta
 from typing import Any, Union, Optional
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.domains.users.models import User
 
-# 비밀번호 해싱 설정
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# .env 파일 로드
+load_dotenv()
 
-# OAuth2 설정 (토큰 Url은 실제 로그인 엔드포인트에 맞게 조정 필요, 여기서는 예시로 "token")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/auth/login")
+# 환경 변수 직접 로드 (config.py 제거 대응)
+SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key").strip().strip('"').strip("'")
+ALGORITHM = os.getenv("ALGORITHM", "HS256").strip().strip('"').strip("'")
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 기본 7일
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """평문 비밀번호와 해시된 비밀번호를 비교합니다."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password: str) -> str:
-    """비밀번호를 해시합니다."""
-    return pwd_context.hash(password)
+# OAuth2 설정
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login/kakao", auto_error=False)
 
 def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     JWT 액세스 토큰을 생성합니다.
-    :param subject: 토큰의 주체 (보통 user_id 또는 username)
-    :param expires_delta: 토큰 만료 시간 (기본값: 설정 파일의 ACCESS_TOKEN_EXPIRE_MINUTES)
+    :param subject: 토큰의 주체 (user_id)
+    :param expires_delta: 토큰 만료 시간
     :return: 암호화된 JWT 문자열
     """
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"exp": expire, "sub": str(subject)}
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """
     현재 로그인한 사용자를 조회합니다. (JWT 토큰 검증)
+    - 로그인이 되어있지 않거나 토큰이 유효하지 않으면 401 Unauthorized 에러를 발생시킵니다.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="자격 증명을 검증할 수 없습니다.",
+        detail="로그인이 필요한 서비스입니다.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not token:
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
