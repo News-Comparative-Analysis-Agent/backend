@@ -74,12 +74,9 @@ class DraftService:
                     publisher_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없는 언론사"
                     article_summaries.append(f"[{idx}] 언론사: {publisher_name} | 제목: {art.title}\n요약: {art.summary or '내용 없음'}")
                 
-                keywords_str = ", ".join(issue.keyword) if issue.keyword else "없음"
-                
                 context_text = f"""
                 [참고 자료]
                 주제: {issue.name}
-                핵심 키워드: {keywords_str}
                 
                 관련 기사 요약:
                 {chr(10).join(article_summaries)}
@@ -233,20 +230,19 @@ class DraftService:
     # ==========================================
     # 5. 3가지 진영 관점 분석 로직
     # ==========================================
-    async def _summarize_perspective(self, stance_name: str, articles_text: str) -> str:
+    async def _summarize_perspective(self, publisher_name: str, articles_text: str) -> str:
         if not articles_text:
             return "관련 기사가 부족하여 분석할 수 없습니다."
             
         prompt = f"""
-        당신은 미디어 분석가입니다. 아래 제공된 뉴스 기사들은 '{stance_name}' 성향을 가진 언론사들의 보도입니다.
+        당신은 미디어 분석가입니다. 아래 제공된 뉴스 기사들은 '{publisher_name}'의 보도입니다.
         
         [기사 목록]
         {articles_text}
         
         [요청사항]
-        위 기사들을 바탕으로, 해당 성향(진영)에서 이 이슈를 바라보는 핵심 관점과 논리를 2~3문장으로 요약해 주세요.
-        - 구체적인 근거를 포함할 것.
-        - '~라고 주장함', '~를 강조함' 등의 건조한 어조 사용.
+        위 기사들을 바탕으로, 해당 언론사가 이 이슈를 바라보는 핵심 논점과 스탠스를 1~2문장으로 요약해 주세요.
+        - 핵심 인용구문형태 (예: "명분 없는 합당 추진은 결국 내부 권력 투쟁만 표면화시킨 정치적 자해 행위다.") 등으로 작성하면 좋습니다.
         - 분량은 100자 내외.
         """
         try:
@@ -268,23 +264,15 @@ class DraftService:
                 perspectives=[]
             )
 
-        grouped_articles = {
-            "progressive": [],
-            "conservative": [],
-            "neutral": []
-        }
-
+        grouped_articles = {}
         for art in articles:
-            pub_name = art.publisher.name if getattr(art, 'publisher', None) else ""
-            stance = PUBLISHER_STANCE.get(pub_name)
-            if stance in grouped_articles:
-                grouped_articles[stance].append(art)
+            pub_name = art.publisher.name if getattr(art, 'publisher', None) else "알 수 없음"
+            if pub_name not in grouped_articles:
+                grouped_articles[pub_name] = []
+            grouped_articles[pub_name].append(art)
         
         results = []
-        target_stances = ["progressive", "neutral", "conservative"]
-        
-        for stance in target_stances:
-            arts = grouped_articles[stance]
+        for pub_name, arts in grouped_articles.items():
             article_infos = []
             context_text_list = []
             
@@ -293,20 +281,19 @@ class DraftService:
                     id=art.id,
                     title=art.title,
                     url=art.url,
-                    publisher=art.publisher.name if getattr(art, 'publisher', None) else "알 수 없음",
+                    publisher=pub_name,
                     published_at=art.published_at.strftime("%Y-%m-%d") if art.published_at else ""
                 ))
-                context_text_list.append(f"- [{getattr(art.publisher, 'name', '알수없음')}] {art.title}: {art.summary or '내용 없음'}")
+                context_text_list.append(f"- {art.title}: {art.summary or '내용 없음'}")
             
             if arts:
-                 joined_text = "\n".join(context_text_list)
-                 summary_text = await self._summarize_perspective(STANCE_KOREAN[stance], joined_text)
+                joined_text = "\n".join(context_text_list)
+                summary_text = await self._summarize_perspective(pub_name, joined_text)
             else:
-                summary_text = "해당 관점의 기사가 수집되지 않았습니다."
+                summary_text = "해당 언론사의 기사가 수집되지 않았습니다."
 
             results.append(PerspectiveItem(
-                stance=stance,
-                stance_kr=STANCE_KOREAN[stance],
+                publisher=pub_name,
                 summary=summary_text,
                 articles=article_infos
             ))
