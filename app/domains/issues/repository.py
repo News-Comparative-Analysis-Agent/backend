@@ -1,17 +1,22 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from app.domains.issues.models import IssueLabel
 from app.domains.articles.models import Article
 from app.domains.publishers.models import Publisher
+
+from datetime import datetime
 
 class IssueRepository:
     def __init__(self, db: Session):
         self.db = db
 
     def get_recent_issues(self, limit: int = 10) -> List[IssueLabel]:
-        """최근 생성일 및 기사 수 기준 정렬된 이슈 조회"""
+        """오늘 생성된 이슈를 기사 수 기준(인기순)으로 정렬하여 조회"""
+        today = datetime.now().date()
         return self.db.query(IssueLabel)\
-            .order_by(IssueLabel.created_at.desc(), IssueLabel.total_count.desc())\
+            .filter(func.date(IssueLabel.created_at) == today)\
+            .order_by(IssueLabel.total_count.desc())\
             .limit(limit)\
             .all()
 
