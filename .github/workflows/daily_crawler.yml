@@ -47,5 +47,4 @@ jobs:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       run: |
-        cd backend
         python -m app.scroller.run_pipeline
