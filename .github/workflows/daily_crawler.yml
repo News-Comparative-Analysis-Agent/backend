@@ -46,5 +46,6 @@ jobs:
         # GitHub Secrets에서 가져온 환경 변수
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        PYTHONPATH: .
       run: |
-        python -m app.scroller.run_pipeline
+        python -m app.scroller.scroller_test.run_pipeline
