@@ -74,12 +74,9 @@ class DraftService:
                     publisher_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없는 언론사"
                     article_summaries.append(f"[{idx}] 언론사: {publisher_name} | 제목: {art.title}\n요약: {art.summary or '내용 없음'}")
                 
-                keywords_str = ", ".join(issue.keyword) if issue.keyword else "없음"
-                
                 context_text = f"""
                 [참고 자료]
                 주제: {issue.name}
-                핵심 키워드: {keywords_str}
                 
                 관련 기사 요약:
                 {chr(10).join(article_summaries)}

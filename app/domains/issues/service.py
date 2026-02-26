@@ -75,7 +75,6 @@ class IssueService:
                 bias=art.bias,
                 bias_score=art.bias_score,
                 reporter=art.reporter,
-                key_arguments=art.key_arguments,
                 publisher_id=art.publisher_id,
                 publisher_name=art.publisher.name
             )
