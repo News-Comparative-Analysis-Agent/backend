@@ -1,12 +1,12 @@
 from sqlalchemy.orm import Session
-from typing import Optional
-from app.domains.users.models import User
+from typing import Optional, List
+from app.domains.users.models import User, SocialAccount
 from app.domains.users.schemas import UserCreate
 
 class UserRepository:
     """
     User Repository (DAL - Data Access Layer)
-    - 데이터베이스에 직접 접근하여 CRUD(Create, Read, Update, Delete)를 수행합니다.
+    - User 및 SocialAccount 데이터베이스 접근을 담당합니다.
     """
     def __init__(self, db: Session):
         self.db = db
@@ -19,22 +19,29 @@ class UserRepository:
         """이메일로 사용자 조회"""
         return self.db.query(User).filter(User.email == email).first()
     
-    def get_by_provider_id(self, provider: str, provider_id: str) -> Optional[User]:
-        """소셜 제공자 ID로 사용자 조회 (예: 구글의 고유 ID)"""
-        return self.db.query(User).filter(
-            User.provider == provider,
-            User.provider_id == provider_id
+    def get_social_account(self, provider: str, provider_id: str) -> Optional[SocialAccount]:
+        """소셜 제공자 및 ID로 소셜 계정 조회"""
+        return self.db.query(SocialAccount).filter(
+            SocialAccount.provider == provider,
+            SocialAccount.provider_id == provider_id
         ).first()
 
-    def create(self, user_data: UserCreate) -> User:
-        """신규 사용자 생성 (INSERT)"""
-        db_user = User(
-            email=user_data.email,
-            nickname=user_data.nickname,
-            provider=user_data.provider,
-            provider_id=user_data.provider_id
-        )
+    def create_user(self, email: str, nickname: Optional[str] = None) -> User:
+        """신규 사용자 생성"""
+        db_user = User(email=email, nickname=nickname)
         self.db.add(db_user)
         self.db.commit()
-        self.db.refresh(db_user) # DB에서 생성된 ID, Date 등 업데이트
+        self.db.refresh(db_user)
         return db_user
+
+    def link_social_account(self, user_id: int, provider: str, provider_id: str) -> SocialAccount:
+        """사용자에게 소셜 계정 연결"""
+        social_acc = SocialAccount(
+            user_id=user_id,
+            provider=provider,
+            provider_id=provider_id
+        )
+        self.db.add(social_acc)
+        self.db.commit()
+        self.db.refresh(social_acc)
+        return social_acc
