@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 from app.core.database import get_db
+from app.domains.users.models import User
 from app.domains.users.service import UserService
 from app.domains.users.schemas import TokenResponse
 from app.core.security import create_access_token
@@ -29,6 +30,7 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
 
     service = UserService(db)
     try:
+        print("라우터 진입 code: ", code)
         # 1. 액세스 토큰 획득
         access_token = await service.get_kakao_access_token(code, CLIENT_ID, REDIRECT_URI)
         # 2. 유저 정보 획득
@@ -37,7 +39,10 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
         email = kakao_info.get("kakao_account", {}).get("email")
         provider_id = str(kakao_info.get("id"))
         nickname = kakao_info.get("properties", {}).get("nickname")
-
+        
+        print("email: ", email)
+        print("provider_id: ", provider_id)
+        print("nickname: ", nickname)
         if not email:
             raise HTTPException(status_code=400, detail="카카오 이메일 동의가 필요합니다.")
 
@@ -46,7 +51,7 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
         
         # 4. JWT 발행
         jwt_token = create_access_token(subject=user.id)
-        
+        print("jwt_token: ", jwt_token)
         return {
             "access_token": jwt_token,
             "token_type": "bearer",
@@ -55,7 +60,7 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/login/google", response_model=TokenResponse)
+@router.get("/login/google", response_model=TokenResponse)
 async def google_login(id_token: str, db: Session = Depends(get_db)):
     """
     구글 OAuth 로그인 API
@@ -63,13 +68,16 @@ async def google_login(id_token: str, db: Session = Depends(get_db)):
     """
     service = UserService(db)
     try:
+        print("구글 로그인 api 진입 --- id_token: ", id_token)
         # 1. 구글 토큰 검증
         google_info = await service.verify_google_token(id_token)
         
         email = google_info.get("email")
         provider_id = google_info.get("sub") # 구글의 고유 고정 ID
         nickname = google_info.get("name")
-
+        print("email: ", email)
+        print("provider_id: ", provider_id)
+        print("nickname: ", nickname)
         if not email:
             raise HTTPException(status_code=400, detail="구글 이메일 정보가 필요합니다.")
 
