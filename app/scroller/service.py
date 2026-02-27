@@ -1,28 +1,17 @@
 # app/scroller/service.py
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-import time
-import random
-from datetime import datetime, timedelta
-import numpy as np
-from bertopic import BERTopic
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from hdbscan import HDBSCAN
-from umap import UMAP
-import google.generativeai as genai
+import os
 import json
 from collections import Counter
-from konlpy.tag import Okt
-import os
-import html
-import re
-from newspaper import Article as NArticle
-
+import google.generativeai as genai
 from sqlalchemy.orm import Session
+
 from app.scroller.repository import ScrollerRepository
 from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse
+from app.scroller.graph import create_crawl_graph, create_cluster_graph
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
 
 TARGET_PRESS_DICT = {
     "한겨레": "028", "경향신문": "032", 
@@ -30,390 +19,82 @@ TARGET_PRESS_DICT = {
 }
 DAYS_TO_CRAWL = 4
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-
 class ScrollerService:
     def __init__(self, db: Session):
         self.repo = ScrollerRepository(db)
+        self.db = db
+        # 서버 기동 시 또는 서비스 객체 생성 시 그래프 컴파일
+        self.crawl_app = create_crawl_graph(db)
+        self.cluster_app = create_cluster_graph(db)
 
     # ==========================================
-    # 크롤링 비즈니스 로직
+    # 크롤링 비즈니스 로직 (LangGraph 연동)
     # ==========================================
-    def _get_article_detail_with_section(self, url: str):
-        headers = {"User-Agent": "Mozilla/5.0"}
-        try:
-            res = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            section = ""
-            meta_section = soup.select_one('meta[property="article:section"]')
-            if meta_section:
-                section = meta_section['content']
-            else:
-                cat_tag = soup.select_one('.media_end_categorize_item')
-                if cat_tag:
-                    section = cat_tag.get_text(strip=True)
-            
-            if section != "정치":
-                return None 
-                
-            content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article')
-            content = ""
-            if content_area:
-                for tag in content_area.select('.img_desc, .end_photo_org, .media_end_summary, .byline_s'):
-                    tag.extract()
-                content = content_area.get_text(strip=True)
-                
-            img_tag = soup.select_one('meta[property="og:image"]')
-            image_url = img_tag['content'] if img_tag else ""
-            
-            date_tag = soup.select_one('.media_end_head_info_datestamp span')
-            pub_date = date_tag['data-date-time'] if date_tag else ""
-
-            return {
-                "section": section,
-                "content": content,
-                "image_url": image_url,
-                "pub_date": pub_date
-            }
-        except Exception:
-            return None
-
-    def _analyze_article_with_gemini(self, title: str, content: str) -> dict:
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = f"""
-            다음 뉴스 기사를 분석하여 JSON 형식으로 결과를 반환해주세요.
-            
-            [기사 정보]
-            제목: {title}
-            내용: {content[:1500]}
-            
-            [작성 규칙]
-            반드시 아래 구조의 순수 JSON 형식으로만 응답할 것 (백틱이나 추가 설명 금지).
-            {{
-                "summary": "기사의 주요 내용을 3줄 이하로 요약",
-                "bias": "정치 성향 (neutral, conservative, liberal 중 1개 선택)",
-                "bias_score": 성향 강도 점수 (0.0에서 10.0 사이의 실수. 완벽한 중도는 0.0, 성향이 극단적일수록 10.0에 가깝게 부여),
-            }}
-            """
-            response = model.generate_content(prompt)
-            result_text = response.text.strip()
-            if result_text.startswith("```json"):
-                result_text = result_text[7:-3].strip()
-            return json.loads(result_text)
-        except Exception as e:
-            print(f"⚠️ 기사 AI 분석 실패 ({title[:15]}...): {e}")
-            return {
-                "summary": "AI 요약 실패",
-                "bias": "neutral",
-                "bias_score": 0.0,
-            }
-
     def execute_news_crawling(self) -> CrawlResponse:
-        print("🚀 정치 뉴스 크롤링 서비스 진입...")
+        print("🚀 [LangGraph] 뉴스 크롤링 워크플로우 파이프라인 진입...")
         
-        # 1. 오래된 데이터 정리
-        deleted_count = self._cleanup_old_data()
+        initial_state = {
+            "raw_articles": [],
+            "analyzed_articles": [],
+            "saved_count": 0,
+            "skipped_count": 0,
+            "deleted_count": 0,
+            "messages": [],
+            "error": ""
+        }
         
-        # 2. 뉴스 데이터 수집 (크롤링)
-        all_news = self._collect_news_from_naver()
+        final_state = self.crawl_app.invoke(initial_state)
         
-        # 3. 데이터 분석 및 DB 저장
-        saved_count, skipped_count = self._save_and_analyze_news(all_news)
-
-        print(f"✅ 수집 완료: 저장 {saved_count}건, 스킵 {skipped_count}건")
+        if final_state.get("error"):
+            return CrawlResponse(
+                status="error",
+                message=final_state["error"],
+                saved_count=0,
+                skipped_count=0
+            )
+            
+        # 메시지 취합 (마지막 2개의 중요 로그만 뽑아서 리턴)
+        msgs = final_state.get("messages", [])
+        result_msg = " | ".join(msgs[-2:]) if len(msgs) >= 2 else "".join(msgs)
+            
         return CrawlResponse(
             status="success",
-            message=f"오래된 기사 {deleted_count}개 삭제 완료. 신규 수집 진행.",
-            saved_count=saved_count,
-            skipped_count=skipped_count
+            message=result_msg,
+            saved_count=final_state.get("saved_count", 0),
+            skipped_count=final_state.get("skipped_count", 0)
         )
 
-    def _cleanup_old_data(self) -> int:
-        """4일 지난 과거 데이터를 삭제합니다."""
-        deleted_count = self.repo.delete_old_articles(days=DAYS_TO_CRAWL)
-        print(f"🧹 과거 데이터 삭제 완료: {deleted_count}건")
-        return deleted_count
-
-    def _collect_news_from_naver(self) -> list:
-        """네이버 뉴스에서 정치 섹션 기사들을 수집합니다."""
-        all_news = []
-        seen_articles = set()
-        today = datetime.now()
-        headers = {"User-Agent": "Mozilla/5.0"}
-        
-        for day_offset in range(DAYS_TO_CRAWL):
-            target_date = today - timedelta(days=day_offset)
-            date_str = target_date.strftime("%Y%m%d")
-            
-            for press_name, oid in TARGET_PRESS_DICT.items():
-                url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
-                try:
-                    res = requests.get(url, headers=headers)
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    list_items = soup.select('.rankingnews_list li')
-                    
-                    if not list_items: continue
-
-                    collected_count = 0
-                    for item in list_items:
-                        if collected_count >= 15: break 
-                        
-                        link_tag = item.select_one('a')
-                        if not link_tag: continue
-                        
-                        link = link_tag['href']
-                        if link.startswith("/"): link = "https://news.naver.com" + link
-                        
-                        try:
-                            article_id = link.split("/article/")[1].split("?")[0] 
-                        except:
-                            article_id = link
-                            
-                        if article_id in seen_articles: continue
-                        seen_articles.add(article_id)
-                        
-                        title = link_tag.get_text(strip=True)
-                        detail = self._get_article_detail_with_section(link)
-                        
-                        if detail and len(detail['content']) > 50:
-                            all_news.append({
-                                "press": press_name,
-                                "title": title,
-                                "content": detail['content'],
-                                "image_url": detail['image_url'],
-                                "pub_date": detail['pub_date'],
-                                "link": link
-                            })
-                            collected_count += 1
-                        time.sleep(random.uniform(0.05, 0.1))
-                except Exception:
-                    pass
-        return all_news
-
-    def _save_and_analyze_news(self, news_list: list) -> tuple[int, int]:
-        """수집된 기사를 AI 분석하고 DB에 저장합니다."""
-        df_unique = pd.DataFrame(news_list)
-        saved_count = 0
-        skipped_count = 0
-        
-        if df_unique.empty:
-            return saved_count, skipped_count
-
-        for _, row in df_unique.iterrows():
-            try:
-                publisher = self.repo.get_or_create_publisher(row['press'])
-                
-                if self.repo.is_article_exists(row['link']):
-                    skipped_count += 1
-                    continue
-                
-                try:
-                    pub_dt = pd.to_datetime(row['pub_date'])
-                except:
-                    pub_dt = datetime.now()
-                    
-                # AI를 통한 기사 속성(요약, 편향성, 점수, 논점) 추출
-                time.sleep(1.0) # Rate limit 방지 방어 코드 
-                print(f"   ㄴ AI 분석 중: {row['title'][:20]}...")
-                ai_data = self._analyze_article_with_gemini(row['title'], row['content'])
-                
-                try:
-                    bias_score_val = float(ai_data.get('bias_score', 0.0))
-                except:
-                    bias_score_val = 0.0
-                    
-                self.repo.save_article_with_body(
-                    publisher_id=publisher.id,
-                    title=row['title'],
-                    url=row['link'],
-                    image_urls=[row['image_url']] if row.get('image_url') else [],
-                    published_at=pub_dt,
-                    content=row['content'],
-                    summary=ai_data.get('summary'),
-                    bias=ai_data.get('bias'),
-                    bias_score=bias_score_val,
-                )
-                saved_count += 1
-            except Exception:
-                self.repo.db.rollback()
-                
-        self.repo.db.commit()
-        return saved_count, skipped_count
-
     # ==========================================
-    # 클러스터링 비즈니스 로직
+    # 클러스터링 비즈니스 로직 (LangGraph 연동)
     # ==========================================
-    def _remove_duplicates_fast(self, df: pd.DataFrame, threshold: float = 0.90) -> pd.DataFrame:
-        if df.empty: return df
-        tfidf = TfidfVectorizer(max_features=1000).fit_transform(df['content'].str[:300].fillna(''))
-        duplicates = set()
-        batch_size = 500
-        num_docs = len(df)
-        
-        for i in range(0, num_docs, batch_size):
-            batch_end = min(i + batch_size, num_docs)
-            similarities = cosine_similarity(tfidf[i:batch_end], tfidf)
-            for local_idx in range(batch_end - i):
-                global_idx = i + local_idx
-                if global_idx in duplicates: continue
-                target_indices = np.where(similarities[local_idx, global_idx+1:] > threshold)[0]
-                duplicates.update(target_indices + (global_idx + 1))
-                
-        return df.drop(index=list(duplicates)).copy()
-
-    def _simple_tokenizer(self, text: str) -> list:
-        okt = Okt()
-        stopwords = [
-            '뉴스', '종합', '속보', '기자', '특파원', '위해', '밝혔다', '대해', '관련', 
-            '오늘', '오후', '오전', '것으로', '따르면', '있는', '했다', '말했다',
-            '민주당', '국민의힘', '의원', '대통령', '대표', '무단전재', '배포', '금지',
-            '이날', '어제', '내일', '이번', '지난', '가장', '통해', '때문', '경우', 
-            '정도', '사실', '내용', '모두', '우리', '자신', '문제', '생각', '사람',
-            '그', '이', '저', '수', '것', '등', '안', '전', '후', '약', '중'
-        ]
-        nouns = okt.nouns(str(text))
-        return [n for n in nouns if n not in stopwords and len(n) >= 2]
-
-    def _generate_title_and_desc_with_gemini(self, titles: list):
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = f"""
-            다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
-            {titles[:10]} (총 {len(titles)}건)
-
-            이 뉴스들을 분석하여 **구체적인 단일 이슈**에 대한 제목과 요약을 작성해주세요.
-            
-            [작성 규칙]
-            1. 반드시 아래와 같은 JSON 형식으로만 응답할 것 (백틱이나 markdown 서식 없이 순수 JSON 텍스트만 출력).
-            {{
-                "title": "15자 이내의 구체적인 이슈 제목",
-                "description": "이슈의 배경과 핵심 내용을 포함한 3~4문장의 요약"
-            }}
-            2. 🚨 [매우 중요] '정치 현안', '주요 이슈', '정치권 소식', '여야 대립' 같은 포괄적이고 뭉뚱그려진 제목은 절대 금지합니다.
-            3. 기사에 등장하는 '특정 인물', '특정 정책', '사건'이 제목에 명확히 드러나야 합니다.
-            4. 제목은 '~명칭', '~발표', '~개최' 등 명사형으로 끝맺을 것.
-            """
-            response = model.generate_content(prompt)
-            result_text = response.text.strip()
-            if result_text.startswith("```json"):
-                result_text = result_text[7:-3].strip()
-            parsed = json.loads(result_text)
-            return parsed.get("title", titles[0]), parsed.get("description", "이슈 요약이 제공되지 않았습니다.")
-        except Exception:
-            return titles[0], "요약 생성 실패"
-
     def execute_clustering(self) -> ClusterResponse:
-        print("🤖 클러스터링 기반 이슈 분석 서비스 진입...")
-        unclustered_articles = self.repo.get_unclustered_articles()
+        print("🤖 [LangGraph] 클러스터링 기반 이슈 분석 워크플로우 파이프라인 진입...")
         
-        if not unclustered_articles:
-            print("✨ 새로 분석할 기사가 없습니다.")
-            return ClusterResponse(status="success", message="새로 분석할 기사가 없습니다.", saved_issue_count=0)
-
-        # 1. 클러스터링 데이터 준비
-        df_clean = self._prepare_clustering_data(unclustered_articles)
+        initial_state = {
+            "unclustered_articles": [],
+            "clustered_topics": [],
+            "saved_issue_count": 0,
+            "messages": [],
+            "error": ""
+        }
         
-        if len(df_clean) < 10:
-            print("🚫 분석할 기사가 너무 적어 건너뜁니다.")
-            return ClusterResponse(status="success", message="분석할 기사가 너무 적어 건너뜁니다.", saved_issue_count=0)
-            
-        # 2. 토픽 모델링 수행
-        topic_model, df_with_topics = self._perform_topic_modeling(df_clean)
+        final_state = self.cluster_app.invoke(initial_state)
         
-        # 3. 클러스터 분석 결과 저장
-        try:
-            saved_issue_count = self._save_clusters_to_db(topic_model, df_with_topics)
-            self.repo.db.commit()
-            print(f"🎉 클러스터링 및 DB 저장 완료! 총 {saved_issue_count}개의 이슈 할당")
+        if final_state.get("error"):
             return ClusterResponse(
-                status="success", message="클러스터링 및 생성 완료", saved_issue_count=saved_issue_count)
-
-            
-        except Exception as e:
-            self.repo.db.rollback()
-            return ClusterResponse(status="error", message=str(e), saved_issue_count=0)
-
-    def _prepare_clustering_data(self, articles: list) -> pd.DataFrame:
-        """수집된 기사 리스트를 DataFrame으로 변환하고 중복을 제거합니다."""
-        data = []
-        for a in articles:
-            content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
-            data.append({
-                'article_id': a.id,
-                'title': a.title,
-                'content': content,
-                'pub_date': a.published_at,
-                'link': a.url
-            })
-            
-        df = pd.DataFrame(data)
-        return self._remove_duplicates_fast(df)
-
-    def _perform_topic_modeling(self, df: pd.DataFrame) -> tuple[BERTopic, pd.DataFrame]:
-        """BERTopic 모델을 학습하고 기사별 토픽 ID를 부여합니다."""
-        korean_stopwords = [
-            "뉴스", "종합", "속보", "기자", "특파원", "위해", "밝혔다", "대해", "관련", 
-            "오늘", "오후", "오전", "것으로", "따르면", "있는", "했다", "말했다",
-            "민주당", "국민의힘", "의원", "대통령", "대표", "정부", "국회", "여야",
-            "국민", "라며", "대한", "상황", "입장", "발언", "논란", "한국", "우리",
-            "이재명", "윤석열", "한동훈", "장관", "수사", "주장", "평가", "문제", "이유",
-            "이날", "예정", "시간", "최근", "다시", "크게", "이후", "통해", "사실"
-        ]
-        vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
-        umap_model = UMAP(n_neighbors=5, n_components=10, min_dist=0.0, metric='cosine', random_state=42)
-        hdbscan_model = HDBSCAN(min_cluster_size=5, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.3)
-        
-        print("🤖 BERTopic 초고해상도 학습 시작")
-        topic_model = BERTopic(
-            embedding_model="snunlp/KR-SBERT-V40K-klueNLI-augSTS",
-            vectorizer_model=vectorizer,
-            umap_model=umap_model,
-            hdbscan_model=hdbscan_model,   
-            nr_topics="auto", 
-            calculate_probabilities=True,
-            verbose=False
-        )
-        
-        docs = [str(t) + " " + str(t) + " " + str(t) + " " + str(c)[:100] for t, c in zip(df['title'], df['content'])]
-        topics, probs = topic_model.fit_transform(docs)
-        
-        df['topic_id'] = topics
-        return topic_model, df
-
-    def _save_clusters_to_db(self, topic_model: BERTopic, df: pd.DataFrame) -> int:
-        """추출된 토픽 정보를 분석하여 DB에 저장합니다."""
-        topic_info = topic_model.get_topic_info()
-        top_topics = topic_info[topic_info['Topic'] != -1].head(15).copy() 
-        
-        saved_issue_count = 0
-        for idx, row in top_topics.iterrows():
-            topic_id = row['Topic']
-            count = row['Count']
-            
-            if count < 5: continue
-
-            topic_indices = df[df['topic_id'] == topic_id].index
-            topic_articles = df.loc[topic_indices]
-            topic_titles = topic_articles['title'].tolist()
-            
-            time.sleep(1.0) 
-            ai_label, description = self._generate_title_and_desc_with_gemini(topic_titles)
-            
-            article_ids_to_update = topic_articles['article_id'].tolist()
-            self.repo.save_issue_and_relations(
-                ai_label=ai_label,
-                description=description,
-                count=count,
-                article_ids_to_update=article_ids_to_update
+                status="error",
+                message=final_state["error"],
+                saved_issue_count=0
             )
-            print(f"   [{idx+1}위] {ai_label} (기사 {count}건 저장완료)")
-            saved_issue_count += 1
             
-        return saved_issue_count
+        msgs = final_state.get("messages", [])
+        result_msg = msgs[-1] if msgs else "이슈 배정 왼료"
+            
+        return ClusterResponse(
+            status="success",
+            message=result_msg,
+            saved_issue_count=final_state.get("saved_issue_count", 0)
+        )
 
     # ==========================================
     # 초기화 비즈니스 로직

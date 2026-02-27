@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from app.domains.articles.models import Article, ArticleBody
+from app.domains.publishers.models import Publisher
 from app.domains.articles.schemas import ArticleResponse, ArticleDetail
 
 class ArticleService:
@@ -24,3 +25,21 @@ class ArticleService:
         return self.db.query(Article).filter(
             Article.issue_label_id == issue_label_id
         ).order_by(Article.published_at.desc()).limit(limit).all()
+
+    def get_top_articles_by_publisher(self, limit: int = 10) -> Dict[str, List[Article]]:
+        """5개 주요 언론사별 상위(최신) 기사 조회"""
+        target_publishers = ["한겨레", "경향신문", "조선일보", "동아일보", "연합뉴스"]
+        publishers = self.db.query(Publisher).filter(Publisher.name.in_(target_publishers)).all()
+        
+        result = {}
+        for pub in publishers:
+            articles = self.db.query(Article).filter(
+                Article.publisher_id == pub.id
+            ).order_by(Article.published_at.desc()).limit(limit).all()
+            
+            for article in articles:
+                article.publisher_name = pub.name
+                
+            result[pub.name] = articles
+            
+        return result

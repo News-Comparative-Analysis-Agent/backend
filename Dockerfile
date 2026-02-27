@@ -8,6 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    default-jdk \
+    default-jre \
     && rm -rf /var/lib/apt/lists/*
 
 # 패키지 목록 복사 및 설치 (캐싱 효율화)
