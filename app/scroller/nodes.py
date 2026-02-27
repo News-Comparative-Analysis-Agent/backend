@@ -29,6 +29,22 @@ class ScrollerNodes:
         self.repo = ScrollerRepository(db)
 
     # ==========================================
+    # Helper: Retry Logic
+    # ==========================================
+    def _fetch_with_retry(self, url: str, headers: dict = None, timeout: int = 10, max_retries: int = 3):
+        if not headers:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        for attempt in range(max_retries):
+            try:
+                res = requests.get(url, headers=headers, timeout=timeout)
+                if res.status_code == 200:
+                    return res
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ {attempt + 1}번째 시도 실패: {url} -> {e}")
+                time.sleep(2)
+        return None
+
+    # ==========================================
     # Crawl Graph Nodes
     # ==========================================
     def node_clean_old_data(self, state: CrawlState) -> dict:
@@ -36,9 +52,10 @@ class ScrollerNodes:
         return {"deleted_count": deleted_count, "messages": [f"과거 데이터 삭제 완료: {deleted_count}건"]}
 
     def _get_article_detail_with_section(self, url: str):
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         try:
-            res = requests.get(url, headers=headers, timeout=5)
+            res = self._fetch_with_retry(url, headers=headers, timeout=10)
+            if not res: return None
             soup = BeautifulSoup(res.text, 'html.parser')
             
             section = ""
@@ -86,11 +103,15 @@ class ScrollerNodes:
         all_news = []
         seen_articles = set()
         try:
-            res_time = requests.get('https://worldtimeapi.org/api/timezone/Asia/Seoul', timeout=5).json()
-            today = datetime.fromisoformat(res_time['datetime'].split('+')[0])
+            res_time_req = self._fetch_with_retry('https://worldtimeapi.org/api/timezone/Asia/Seoul', timeout=5)
+            if res_time_req:
+                res_time = res_time_req.json()
+                today = datetime.fromisoformat(res_time['datetime'].split('+')[0])
+            else:
+                today = datetime.now()
         except Exception:
             today = datetime.now()
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
         
         for day_offset in range(DAYS_TO_CRAWL):
             target_date = today - timedelta(days=day_offset)
@@ -99,7 +120,8 @@ class ScrollerNodes:
             for press_name, oid in TARGET_PRESS_DICT.items():
                 url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
                 try:
-                    res = requests.get(url, headers=headers)
+                    res = self._fetch_with_retry(url, headers=headers, timeout=10)
+                    if not res: continue
                     soup = BeautifulSoup(res.text, 'html.parser')
                     list_items = soup.select('.rankingnews_list li')
                     
@@ -142,8 +164,9 @@ class ScrollerNodes:
                             })
                             collected_count += 1
                         time.sleep(random.uniform(0.05, 0.1))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Error crawling {press_name} items: {e}")
+                    self.repo.db.rollback()
                     
         return {"raw_articles": all_news, "messages": [f"신규 정치 기사 {len(all_news)}건 수집됨"]}
 
@@ -333,13 +356,15 @@ class ScrollerNodes:
             다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
             {titles[:10]} (총 {len(titles)}건)
 
-            이 뉴스들을 분석하여 **구체적인 단일 이슈**에 대한 제목과 요약을 작성해주세요.
+            이 뉴스들을 분석하여 구체적인 단일 이슈에 대한 제목, 요약, 발단, 주요 쟁점을 작성해주세요.
             
             [작성 규칙]
             1. 반드시 아래와 같은 JSON 형식으로만 응답할 것 (백틱이나 markdown 서식 없이 순수 JSON 텍스트만 출력).
             {{
                 "title": "15자 이내의 구체적인 이슈 제목",
-                "description": "이슈의 배경과 핵심 내용을 포함한 3~4문장의 요약"
+                "description": "이슈의 배경과 핵심 내용을 포함한 3~4문장의 요약",
+                "background": "이 이슈가 발생하게 된 핵심 발단 또는 배경 설명 (1~2문장)",
+                "core_contentions": "이 이슈와 관련된 주요 쟁점이나 갈등 또는 찬반 의견 (1~2문장)"
             }}
             2. 🚨 [매우 중요] '정치 현안', '주요 이슈', '정치권 소식', '여야 대립' 같은 포괄적이고 뭉뚱그려진 제목은 절대 금지합니다.
             3. 기사에 등장하는 '특정 인물', '특정 정책', '사건'이 제목에 명확히 드러나야 합니다.
@@ -350,9 +375,15 @@ class ScrollerNodes:
             if result_text.startswith("```json"):
                 result_text = result_text[7:-3].strip()
             parsed = json.loads(result_text)
-            return parsed.get("title", titles[0]), parsed.get("description", "이슈 요약이 제공되지 않았습니다.")
+            
+            return (
+                parsed.get("title", titles[0]), 
+                parsed.get("description", "이슈 요약이 제공되지 않았습니다."),
+                parsed.get("background", "배경 정보 없음"),
+                parsed.get("core_contentions", "주요 쟁점 정보 없음")
+            )
         except Exception:
-            return titles[0], "요약 생성 실패"
+            return titles[0], "요약 생성 실패", None, None
 
     def node_name_and_save_issues(self, state: ClusterState) -> dict:
         topics = state.get("clustered_topics", [])
@@ -368,13 +399,16 @@ class ScrollerNodes:
                 article_ids = t["article_ids"]
                 
                 time.sleep(1.0) 
-                ai_label, description = self._generate_title_and_desc_with_gemini(titles)
+                ai_label, description, background, core_contentions = self._generate_title_and_desc_with_gemini(titles)
                 
                 self.repo.save_issue_and_relations(
                     ai_label=ai_label,
                     description=description,
                     count=count,
-                    article_ids_to_update=article_ids
+                    article_ids_to_update=article_ids,
+                    background=background,
+                    core_contentions=core_contentions,
+                    media_ratio=None # 언론사 비율은 API에서 실시간 계산하도록 권장하여 일단 빈 값으로 둡니다
                 )
                 saved_issue_count += 1
                 

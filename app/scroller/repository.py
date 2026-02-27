@@ -75,12 +75,17 @@ class ScrollerRepository:
             (ArticleBody.raw_content.ilike(search_pattern))
         ).order_by(Article.published_at.desc()).limit(limit).all()
         
-    def save_issue_and_relations(self, ai_label: str, description: str, count: int, article_ids_to_update: list) -> IssueLabel:
+    def save_issue_and_relations(self, ai_label: str, description: str, count: int, 
+                                 article_ids_to_update: list, 
+                                 background: str = None, core_contentions: str = None, media_ratio: str = None) -> IssueLabel:
         # 새로운 이슈를 생성하고, 매칭되는 기사들의 id를 업데이트
         issue = IssueLabel(
             name=ai_label,
             description=description,
             total_count=int(count),
+            background=background,
+            core_contentions=core_contentions,
+            media_ratio=media_ratio,
             created_at=datetime.now()
         )
         self.db.add(issue)
