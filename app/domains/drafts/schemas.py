@@ -54,8 +54,7 @@ class ArticleInfo(BaseModel):
     published_at: str
 
 class PerspectiveItem(BaseModel):
-    stance: str       # progressive, conservative, neutral
-    stance_kr: str    # 진보, 보수, 중립
+    publisher: str    # 언론사명 (예: 한겨레)
     summary: str      # Gemini analysis result
     articles: List[ArticleInfo]
 

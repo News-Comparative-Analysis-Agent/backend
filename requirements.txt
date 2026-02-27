@@ -1,36 +1,39 @@
-# Web Framework
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+Web Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 
-# Database
+Database
 sqlalchemy==2.0.25
 alembic==1.13.1
 psycopg2-binary==2.9.9
 pg8000==1.30.5
 
-# Configuration & Validation
+Configuration & Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
 python-dotenv==1.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Utilities
+Utilities
 loguru==0.7.2
 requests==2.31.0
 
-# Crawling
+Crawling
 beautifulsoup4==4.12.3
 lxml==5.1.0
 
-# AI & Analytics
+AI & Analytics
 openai==1.10.0
 networkx==3.2.1
 python-louvain==0.16
 pandas==2.2.0
 bertopic
 pyarrow
-# Testing
+langgraph
+Testing
 pytest==8.0.0
 httpx==0.27.0
 pytest-asyncio==0.23.5
@@ -38,8 +41,6 @@ email-validator==2.1.0
 
 google-generativeai==0.8.6  # gemini api 
 newspaper3k
-pandas
-openpyxl
 
-# ci.cd 오류 해결을 위해 필요한 라이브러리
+ci.cd #오류 해결을 위해 필요한 라이브러리
 konlpy
