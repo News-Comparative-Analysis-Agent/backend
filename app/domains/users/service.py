@@ -1,6 +1,8 @@
+import os
 import httpx
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
+from app.domains.users.models import User
 from app.domains.users.repository import UserRepository
 from app.domains.users.schemas import UserCreate, UserResponse, TokenResponse
 
@@ -48,18 +50,24 @@ class UserService:
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "code": code,
+            "client_secret": os.getenv("KAKAO_CLIENT_SECRET")
         }
+        print("get_kakao_access_token메서드 진입 \n data: ", data)
         async with httpx.AsyncClient() as client:
             response = await client.post(url, data=data)
+            print("response status: ", response.status_code)
+            print("response body: ", response.text) # 상세 에러 확인용
             response.raise_for_status()
             return response.json().get("access_token")
 
     async def get_kakao_user_info(self, access_token: str) -> Dict[str, Any]:
         """액세스 토큰으로 카카오 유저 정보 획득"""
         url = "https://kapi.kakao.com/v2/user/me"
+        print("get_kakao_user_info메서드 진입 \n access_token: ", access_token)
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)
+            print("response: ", response)
             response.raise_for_status()
             return response.json()
 

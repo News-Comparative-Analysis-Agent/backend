@@ -16,7 +16,7 @@ load_dotenv()
 # 환경 변수 직접 로드 (config.py 제거 대응)
 SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key").strip().strip('"').strip("'")
 ALGORITHM = os.getenv("ALGORITHM", "HS256").strip().strip('"').strip("'")
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 기본 7일
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))
 
 # OAuth2 설정
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login/kakao", auto_error=False)
