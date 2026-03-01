@@ -47,9 +47,7 @@ class ScrollerNodes:
     # ==========================================
     # Crawl Graph Nodes
     # ==========================================
-    def node_clean_old_data(self, state: CrawlState) -> dict:
-        deleted_count = self.repo.delete_old_articles(days=DAYS_TO_CRAWL)
-        return {"deleted_count": deleted_count, "messages": [f"과거 데이터 삭제 완료: {deleted_count}건"]}
+
 
     def _get_article_detail_with_section(self, url: str):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
@@ -103,72 +101,76 @@ class ScrollerNodes:
         all_news = []
         seen_articles = set()
         try:
-            res_time_req = self._fetch_with_retry('https://worldtimeapi.org/api/timezone/Asia/Seoul', timeout=5)
-            if res_time_req:
-                res_time = res_time_req.json()
-                today = datetime.fromisoformat(res_time['datetime'].split('+')[0])
-            else:
+            try:
+                res_time_req = self._fetch_with_retry('https://worldtimeapi.org/api/timezone/Asia/Seoul', timeout=5)
+                if res_time_req:
+                    res_time = res_time_req.json()
+                    today = datetime.fromisoformat(res_time['datetime'].split('+')[0])
+                else:
+                    today = datetime.now()
+            except Exception:
                 today = datetime.now()
-        except Exception:
-            today = datetime.now()
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        
-        for day_offset in range(DAYS_TO_CRAWL):
-            target_date = today - timedelta(days=day_offset)
-            date_str = target_date.strftime("%Y%m%d")
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
             
-            for press_name, oid in TARGET_PRESS_DICT.items():
-                url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
-                try:
-                    res = self._fetch_with_retry(url, headers=headers, timeout=10)
-                    if not res: continue
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    list_items = soup.select('.rankingnews_list li')
-                    
-                    if not list_items: continue
+            for day_offset in range(DAYS_TO_CRAWL):
+                target_date = today - timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y%m%d")
+                
+                for press_name, oid in TARGET_PRESS_DICT.items():
+                    url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
+                    try:
+                        res = self._fetch_with_retry(url, headers=headers, timeout=10)
+                        if not res: continue
+                        soup = BeautifulSoup(res.text, 'html.parser')
+                        list_items = soup.select('.rankingnews_list li')
+                        
+                        if not list_items: continue
 
-                    collected_count = 0
-                    for item in list_items:
-                        if collected_count >= 15: break 
-                        
-                        link_tag = item.select_one('a')
-                        if not link_tag: continue
-                        
-                        link = link_tag['href']
-                        if link.startswith("/"): link = "https://news.naver.com" + link
-                        
-                        try:
-                            article_id = link.split("/article/")[1].split("?")[0] 
-                        except:
-                            article_id = link
+                        collected_count = 0
+                        for item in list_items:
+                            if collected_count >= 15: break 
                             
-                        if article_id in seen_articles: continue
-                        seen_articles.add(article_id)
-                        
-                        title = link_tag.get_text(strip=True)
-                        detail = self._get_article_detail_with_section(link)
-                        
-                        if detail and len(detail['content']) > 50:
-                            # DB 중복 체크 (AI 분석 전 스킵용)
-                            if self.repo.is_article_exists(link):
-                                continue
+                            link_tag = item.select_one('a')
+                            if not link_tag: continue
+                            
+                            link = link_tag['href']
+                            if link.startswith("/"): link = "https://news.naver.com" + link
+                            
+                            try:
+                                article_id = link.split("/article/")[1].split("?")[0] 
+                            except:
+                                article_id = link
                                 
-                            all_news.append({
-                                "press": press_name,
-                                "title": title,
-                                "content": detail['content'],
-                                "image_url": detail['image_url'],
-                                "pub_date": detail['pub_date'],
-                                "link": link,
-                                "reporter": detail.get('reporter', '')
-                            })
-                            collected_count += 1
-                        time.sleep(random.uniform(0.05, 0.1))
-                except Exception as e:
-                    print(f"Error crawling {press_name} items: {e}")
-                    self.repo.db.rollback()
-                    
-        return {"raw_articles": all_news, "messages": [f"신규 정치 기사 {len(all_news)}건 수집됨"]}
+                            if article_id in seen_articles: continue
+                            seen_articles.add(article_id)
+                            
+                            title = link_tag.get_text(strip=True)
+                            detail = self._get_article_detail_with_section(link)
+                            
+                            if detail and len(detail['content']) > 50:
+                                # DB 중복 체크 (AI 분석 전 스킵용)
+                                if self.repo.is_article_exists(link):
+                                    continue
+                                    
+                                all_news.append({
+                                    "press": press_name,
+                                    "title": title,
+                                    "content": detail['content'],
+                                    "image_url": detail['image_url'],
+                                    "pub_date": detail['pub_date'],
+                                    "link": link,
+                                    "reporter": detail.get('reporter', '')
+                                })
+                                collected_count += 1
+                            time.sleep(random.uniform(0.05, 0.1))
+                    except Exception as e:
+                        print(f"Error crawling {press_name} items: {e}")
+                        self.repo.db.rollback()
+                        
+            return {"raw_articles": all_news, "messages": [f"신규 정치 기사 {len(all_news)}건 수집됨"]}
+        except Exception as e:
+            self.repo.db.rollback()
+            return {"raw_articles": [], "error": str(e), "messages": [f"뉴스 크롤링 중 치명적 오류: {e}"]}
 
     def _analyze_article_with_gemini(self, title: str, content: str) -> dict:
         try:
@@ -201,76 +203,87 @@ class ScrollerNodes:
             }
 
     def node_analyze_and_save(self, state: CrawlState) -> dict:
-        raw_news = state.get("raw_articles", [])
-        df_unique = pd.DataFrame(raw_news)
-        
-        saved_count = 0
-        skipped_count = 0
-        
-        if df_unique.empty:
-            return {"saved_count": 0, "skipped_count": 0, "messages": ["수집된 새 기사가 없어 분석 생략"]}
+        try:
+            raw_news = state.get("raw_articles", [])
+            df_unique = pd.DataFrame(raw_news)
+            
+            saved_count = 0
+            skipped_count = 0
+            
+            if df_unique.empty:
+                return {"saved_count": 0, "skipped_count": 0, "messages": ["수집된 새 기사가 없어 분석 생략"]}
 
-        for _, row in df_unique.iterrows():
-            try:
-                publisher = self.repo.get_or_create_publisher(row['press'])
-                
-                # 중전 체크 (크롤 시점에 이미 확인하긴 했으나, 이중 검사)
-                if self.repo.is_article_exists(row['link']):
-                    skipped_count += 1
-                    continue
-                
+            for _, row in df_unique.iterrows():
                 try:
-                    pub_dt = pd.to_datetime(row['pub_date'])
-                except:
-                    pub_dt = datetime.now()
+                    publisher = self.repo.get_or_create_publisher(row['press'])
                     
-                time.sleep(1.0) # Rate limit 방어
-                ai_data = self._analyze_article_with_gemini(row['title'], row['content'])
-                
-                try:
-                    bias_score_val = float(ai_data.get('bias_score', 0.0))
-                except:
-                    bias_score_val = 0.0
+                    # 중복 체크
+                    if self.repo.is_article_exists(row['link']):
+                        skipped_count += 1
+                        continue
                     
-                self.repo.save_article_with_body(
-                    publisher_id=publisher.id,
-                    title=row['title'],
-                    url=row['link'],
-                    image_urls=[row['image_url']] if row.get('image_url') else [],
-                    published_at=pub_dt,
-                    content=row['content'],
-                    summary=ai_data.get('summary'),
-                    bias=ai_data.get('bias'),
-                    bias_score=bias_score_val,
-                    reporter=row.get('reporter', '')
-                )
-                saved_count += 1
-            except Exception:
-                self.repo.db.rollback()
-                
-        self.repo.db.commit()
-        return {
-            "saved_count": saved_count, 
-            "skipped_count": skipped_count,
-            "messages": [f"AI 분석 및 저장 완료: {saved_count}건"]
-        }
+                    try:
+                        pub_dt = pd.to_datetime(row['pub_date'])
+                    except:
+                        pub_dt = datetime.now()
+                        
+                    time.sleep(1.0) # Rate limit 방어
+                    ai_data = self._analyze_article_with_gemini(row['title'], row['content'])
+                    
+                    try:
+                        bias_score_val = float(ai_data.get('bias_score', 0.0))
+                    except:
+                        bias_score_val = 0.0
+                        
+                    self.repo.save_article_with_body(
+                        publisher_id=publisher.id,
+                        title=row['title'],
+                        url=row['link'],
+                        image_urls=[row['image_url']] if row.get('image_url') else [],
+                        published_at=pub_dt,
+                        content=row['content'],
+                        summary=ai_data.get('summary'),
+                        bias=ai_data.get('bias'),
+                        bias_score=bias_score_val,
+                        reporter=row.get('reporter', '')
+                    )
+                    saved_count += 1
+                except Exception:
+                    self.repo.db.rollback()
+                    
+            self.repo.db.commit()
+            return {
+                "saved_count": saved_count, 
+                "skipped_count": skipped_count,
+                "messages": [f"AI 분석 및 저장 완료: {saved_count}건"]
+            }
+        except Exception as e:
+            self.repo.db.rollback()
+            return {"saved_count": 0, "skipped_count": 0, "error": str(e), "messages": [f"AI 분석 중 치명적 오류: {e}"]}
 
     # ==========================================
     # Cluster Graph Nodes
     # ==========================================
     def node_fetch_unclustered(self, state: ClusterState) -> dict:
-        unclustered_articles = self.repo.get_unclustered_articles()
-        data = []
-        for a in unclustered_articles:
-            content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
-            data.append({
-                'article_id': a.id,
-                'title': a.title,
-                'content': content,
-                'pub_date': a.published_at,
-                'link': a.url
-            })
-        return {"unclustered_articles": data, "messages": [f"미분류 기사 {len(data)}건 로드됨"]}
+        try:
+            # 이전 단계(크롤링 등)에서 예외 처리되지 않은 트랜잭션 오류가 남아있을 경우를 대비해 롤백 수행
+            self.repo.db.rollback()
+            
+            unclustered_articles = self.repo.get_unclustered_articles()
+            data = []
+            for a in unclustered_articles:
+                content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
+                data.append({
+                    'article_id': a.id,
+                    'title': a.title,
+                    'content': content,
+                    'pub_date': a.published_at,
+                    'link': a.url
+                })
+            return {"unclustered_articles": data, "messages": [f"미분류 기사 {len(data)}건 로드됨"]}
+        except Exception as e:
+            self.repo.db.rollback()
+            return {"unclustered_articles": [], "error": str(e), "messages": [f"미분류 기사 로드 실패: {e}"]}
 
     def _remove_duplicates_fast(self, df: pd.DataFrame, threshold: float = 0.90) -> pd.DataFrame:
         if df.empty: return df
