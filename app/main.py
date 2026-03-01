@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
 
@@ -6,41 +6,44 @@ from app.domains.users import router as users_router
 from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
 from app.scroller import router as scroller_router
+from app.domains.drafts.router import router as drafts_router
+from tests import db_api as db_test_router
 
-# SQLAlchemy 모델 로드 (관계 설정을 위해 모든 모델이 레지스트리에 등록되어야 함)
+# 인증 의존성 임포트
+from app.core.security import get_current_user
+
+# SQLAlchemy 모델 로드
 from app.domains.users import models as user_models
 from app.domains.publishers import models as pub_models
 from app.domains.articles import models as art_models
 from app.domains.issues import models as issue_models
 from app.domains.drafts import models as draft_models
-from app.domains.drafts.router import router as drafts_router
 
-# DB 테이블 생성 (서버 시작 시 스키마 자동 적용)
+# DB 테이블 생성
 Base.metadata.create_all(bind=engine)
-print(f"DB 테이블 생성 완료: {Base.metadata.tables.keys()}")
 
-app = FastAPI(
-    description="Aigent Backend API"
-)
+app = FastAPI(description="Aigent Backend API")
 
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # 개발 환경에서는 모두 허용, 운영 시 특정 도메인으로 제한 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 라우터 등록 prefix: /users가 자동으로 붙음. tags: API 문서용.
+# 1. 공개 엔드포인트 (로그인 등)
 app.include_router(users_router.router, prefix="/user", tags=["users"])
-app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
-app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
+app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 
-app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
+# 2. 보호된 엔드포인트 (인증 필수)
+protected_dependency = [Depends(get_current_user)]
 
-app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
-
+app.include_router(articles_router.router, prefix="/articles", tags=["articles"], dependencies=protected_dependency)
+app.include_router(issues_router.router, prefix="/issues", tags=["issues"], dependencies=protected_dependency)
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"], dependencies=protected_dependency)
+app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"], dependencies=protected_dependency)
 
 @app.get("/")
 def health_check():

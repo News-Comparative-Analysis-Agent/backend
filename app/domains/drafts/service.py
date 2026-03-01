@@ -251,7 +251,7 @@ class DraftService:
         except Exception as e:
             return f"분석 중 오류 발생: {str(e)}"
 
-    async def analyze_perspectives(self, issue_id: int) -> PerspectivesResponse:
+async def analyze_perspectives(self, issue_id: int) -> PerspectivesResponse:
         issue = self.repo.get_issue_by_id(issue_id)
         if not issue:
             raise HTTPException(status_code=404, detail="Issue not found")
@@ -270,12 +270,12 @@ class DraftService:
             if pub_name not in grouped_articles:
                 grouped_articles[pub_name] = []
             grouped_articles[pub_name].append(art)
-        
+
         results = []
         for pub_name, arts in grouped_articles.items():
             article_infos = []
             context_text_list = []
-            
+
             for art in arts:
                 article_infos.append(ArticleInfo(
                     id=art.id,
@@ -285,7 +285,7 @@ class DraftService:
                     published_at=art.published_at.strftime("%Y-%m-%d") if art.published_at else ""
                 ))
                 context_text_list.append(f"- {art.title}: {art.summary or '내용 없음'}")
-            
+
             if arts:
                 joined_text = "\n".join(context_text_list)
                 summary_text = await self._summarize_perspective(pub_name, joined_text)
@@ -297,7 +297,7 @@ class DraftService:
                 summary=summary_text,
                 articles=article_infos
             ))
-            
+
         return PerspectivesResponse(
             issue_id=issue.id,
             issue_name=issue.name,

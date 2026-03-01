@@ -42,5 +42,5 @@ email-validator==2.1.0
 google-generativeai==0.8.6  # gemini api 
 newspaper3k
 
-# ci.cd 오류 해결을 위해 필요한 라이브러리
+# ci.cd #오류 해결을 위해 필요한 라이브러리
 konlpy
