@@ -12,19 +12,7 @@ class ScrollerRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def delete_old_articles(self, days: int = 4) -> int:
-        # 4일전 기사들을 삭제하는 방향으로~~
-        cutoff_date = datetime.now() - timedelta(days=days)
-        old_articles = self.db.query(Article).filter(Article.published_at < cutoff_date).all()
-        old_article_ids = [a.id for a in old_articles]
-        
-        deleted_count = 0
-        if old_article_ids:
-            self.db.query(ArticleBody).filter(ArticleBody.article_id.in_(old_article_ids)).delete(synchronize_session=False)
-            deleted_count = self.db.query(Article).filter(Article.id.in_(old_article_ids)).delete(synchronize_session=False)
-            self.db.flush()
-            
-        return deleted_count
+
 
     def get_or_create_publisher(self, press_name: str) -> Publisher:
         publisher = self.db.query(Publisher).filter(Publisher.name == press_name).first()

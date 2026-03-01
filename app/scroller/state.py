@@ -9,7 +9,6 @@ class CrawlState(TypedDict):
     analyzed_articles: List[Dict[str, Any]]   # AI 분석(요약, 편향성 등)이 완료된 기사 리스트
     saved_count: int                          # DB에 저장된 기사 수
     skipped_count: int                        # 이미 존재하여 스킵된 기사 수
-    deleted_count: int                        # 오래되어 삭제된 이전 기사 수
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                # 에러 발생 시 에러 메시지 저장
 
