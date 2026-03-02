@@ -12,14 +12,13 @@ from tests import db_api as db_test_router
 # 인증 의존성 임포트
 from app.core.security import get_current_user
 
-# SQLAlchemy 모델 로드
+# SQLAlchemy 모델 로드 및 DB 테이블 생성
 from app.domains.users import models as user_models
 from app.domains.publishers import models as pub_models
 from app.domains.articles import models as art_models
 from app.domains.issues import models as issue_models
 from app.domains.drafts import models as draft_models
 
-# DB 테이블 생성
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(description="Aigent Backend API")
@@ -37,13 +36,13 @@ app.add_middleware(
 app.include_router(users_router.router, prefix="/user", tags=["users"])
 app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 
-# 2. 보호된 엔드포인트 (인증 필수)
-protected_dependency = [Depends(get_current_user)]
+# 2. 보호된 엔드포인트 (인증 필수) 잠시 주석처리
+# protected_dependency = [Depends(get_current_user)]
 
-app.include_router(articles_router.router, prefix="/articles", tags=["articles"], dependencies=protected_dependency)
-app.include_router(issues_router.router, prefix="/issues", tags=["issues"], dependencies=protected_dependency)
-app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"], dependencies=protected_dependency)
-app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"], dependencies=protected_dependency)
+app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
+app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
+app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
 
 @app.get("/")
 def health_check():

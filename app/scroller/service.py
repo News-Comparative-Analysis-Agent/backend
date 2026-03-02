@@ -1,13 +1,20 @@
 # app/scroller/service.py
 import os
 import json
+import logging
+from datetime import datetime, timedelta
 from collections import Counter
 import google.generativeai as genai
 from sqlalchemy.orm import Session
 
 from app.scroller.repository import ScrollerRepository
-from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse
+from sqlalchemy import func
+from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, LLMMode
+from app.domains.system.models import SystemSettings, ExecutionLog
 from app.scroller.graph import create_crawl_graph, create_cluster_graph
+from app.scroller.nodes import ScrollerNodes 
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
@@ -27,13 +34,43 @@ class ScrollerService:
         self.crawl_app = create_crawl_graph(db)
         self.cluster_app = create_cluster_graph(db)
 
+    def _cleanup_old_logs(self, days: int = 10):
+        """10일이 지난 오래된 실행 로그를 삭제합니다."""
+        threshold = datetime.now() - timedelta(days=days)
+        try:
+            deleted_count = self.db.query(ExecutionLog).filter(ExecutionLog.started_at < threshold).delete()
+            if deleted_count > 0:
+                self.db.commit()
+                logger.info(f"🧹 오래된 로그 정리 완료: {deleted_count}개 삭제됨 (기준일: {threshold.date()})")
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"⚠️ 로그 정리 중 오류 발생: {e}")
+
     # ==========================================
     # 크롤링 비즈니스 로직 (LangGraph 연동)
     # ==========================================
-    def execute_news_crawling(self) -> CrawlResponse:
-        print("🚀 [LangGraph] 뉴스 크롤링 워크플로우 파이프라인 진입...")
+    def execute_news_crawling(self, mode: str = None) -> CrawlResponse:
+        """
+        네이버 뉴스를 크롤링하고 AI 분석을 수행하는 전체 워크플로우를 실행합니다.
+        - mode: 'gemini_only', 'local_priority', 'local_only' 중 선택. 
+                제공되지 않을 경우 DB의 SystemSettings 값을 따름.
+        """
+        if not mode:
+            setting = self.db.query(SystemSettings).first()
+            mode = setting.llm_mode if setting else "gemini_only"
+
+        logger.info(f"🔄 뉴스 크롤링 워크플로우 시작 (Mode: {mode})")
         
+        # 0. 오래된 로그 정리 (보관 기간: 10일)
+        self._cleanup_old_logs(days=10)
+        
+        # 1. 실행 로그 생성
+        log = ExecutionLog(job_type="crawl", mode=mode, status="running")
+        self.db.add(log)
+        self.db.commit()
+
         initial_state = {
+            "llm_mode": mode,
             "raw_articles": [],
             "analyzed_articles": [],
             "saved_count": 0,
@@ -42,9 +79,16 @@ class ScrollerService:
             "error": ""
         }
         
-        final_state = self.crawl_app.invoke(initial_state)
+        # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
+        config = {"configurable": {"thread_id": "scroller_crawl_session"}}
+        final_state = self.crawl_app.invoke(initial_state, config=config)
         
+        # 2. 결과 로그 업데이트
+        log.finished_at = func.now()
         if final_state.get("error"):
+            log.status = "failed"
+            log.logs = final_state["error"]
+            self.db.commit()
             return CrawlResponse(
                 status="error",
                 message=final_state["error"],
@@ -52,10 +96,18 @@ class ScrollerService:
                 skipped_count=0
             )
             
-        # 메시지 취합 (마지막 2개의 중요 로그만 뽑아서 리턴)
         msgs = final_state.get("messages", [])
         result_msg = " | ".join(msgs[-2:]) if len(msgs) >= 2 else "".join(msgs)
-            
+        
+        log.status = "success"
+        log.result_summary = {
+            "saved_count": final_state.get("saved_count", 0),
+            "skipped_count": final_state.get("skipped_count", 0),
+            "deleted_count": final_state.get("deleted_count", 0)
+        }
+        log.logs = result_msg
+        self.db.commit()
+
         return CrawlResponse(
             status="success",
             message=result_msg,
@@ -66,10 +118,27 @@ class ScrollerService:
     # ==========================================
     # 클러스터링 비즈니스 로직 (LangGraph 연동)
     # ==========================================
-    def execute_clustering(self) -> ClusterResponse:
-        print("🤖 [LangGraph] 클러스터링 기반 이슈 분석 워크플로우 파이프라인 진입...")
+    def execute_clustering(self, mode: str = None) -> ClusterResponse:
+        """
+        미분류 기사들을 군집화하고 이슈 이름을 생성하는 워크플로우를 실행합니다.
+        - mode: 제공되지 않을 경우 DB의 SystemSettings 값을 따름.
+        """
+        if not mode:
+            setting = self.db.query(SystemSettings).first()
+            mode = setting.llm_mode if setting else "gemini_only"
+            
+        logger.info(f"📊 이슈 클러스터링 워크플로우 시작 (Mode: {mode})")
         
+        # 0. 오래된 로그 정리 (보관 기간: 10일)
+        self._cleanup_old_logs(days=10)
+        
+        # 1. 실행 로그 생성
+        log = ExecutionLog(job_type="cluster", mode=mode, status="running")
+        self.db.add(log)
+        self.db.commit()
+
         initial_state = {
+            "llm_mode": mode,
             "unclustered_articles": [],
             "clustered_topics": [],
             "saved_issue_count": 0,
@@ -77,9 +146,16 @@ class ScrollerService:
             "error": ""
         }
         
-        final_state = self.cluster_app.invoke(initial_state)
+        # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
+        config = {"configurable": {"thread_id": "scroller_cluster_session"}}
+        final_state = self.cluster_app.invoke(initial_state, config=config)
         
+        # 2. 결과 로그 업데이트
+        log.finished_at = func.now()
         if final_state.get("error"):
+            log.status = "failed"
+            log.logs = final_state["error"]
+            self.db.commit()
             return ClusterResponse(
                 status="error",
                 message=final_state["error"],
@@ -87,7 +163,14 @@ class ScrollerService:
             )
             
         msgs = final_state.get("messages", [])
-        result_msg = msgs[-1] if msgs else "이슈 배정 왼료"
+        result_msg = msgs[-1] if msgs else "이슈 배정 완료"
+        
+        log.status = "success"
+        log.result_summary = {
+            "saved_issue_count": final_state.get("saved_issue_count", 0)
+        }
+        log.logs = result_msg
+        self.db.commit()
             
         return ClusterResponse(
             status="success",
@@ -113,6 +196,7 @@ class ScrollerService:
 class NLPSearchService:
     def __init__(self, db: Session):
         self.repo = ScrollerRepository(db)
+        self.nodes = ScrollerNodes(db) # JSON 파싱 등 공통 기능 활용용
 
     def generate_briefing(self, query, articles_data):
         try:
@@ -143,8 +227,8 @@ class NLPSearchService:
             }}
             """
             response = model.generate_content(prompt)
-            clean_text = response.text.strip().replace("```json", "").replace("```", "")
-            return json.loads(clean_text)
+            parsed = self.nodes._parse_gemini_json(response.text)
+            return parsed
         except Exception as e:
             print(f"⚠️ 브리핑 생성 실패: {e}")
             return None

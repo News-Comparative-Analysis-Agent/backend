@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.scroller.schemas import SearchRequest, SearchResponse
-from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse
+from app.scroller.schemas import CrawlRequest, ClusterRequest, CrawlResponse, ClusterResponse, ResetResponse
 from app.scroller.service import ScrollerService
 from app.scroller.service import NLPSearchService
+from app.domains.system.models import ExecutionLog
 
 router = APIRouter()
 
@@ -16,20 +17,20 @@ async def search_news_nlp(request: SearchRequest, db: Session = Depends(get_db))
     return result
 
 @router.post("/crawl", response_model=CrawlResponse, summary="최신 정치 뉴스 크롤링")
-def crawl_news(db: Session = Depends(get_db)):
+def crawl_news(request: CrawlRequest, db: Session = Depends(get_db)):
     # 4일치 뉴스를 크롤링!! 
     service = ScrollerService(db)
     try:
-        return service.execute_news_crawling()
+        return service.execute_news_crawling(mode=request.mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cluster", response_model=ClusterResponse, summary="미분류 기사 AI 군집화")
-def cluster_articles(db: Session = Depends(get_db)):
+def cluster_articles(request: ClusterRequest, db: Session = Depends(get_db)):
     # 클러스터링 
     service = ScrollerService(db)
     try:
-        return service.execute_clustering()
+        return service.execute_clustering(mode=request.mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -41,3 +42,13 @@ def reset_database(db: Session = Depends(get_db)):
         return service.execute_truncate()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/logs", summary="최근 실행 이력 조회")
+def get_execution_logs(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """
+    크롤링 및 클러스터링 작업의 최근 실행 이력을 조회합니다.
+    """
+    return db.query(ExecutionLog).order_by(ExecutionLog.id.desc()).limit(limit).all()

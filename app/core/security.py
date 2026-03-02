@@ -24,7 +24,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login/kakao", auto_error=Fal
 def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     JWT 액세스 토큰을 생성합니다.
-    :param subject: 토큰의 주체 (user_id)
     :param expires_delta: 토큰 만료 시간
     :return: 암호화된 JWT 문자열
     """
