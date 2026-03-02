@@ -347,7 +347,6 @@ class ScrollerNodes:
             }
 
     def node_analyze_and_save(self, state: CrawlState) -> dict:
-    def node_analyze_and_save(self, state: CrawlState) -> dict:
         """
         [Node] 수집된 기사들을 AI로 분석하고 데이터베이스에 저장합니다.
         메타데이터 저장과 본문 저장을 한 트랜잭션으로 처리합니다.

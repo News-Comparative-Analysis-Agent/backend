@@ -14,9 +14,9 @@ from app.domains.users.models import User
 load_dotenv()
 
 # 환경 변수 직접 로드 (config.py 제거 대응)
-# SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key").strip().strip('"').strip("'")
-# ALGORITHM = os.getenv("ALGORITHM", "HS256").strip().strip('"').strip("'")
-# ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))
+SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key").strip().strip('"').strip("'")
+ALGORITHM = os.getenv("ALGORITHM", "HS256").strip().strip('"').strip("'")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))
 
 # OAuth2 설정
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login/kakao", auto_error=False)
@@ -24,7 +24,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login/kakao", auto_error=Fal
 def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
     JWT 액세스 토큰을 생성합니다.
-    :param subject: 토큰의 주체 (user_id)
     :param expires_delta: 토큰 만료 시간
     :return: 암호화된 JWT 문자열
     """
