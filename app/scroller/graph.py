@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.pregel.retry import RetryPolicy
+from langgraph.types import RetryPolicy
 from app.scroller.state import CrawlState, ClusterState
 from app.scroller.nodes import ScrollerNodes
 from sqlalchemy.orm import Session

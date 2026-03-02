@@ -50,8 +50,19 @@ class DraftService:
     # ==========================================
     # 1. 자동 초안 생성 (비평 기사 스트리밍) 로직
     # ==========================================
-    async def _stream_generator(self, prompt: str):
+    async def _stream_generator(self, prompt: str, pre_generated_text: str = None):
         try:
+            # 미리 생성된 초안이 있으면 AI를 호출하지 않고 스트리밍 흉내만 내서 즉각 반환
+            if pre_generated_text:
+                # 텍스트를 약간씩 나눠서 전송하여 스트리밍 효과 (선택 사항)
+                chunk_size = 50
+                for i in range(0, len(pre_generated_text), chunk_size):
+                    chunk = pre_generated_text[i:i+chunk_size]
+                    data = json.dumps({"text": chunk}, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+                    time.sleep(0.05) # 약간의 딜레이로 스트리밍 느낌
+                return
+
             response = model.generate_content(prompt, stream=True)
             for chunk in response:
                 if chunk.text:
@@ -64,10 +75,15 @@ class DraftService:
 
     def generate_draft_stream(self, issue_id: int):
         context_text = ""
+        pre_generated_draft = None
         
         if issue_id:
             issue = self.repo.get_issue_by_id(issue_id)
             if issue:
+                # 미리 생성된 초안이 있는지 확인
+                if issue.pre_generated_draft:
+                    pre_generated_draft = issue.pre_generated_draft
+                
                 articles = self.repo.get_articles_by_issue_with_publisher(issue_id, limit=5)
                 article_summaries = []
                 for idx, art in enumerate(articles, 1):
@@ -109,7 +125,7 @@ class DraftService:
 - 마크다운 등 코드블록 금지
         """
         return StreamingResponse(
-            self._stream_generator(system_prompt), 
+            self._stream_generator(prompt=system_prompt, pre_generated_text=pre_generated_draft), 
             media_type="text/event-stream"
         )
 
