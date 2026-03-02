@@ -16,9 +16,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 소스 코드 전체 복사
+# 소스 코드 전체 복사 (entrypoint.sh 포함)
 COPY . .
 
-# 실행 명령어 (개발 모드: --reload)
-# 주의: 실제로 실행하려면 app/main.py가 존재해야 합니다.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# entrypoint.sh에 실행 권한 부여
+RUN chmod +x /app/entrypoint.sh
+
+# 실행 명령어 (entrypoint 사용)
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -42,10 +42,6 @@ def run_daily_pipeline():
     finally:
         db.close()
 
-if __name__ == "__main__":
-    run_daily_pipeline()
-
-
 def seed_settings():
     """
     초기 시스템 설정(gemini_only) 주입 메서드
@@ -63,3 +59,7 @@ def seed_settings():
             print(f"ℹ️ 기존 설정 유지 중: {existing.llm_mode}")
     finally:
         db.close()
+
+
+if __name__ == "__main__":
+    run_daily_pipeline()
