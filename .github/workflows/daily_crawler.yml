@@ -1,8 +1,6 @@
 name: Daily News Scraper and Clustering
 
 on:
-  push:
-    branches: [ "main" ]
   schedule:
     # 한국 시간(KST) 기준 오전 06:00 -> UTC 기준 전날 오후 21:00
     - cron: '0 21 * * *'

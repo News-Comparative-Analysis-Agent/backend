@@ -46,6 +46,7 @@ class ScrollerRepository:
             
         return deleted_count
 
+
     def get_or_create_publisher(self, press_name: str) -> Publisher:
         """
         언론사 정보를 조회하고, 없으면 새로 생성하여 반환합니다.

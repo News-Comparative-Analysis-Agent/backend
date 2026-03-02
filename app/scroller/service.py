@@ -75,7 +75,6 @@ class ScrollerService:
             "analyzed_articles": [],
             "saved_count": 0,
             "skipped_count": 0,
-            "deleted_count": 0,
             "messages": [],
             "error": ""
         }
