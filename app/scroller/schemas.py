@@ -1,5 +1,18 @@
 # app/scroller/schemas.py
 from pydantic import BaseModel
+from enum import Enum
+from typing import Optional
+
+class LLMMode(str, Enum):
+    GEMINI_ONLY = "gemini_only"
+    LOCAL_PRIORITY = "local_priority"
+    LOCAL_ONLY = "local_only"
+
+class CrawlRequest(BaseModel):
+    mode: Optional[LLMMode] = LLMMode.GEMINI_ONLY
+
+class ClusterRequest(BaseModel):
+    mode: Optional[LLMMode] = LLMMode.GEMINI_ONLY
 
 class CrawlResponse(BaseModel):
     status: str

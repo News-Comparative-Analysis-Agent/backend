@@ -12,14 +12,13 @@ from tests import db_api as db_test_router
 # 인증 의존성 임포트
 from app.core.security import get_current_user
 
-# SQLAlchemy 모델 로드
+# SQLAlchemy 모델 로드 및 DB 테이블 생성
 from app.domains.users import models as user_models
 from app.domains.publishers import models as pub_models
 from app.domains.articles import models as art_models
 from app.domains.issues import models as issue_models
 from app.domains.drafts import models as draft_models
 
-# DB 테이블 생성
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(description="Aigent Backend API")

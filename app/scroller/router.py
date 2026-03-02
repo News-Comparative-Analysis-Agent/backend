@@ -16,20 +16,20 @@ async def search_news_nlp(request: SearchRequest, db: Session = Depends(get_db))
     return result
 
 @router.post("/crawl", response_model=CrawlResponse, summary="최신 정치 뉴스 크롤링")
-def crawl_news(db: Session = Depends(get_db)):
+def crawl_news(request: CrawlRequest, db: Session = Depends(get_db)):
     # 4일치 뉴스를 크롤링!! 
     service = ScrollerService(db)
     try:
-        return service.execute_news_crawling()
+        return service.execute_news_crawling(mode=request.mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cluster", response_model=ClusterResponse, summary="미분류 기사 AI 군집화")
-def cluster_articles(db: Session = Depends(get_db)):
+def cluster_articles(request: ClusterRequest, db: Session = Depends(get_db)):
     # 클러스터링 
     service = ScrollerService(db)
     try:
-        return service.execute_clustering()
+        return service.execute_clustering(mode=request.mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
