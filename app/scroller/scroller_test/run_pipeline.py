@@ -31,9 +31,19 @@ def run_daily_pipeline():
         print(f"결과: {crawl_result.message}")
         
         # 2. 클러스터링 실행
-        print(f"\n=== 2단계: 클러스터링 및 이슈 명명 (Mode: {active_mode}) ===")
-        cluster_result = service.execute_clustering(mode=active_mode)
+        print("\n=== 2단계: 미분류 기사 이슈 클러스터링 ===")
+        cluster_result = service.execute_clustering()
         print(f"결과: {cluster_result.message}")
+        
+        # 3. 상위 이슈 초안 자동 생성
+        print("\n=== 3단계: 상위 5개 이슈 초안 자동 생성 ===")
+        try:
+            from app.scroller.scroller_test.run_draft_gen import run_draft_generation
+            run_draft_generation()
+        except ImportError as e:
+            print(f"❌ [Draft Gen] 모듈 임포트 실패: {e}")
+        except Exception as e:
+            print(f"❌ [Draft Gen] 실행 중 오류: {e}")
         
         print("\n🎉 [Pipeline] 모든 파이프라인이 성공적으로 종료되었습니다.")
         
