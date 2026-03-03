@@ -37,12 +37,12 @@ app.include_router(users_router.router, prefix="/user", tags=["users"])
 app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 
 # 2. 보호된 엔드포인트 (인증 필수) 잠시 주석처리
-# protected_dependency = [Depends(get_current_user)]
+protected_dependency = [Depends(get_current_user)]
 
-app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
-app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
-app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
-app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
+app.include_router(articles_router.router, prefix="/articles", tags=["articles"], dependencies=protected_dependency)
+app.include_router(issues_router.router, prefix="/issues", tags=["issues"], dependencies=protected_dependency)
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"], dependencies=protected_dependency)
+app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"], dependencies=protected_dependency)
 
 @app.get("/")
 def health_check():
