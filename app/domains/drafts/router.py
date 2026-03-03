@@ -58,3 +58,22 @@ async def analyze_perspectives_api(issue_id: int, db: Session = Depends(get_db))
     """
     service = DraftService(db)
     return await service.analyze_perspectives(issue_id)
+
+# 6. 초안 작업실 가져오기 API
+@router.post("/workspace/from-issue", summary="시스템 초안을 내 작업실로 가져오기")
+async def save_draft_to_workspace_api(
+    request: SaveDraftRequest, 
+    db: Session = Depends(get_db)
+    # user: User = Depends(get_current_user) # 추후 사용자 인증 활성화 시 주석 해제하여 사용
+):
+    """
+    이슈의 pre_generated_draft를 읽어서 현재 로그인한 유저의 Draft 테이블로 복사(저장)합니다.
+    (현재 인증이 임시 비활성화 상태라 임의의 user_id 1번을 사용합니다 - 추후 get_current_user 연동)
+    """
+    service = DraftService(db)
+    user_id = 1 # FIXME: 추후 인증 미들웨어가 활성화되면 user.id 로 변경
+    
+    new_draft_id = service.save_issue_draft_to_workspace(user_id=user_id, request=request)
+    
+    # SaveDraftResponse 스키마 리턴 대신 임시 딕셔너리 또는 스키마 매핑
+    return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "draft_id": new_draft_id}

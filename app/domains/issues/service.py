@@ -26,6 +26,7 @@ class IssueService:
                 description=issue.description,
                 article_count=issue.total_count,
                 rank=idx + 1,
+                pre_generated_draft=issue.pre_generated_draft,
                 created_at=issue.created_at
             ))
             
@@ -45,6 +46,7 @@ class IssueService:
                 description=issue.description,
                 article_count=issue.total_count,
                 rank=idx + 1,
+                pre_generated_draft=issue.pre_generated_draft,
                 created_at=issue.created_at
             ))
             
