@@ -22,8 +22,10 @@ from dotenv import load_dotenv
 
 from app.scroller.repository import ScrollerRepository
 from app.scroller.state import CrawlState, ClusterState
+from app.core.logger import logger, log_llm_event
+
 # 로깅 설정
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__) # 기존 로거 대신 app.core.logger 사용
 
 # .env 로드
 load_dotenv()
@@ -98,11 +100,15 @@ class ScrollerNodes:
         }
         
         try:
+            log_llm_event("LocalLLM", f"Requesting {model_size}", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
             response = requests.post(url, json=payload, timeout=30)
             response.raise_for_status()
             result = response.json()
-            return result['choices'][0]['message']['content']
+            content = result['choices'][0]['message']['content']
+            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content)
+            return content
         except Exception as e:
+            log_llm_event("LocalLLM", f"Error: {e}", details=str(e))
             logger.error(f"로컬 LLM({model_size}) 호출 실패: {e}")
             raise e
 
@@ -139,10 +145,13 @@ class ScrollerNodes:
         제미나이 API를 호출합니다.
         """
         try:
+            log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
             model = genai.GenerativeModel('gemini-2.0-flash')
             response = model.generate_content(prompt)
+            log_llm_event("Gemini", "Response received", details=response.text)
             return self._parse_llm_json(response.text)
         except Exception as e:
+            log_llm_event("Gemini", f"Error: {e}", details=str(e))
             logger.error(f"Gemini 호출 실패: {e}")
             return None
 
@@ -170,8 +179,11 @@ class ScrollerNodes:
         [Node] 오래된 기사 데이터를 정리합니다.
         기준 기간(DAYS_TO_CRAWL)보다 오래된 데이터를 삭제하여 DB 용량을 최적화합니다.
         """
+        log_llm_event("cleanup", "오래된 데이터 정리 노드 시작")
         deleted_count = self.repo.delete_old_articles(days=30)
-        return {"messages": [f"과거 데이터 삭제 완료: {deleted_count}건"]}
+        msg = f"과거 데이터 삭제 완료: {deleted_count}건"
+        log_llm_event("cleanup", msg)
+        return {"messages": [msg]}
 
     def _get_article_detail_with_section(self, url: str):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
@@ -227,6 +239,7 @@ class ScrollerNodes:
         [Node] 네이버 뉴스 랭킹 페이지에서 정치 섹션 기사를 수집합니다.
         설정된 기간 동안 주요 언론사의 기사 리스트를 훑으며 신규 기사만 수집합니다.
         """
+        log_llm_event("crawl", "뉴스 수집 노드 시작")
         all_news = []
         seen_articles = set() # 한 세션 내에서의 중복 제거용
         
@@ -292,8 +305,10 @@ class ScrollerNodes:
                         time.sleep(random.uniform(0.05, 0.1))
                 except Exception as e:
                     logger.error(f"언론사 {press_name} 크롤링 중 에러: {e}")
-                    
-        return {"raw_articles": all_news, "messages": [f"신규 정치 기사 {len(all_news)}건 수집됨"]}
+        
+        msg = f"신규 정치 기사 {len(all_news)}건 수집됨"
+        log_llm_event("crawl", msg)
+        return {"raw_articles": all_news, "messages": [msg]}
 
     def _analyze_article_with_llm(self, title: str, content: str, state: dict) -> dict:
         """
@@ -351,6 +366,7 @@ class ScrollerNodes:
         [Node] 수집된 기사들을 AI로 분석하고 데이터베이스에 저장합니다.
         메타데이터 저장과 본문 저장을 한 트랜잭션으로 처리합니다.
         """
+        log_llm_event("analyze_save", "기사 분석 및 저장 노드 시작")
         raw_news = state.get("raw_articles", [])
         df_unique = pd.DataFrame(raw_news)
         
@@ -405,16 +421,19 @@ class ScrollerNodes:
                 self.repo.db.rollback() 
                 
         self.repo.db.commit() 
+        msg = f"AI 분석 및 저장 완료: {saved_count}건"
+        log_llm_event("analyze_save", msg)
         return {
             "saved_count": saved_count, 
             "skipped_count": skipped_count,
-            "messages": [f"AI 분석 및 저장 완료: {saved_count}건"]
+            "messages": [msg]
         }
 
     # ==========================================
     # Cluster Graph Nodes
     # ==========================================
     def node_fetch_unclustered(self, state: ClusterState) -> dict:
+        log_llm_event("fetch", "미분류 기사 로드 노드 시작")
         try:
             # 이전 단계(크롤링 등)에서 예외 처리되지 않은 트랜잭션 오류가 남아있을 경우를 대비해 롤백 수행
             self.repo.db.rollback()
@@ -430,10 +449,14 @@ class ScrollerNodes:
                     'pub_date': a.published_at,
                     'link': a.url
                 })
-            return {"unclustered_articles": data, "messages": [f"미분류 기사 {len(data)}건 로드됨"]}
+            msg = f"미분류 기사 {len(data)}건 로드됨"
+            log_llm_event("fetch", msg)
+            return {"unclustered_articles": data, "messages": [msg]}
         except Exception as e:
             self.repo.db.rollback()
-            return {"unclustered_articles": [], "error": str(e), "messages": [f"미분류 기사 로드 실패: {e}"]}
+            msg = f"미분류 기사 로드 실패: {e}"
+            log_llm_event("fetch", msg, type="ERROR")
+            return {"unclustered_articles": [], "error": str(e), "messages": [msg]}
 
     def _remove_duplicates_fast(self, df: pd.DataFrame, threshold: float = 0.90) -> pd.DataFrame:
         if df.empty: return df
@@ -491,6 +514,7 @@ class ScrollerNodes:
         [Node] 수집된 미분류 기사들을 의미론적 유사도 기반으로 군집화(Clustering)합니다.
         BERTopic 알고리즘을 사용하여 문서 간의 주제를 식별합니다.
         """
+        log_llm_event("cluster", "클러스터링 노드 시작")
         articles = state.get("unclustered_articles", [])
         # 최소 10개의 기사가 있어야 분석이 가능하도록 제한
         if len(articles) < 10:
@@ -545,8 +569,10 @@ class ScrollerNodes:
             return {"clustered_topics": clustered_topics, "messages": [f"BERTopic 결과 {len(clustered_topics)}개 이슈 그룹 발견"]}
             
         except Exception as e:
+            msg = f"클러스터링 실패: {e}"
+            log_llm_event("cluster", msg, type="ERROR")
             logger.error(f"클러스터링 실행 중 치명적 에러: {e}")
-            return {"clustered_topics": [], "messages": [f"클러스터링 실패: {e}"]}
+            return {"clustered_topics": [], "messages": [msg]}
 
     def _generate_issue_details_with_llm(self, titles: list, state: dict):
         """
@@ -588,6 +614,7 @@ class ScrollerNodes:
             return titles[0], "요약 생성 실패", "배경 정보 없음", "주요 쟁점 정보 없음"
 
     def node_name_and_save_issues(self, state: ClusterState) -> dict:
+        log_llm_event("name_and_save", "이슈 명명 및 저장 노드 시작")
         topics = state.get("clustered_topics", [])
         saved_issue_count = 0
         
@@ -615,8 +642,12 @@ class ScrollerNodes:
                 saved_issue_count += 1
                 
             self.repo.db.commit()
-            return {"saved_issue_count": saved_issue_count, "messages": [f"이슈 매핑 파이프라인 종료: {saved_issue_count}개 생성 완료"]}
+            msg = f"이슈 매핑 파이프라인 종료: {saved_issue_count}개 생성 완료"
+            log_llm_event("name_and_save", msg)
+            return {"saved_issue_count": saved_issue_count, "messages": [msg]}
             
         except Exception as e:
             self.repo.db.rollback()
-            return {"saved_issue_count": 0, "error": str(e), "messages": [f"저장 중 에러: {e}"]}
+            msg = f"저장 중 에러: {e}"
+            log_llm_event("name_and_save", msg, type="ERROR")
+            return {"saved_issue_count": 0, "error": str(e), "messages": [msg]}

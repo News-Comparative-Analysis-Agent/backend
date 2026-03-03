@@ -14,6 +14,7 @@ from app.domains.issues.models import IssueLabel
 # SQLAlchemy 관계 매핑시 참조할 Article 모델 또한 명시적으로 import 해줍니다.
 from app.domains.articles.models import Article 
 import google.generativeai as genai
+from app.core.logger import logger, log_llm_event
 
 # Gemini API 설정 (langgraph에서는 node를 통해 호출하지만, 여기서는 독립 스크립트로 직접 호출)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -43,14 +44,18 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
 길이는 약 600~800자 내외로 작성해주세요.
 """
     try:
+        log_llm_event("DraftGen", f"Generating draft for issue: {issue.name}", details=prompt)
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
+        log_llm_event("DraftGen", f"Response received for issue: {issue.name}", details=response.text)
         return response.text.strip()
     except Exception as e:
+        log_llm_event("DraftGen", f"Error generating draft for {issue.name}: {e}", type="ERROR")
         print(f"[{issue.name}] 초안 생성 중 오류 발생: {e}")
         return ""
 
 def run_draft_generation():
+    log_llm_event("DraftGen", "상위 5개 이슈 초안 자동 생성 시작")
     print("🚀 [Draft Gen] 상위 5개 이슈 초안 자동 생성을 시작합니다...")
     db: Session = SessionLocal()
     
@@ -87,6 +92,7 @@ def run_draft_generation():
         db.rollback()
     finally:
         db.close()
+        log_llm_event("DraftGen", "초안 자동 생성 파이프라인 종료")
         print("🎉 [Draft Gen] 초안 자동 생성 파이프라인이 종료되었습니다.")
 
 if __name__ == "__main__":

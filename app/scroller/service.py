@@ -13,8 +13,7 @@ from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, 
 from app.domains.system.models import SystemSettings, ExecutionLog
 from app.scroller.graph import create_crawl_graph, create_cluster_graph
 from app.scroller.nodes import ScrollerNodes 
-
-logger = logging.getLogger(__name__)
+from app.core.logger import logger, log_llm_event
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
@@ -97,7 +96,7 @@ class ScrollerService:
             )
             
         msgs = final_state.get("messages", [])
-        result_msg = " | ".join(msgs[-2:]) if len(msgs) >= 2 else "".join(msgs)
+        result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
         
         log.status = "success"
         log.result_summary = {
@@ -163,7 +162,7 @@ class ScrollerService:
             )
             
         msgs = final_state.get("messages", [])
-        result_msg = msgs[-1] if msgs else "이슈 배정 완료"
+        result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
         
         log.status = "success"
         log.result_summary = {
@@ -226,8 +225,10 @@ class NLPSearchService:
                 "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
             }}
             """
+            log_llm_event("NLPSearch", "Requesting gemini-2.0-flash for briefing", details=prompt)
             response = model.generate_content(prompt)
-            parsed = self.nodes._parse_gemini_json(response.text)
+            log_llm_event("NLPSearch", "Response received", details=response.text)
+            parsed = self.nodes._parse_llm_json(response.text)
             return parsed
         except Exception as e:
             print(f"⚠️ 브리핑 생성 실패: {e}")
