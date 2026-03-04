@@ -21,7 +21,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
 else:
-    print("❌ GOOGLE_API_KEY가 설정되지 않았습니다.")
+    logger.error("❌ GOOGLE_API_KEY가 설정되지 않았습니다.")
 
 def generate_draft_for_issue(issue: IssueLabel) -> str:
     """
@@ -51,12 +51,12 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
         return response.text.strip()
     except Exception as e:
         log_llm_event("DraftGen", f"Error generating draft for {issue.name}: {e}", type="ERROR")
-        print(f"[{issue.name}] 초안 생성 중 오류 발생: {e}")
+        logger.error(f"[{issue.name}] 초안 생성 중 오류 발생: {e}")
         return ""
 
 def run_draft_generation():
     log_llm_event("DraftGen", "상위 5개 이슈 초안 자동 생성 시작")
-    print("🚀 [Draft Gen] 상위 5개 이슈 초안 자동 생성을 시작합니다...")
+    logger.info("🚀 [Draft Gen] 상위 5개 이슈 초안 자동 상성을 시작합니다...")
     db: Session = SessionLocal()
     
     try:
@@ -65,16 +65,16 @@ def run_draft_generation():
         top_issues = db.query(IssueLabel).order_by(desc(IssueLabel.total_count)).limit(5).all()
         
         if not top_issues:
-            print("생성된 이슈가 없습니다.")
+            logger.info("ℹ️ 생성된 이슈가 없습니다.")
             return
 
         generated_count = 0
         for idx, issue in enumerate(top_issues, start=1):
             if issue.pre_generated_draft:
-                print(f"{idx}. [{issue.name}] - 이미 초안이 존재합니다. 건너뜁니다.")
+                logger.info(f"{idx}. [{issue.name}] - 이미 초안이 존재합니다. 건너뜁니다.")
                 continue
                 
-            print(f"{idx}. [{issue.name}] (기사 수: {issue.total_count}) - 초안 생성 중...")
+            logger.info(f"{idx}. [{issue.name}] (기사 수: {issue.total_count}) - 초안 생성 중...")
             draft_text = generate_draft_for_issue(issue)
             
             if draft_text:
@@ -83,17 +83,17 @@ def run_draft_generation():
                 
         if generated_count > 0:
             db.commit()
-            print(f"✅ 총 {generated_count}개의 이슈 초안이 성공적으로 저장되었습니다.")
+            logger.success(f"✅ 총 {generated_count}개의 이슈 초안이 성공적으로 저장되었습니다.")
         else:
-            print("❕ 새롭게 생성된 초안이 없습니다.")
+            logger.info("❕ 새롭게 생성된 초안이 없습니다.")
             
     except Exception as e:
-        print(f"❌ [Draft Gen] 프로세스 중 오류 발생: {e}")
+        logger.error(f"❌ [Draft Gen] 프로세스 중 오류 발생: {e}")
         db.rollback()
     finally:
         db.close()
         log_llm_event("DraftGen", "초안 자동 생성 파이프라인 종료")
-        print("🎉 [Draft Gen] 초안 자동 생성 파이프라인이 종료되었습니다.")
+        logger.info("🎉 [Draft Gen] 초안 자동 생성 파이프라인이 종료되었습니다.")
 
 if __name__ == "__main__":
     run_draft_generation()

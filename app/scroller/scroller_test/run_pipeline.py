@@ -10,9 +10,10 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 from app.core.database import SessionLocal
 from app.scroller.service import ScrollerService
 from app.domains.system.models import SystemSettings
+from app.core.logger import logger
 
 def run_daily_pipeline():
-    print("🚀 [Pipeline] 뉴스 크롤링 및 이슈 클러스터링 자동화 파이프라인 시작합니다...")
+    logger.info("🚀 [Pipeline] 뉴스 크롤링 및 이슈 클러스터링 자동화 파이프라인 시작합니다...")
     # 실행 전 초기 설정 데이터 확인 및 주입 (데이터 있으면 스킵됨)
     seed_settings()
     
@@ -23,32 +24,32 @@ def run_daily_pipeline():
         # 0. 글로벌 설정 확인 (관리자 모드)
         setting = db.query(SystemSettings).first()
         active_mode = setting.llm_mode if setting else "gemini_only"
-        print(f"📡 [Settings] 현재 시스템 설정 모드: {active_mode}")
+        logger.info(f"📡 [Settings] 현재 시스템 설정 모드: {active_mode}")
 
         # 1. 크롤링 실행
-        print(f"\n=== 1단계: 크롤링 및 분석 (Mode: {active_mode}) ===")
+        logger.info(f"=== 1단계: 크롤링 및 분석 (Mode: {active_mode}) ===")
         crawl_result = service.execute_news_crawling(mode=active_mode)
-        print(f"결과: {crawl_result.message}")
+        logger.success(f"결과: {crawl_result.message}")
         
         # 2. 클러스터링 실행
-        print("\n=== 2단계: 미분류 기사 이슈 클러스터링 ===")
+        logger.info("=== 2단계: 미분류 기사 이슈 클러스터링 ===")
         cluster_result = service.execute_clustering()
-        print(f"결과: {cluster_result.message}")
+        logger.success(f"결과: {cluster_result.message}")
         
         # 3. 상위 이슈 초안 자동 생성
-        print("\n=== 3단계: 상위 5개 이슈 초안 자동 생성 ===")
+        logger.info("=== 3단계: 상위 5개 이슈 초안 자동 생성 ===")
         try:
             from app.scroller.scroller_test.run_draft_gen import run_draft_generation
             run_draft_generation()
         except ImportError as e:
-            print(f"❌ [Draft Gen] 모듈 임포트 실패: {e}")
+            logger.error(f"❌ [Draft Gen] 모듈 임포트 실패: {e}")
         except Exception as e:
-            print(f"❌ [Draft Gen] 실행 중 오류: {e}")
+            logger.error(f"❌ [Draft Gen] 실행 중 오류: {e}")
         
-        print("\n🎉 [Pipeline] 모든 파이프라인이 성공적으로 종료되었습니다.")
+        logger.success("🎉 [Pipeline] 모든 파이프라인이 성공적으로 종료되었습니다.")
         
     except Exception as e:
-        print(f"\n❌ [Pipeline] 파이프라인 오류 발생: {e}")
+        logger.critical(f"❌ [Pipeline] 파이프라인 치명적 오류 발생: {e}")
     finally:
         db.close()
 
@@ -64,9 +65,9 @@ def seed_settings():
             new_setting = SystemSettings(id=1, llm_mode="gemini_only")
             db.add(new_setting)
             db.commit()
-            print("✅ 초기 시스템 설정(gemini_only) 주입 완료!")
+            logger.info("✅ 초기 시스템 설정(gemini_only) 주입 완료!")
         else:
-            print(f"ℹ️ 기존 설정 유지 중: {existing.llm_mode}")
+            logger.info(f"ℹ️ 기존 설정 유지 중: {existing.llm_mode}")
     finally:
         db.close()
 

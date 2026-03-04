@@ -269,6 +269,7 @@ class ScrollerNodes:
             
             # 사전에 정의된 주요 언론사별 루프
             for press_name, oid in TARGET_PRESS_DICT.items():
+                logger.info(f"📰 [{date_str}] {press_name} 뉴스 목록 가져오는 중...")
                 url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
                 try:
                     res = self._fetch_with_retry(url, headers=headers, timeout=20)
@@ -320,7 +321,7 @@ class ScrollerNodes:
                         # 부하 조절을 위한 짧은 대기
                         time.sleep(random.uniform(0.05, 0.1))
                 except Exception as e:
-                    logger.error(f"언론사 {press_name} 크롤링 중 에러: {e}")
+                    logger.error(f"❌ {press_name} 크롤링 중 에러: {e}")
         
         msg = f"신규 정치 기사 {len(all_news)}건 수집됨"
         log_llm_event("crawl", msg)
@@ -392,8 +393,11 @@ class ScrollerNodes:
             return {"saved_count": 0, "skipped_count": 0, "messages": ["수집된 새 기사가 없어 분석 생략"]}
 
         # 수집된 각 기사에 대해 루프 실행
-        for _, row in df_unique.iterrows():
+        total_raw = len(df_unique)
+        for idx, row in df_unique.iterrows():
             try:
+                if (idx + 1) % 5 == 0 or (idx + 1) == total_raw:
+                    logger.info(f"📝 기사 분석 진행 중... ({idx + 1}/{total_raw})")
                 # 1. 언론사 객체 획득 (없으면 생성)
                 publisher = self.repo.get_or_create_publisher(row['press'])
                 

@@ -74,7 +74,11 @@ class ScrollerService:
             raise e
         
         # 2. 결과 처리
+        saved = final_state.get("saved_count", 0)
+        skipped = final_state.get("skipped_count", 0)
+        
         if final_state.get("error"):
+            session_logger.error(f"❌ 크롤링 중 오류 발생: {final_state['error']}")
             stop_job_logging(handler_id)
             finalize_job_log(log_path, "failed")
             return CrawlResponse(
@@ -87,14 +91,16 @@ class ScrollerService:
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
 
+        session_logger.success(f"✅ 뉴스 크롤링 완료: 신규 저장 {saved}건, 중복 스킵 {skipped}건")
+        
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
 
         return CrawlResponse(
             status="success",
             message=result_msg,
-            saved_count=final_state.get("saved_count", 0),
-            skipped_count=final_state.get("skipped_count", 0)
+            saved_count=saved,
+            skipped_count=skipped
         )
 
     # ==========================================
@@ -134,7 +140,10 @@ class ScrollerService:
             raise e
         
         # 2. 결과 처리
+        saved_issues = final_state.get("saved_issue_count", 0)
+        
         if final_state.get("error"):
+            session_logger.error(f"❌ 클러스터링 중 오류 발생: {final_state['error']}")
             stop_job_logging(handler_id)
             finalize_job_log(log_path, "failed")
             return ClusterResponse(
@@ -146,13 +155,15 @@ class ScrollerService:
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
 
+        session_logger.success(f"✅ 이슈 클러스터링 완료: 생성된 이슈 {saved_issues}건")
+
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
             
         return ClusterResponse(
             status="success",
             message=result_msg,
-            saved_issue_count=final_state.get("saved_issue_count", 0)
+            saved_issue_count=saved_issues
         )
 
     # ==========================================
@@ -162,20 +173,25 @@ class ScrollerService:
         try:
             self.repo.truncate_all_data()
             self.repo.db.commit()
+            logger.warning("🗑️ 데이터베이스 초기화(Truncate)가 실행되었습니다.")
             return ResetResponse(status="success", message="모든 데이터가 삭제되고 PK 1번으로 리셋되었습니다.")
         except Exception as e:
             self.repo.db.rollback()
+            logger.error(f"❌ 데이터베이스 초기화 실패: {e}")
             return ResetResponse(status="error", message=f"삭제 오류: {e}")
 
 
     def update_llm_mode(self, mode: str) -> str:
         """시스템 LLM 모드를 업데이트하고 결과를 반환합니다."""
         try:
+            old_mode = self.db.query(SystemSettings).first().llm_mode
             settings = self.repo.update_system_llm_mode(mode)
             self.db.commit()
+            logger.info(f"⚙️ 시스템 LLM 모드 변경: {old_mode} -> {settings.llm_mode}")
             return settings.llm_mode
         except Exception as e:
             self.db.rollback()
+            logger.error(f"❌ LLM 모드 변경 실패: {e}")
             raise e
 
 # ==========================================
@@ -224,9 +240,10 @@ class NLPSearchService:
             return None
 
     def execute_search_briefing(self, user_query):
-        print(f"🔍 '{user_query}' 관련 기사 우리 DB에서 검색 중...")
+        logger.info(f"🔍 '{user_query}' 관련 기사 내부 DB 검색 중...")
         items = self.repo.search_articles_by_keyword(user_query, limit=15)
         if not items: 
+            logger.info(f"ℹ️ '{user_query}' 관련 검색 결과 없음")
             return {"success": False, "message": "내부 DB에 해당 키워드를 포함한 기사가 없습니다."}
 
         processed_articles = []
