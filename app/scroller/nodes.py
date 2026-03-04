@@ -37,9 +37,11 @@ DAYS_TO_CRAWL = 4
 
 # 온프레미스 LLM 서버 설정 (OpenAI 호환 API 구조)
 LOCAL_LLM_SERVERS = {
-    "1.5B": f"http://{env.get('LLM_SERVER_IP')}:{env.get('1.5B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
-    "3B":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('3B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
-    "7B":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
+    # 기사 요약 및 정치 성향 판단 모델 
+    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_1_PORT')}/{env.get('LLM_SERVER_API_URI')}",
+
+    # 비평기사 작성 모델
+    "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_2_PORT')}/{env.get('LLM_SERVER_API_URI')}",
 }
 
 class ScrollerNodes:
@@ -103,7 +105,15 @@ class ScrollerNodes:
             response.raise_for_status()
             result = response.json()
             content = result['choices'][0]['message']['content']
-            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content)
+            
+            # 토큰 정보 추출 (OpenAI 호환 포맷)
+            usage = result.get('usage', {})
+            token_info = {
+                'prompt_tokens': usage.get('prompt_tokens', 0),
+                'completion_tokens': usage.get('completion_tokens', 0)
+            }
+            
+            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content, token_info=token_info)
             return content
         except Exception as e:
             log_llm_event("LocalLLM", f"Error: {e}", details=str(e))
@@ -146,7 +156,15 @@ class ScrollerNodes:
             log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
             model = genai.GenerativeModel('gemini-2.0-flash')
             response = model.generate_content(prompt)
-            log_llm_event("Gemini", "Response received", details=response.text)
+            
+            # 토큰 정보 추출 (Gemini 포맷)
+            usage = response.usage_metadata
+            token_info = {
+                'prompt_tokens': usage.prompt_token_count,
+                'completion_tokens': usage.candidates_token_count
+            }
+            
+            log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
             return self._parse_llm_json(response.text)
         except Exception as e:
             log_llm_event("Gemini", f"Error: {e}", details=str(e))
@@ -340,10 +358,9 @@ class ScrollerNodes:
         if mode == "gemini_only":
             return self._call_gemini(common_prompt)
 
-        # 2. 로컬/하이브리드 모드 처리 (3B 단일 호출로 통합)
+        # 2. 로컬/하이브리드 모드 처리 (7B_1 단일 호출로 통합)
         try:
-            # 병렬 호출 없이 3B 모델에게 모든 역할을 몰아서 요청
-            parsed = self._call_llm(common_prompt, "3B", state)
+            parsed = self._call_llm(common_prompt, "7B_1", state)
             
             if parsed:
                 return parsed
@@ -351,7 +368,7 @@ class ScrollerNodes:
             raise ValueError("LLM 응답 파싱 빈값")
 
         except Exception as e:
-            logger.error(f"3B 통합 분석 중 에러: {e}")
+            logger.error(f"7B_1 통합 분석 중 에러: {e}")
             return {
                 "summary": "분석 실패",
                 "bias": "neutral",
@@ -596,7 +613,7 @@ class ScrollerNodes:
             3. 기사에 등장하는 '특정 인물', '특정 정책', '사건'이 제목에 명확히 드러나야 합니다.
             4. 제목은 명사형으로 끝맺을 것.
             """
-            parsed = self._call_llm(prompt, "3B", state)
+            parsed = self._call_llm(prompt, "7B_1", state)
             
             if parsed:
                 return (

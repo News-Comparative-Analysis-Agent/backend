@@ -13,7 +13,7 @@ from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, 
 from app.domains.system.models import SystemSettings
 from app.scroller.graph import create_crawl_graph, create_cluster_graph
 from app.scroller.nodes import ScrollerNodes 
-from app.core.logger import logger, log_llm_event
+from app.core.logger import logger, log_llm_event, start_job_logging, stop_job_logging, finalize_job_log
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
@@ -48,6 +48,11 @@ class ScrollerService:
             mode = setting.llm_mode if setting else "gemini_only"
 
         logger.info(f"🔄 뉴스 크롤링 워크플로우 시작 (Mode: {mode})")
+        
+        # 세션 로그 시작
+        handler_id, log_path = start_job_logging("crawler")
+        # 이 세션에서 발생하는 모든 로그는 해당 파일로 스트리밍됨
+        session_logger = logger.bind(job_type="crawler")
 
         initial_state = {
             "llm_mode": mode,
@@ -61,9 +66,17 @@ class ScrollerService:
         
         # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
         config = {"configurable": {"thread_id": "scroller_crawl_session"}}
-        final_state = self.crawl_app.invoke(initial_state, config=config)
+        try:
+            final_state = self.crawl_app.invoke(initial_state, config=config)
+        except Exception as e:
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            raise e
         
+        # 2. 결과 처리
         if final_state.get("error"):
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
             return CrawlResponse(
                 status="error",
                 message=final_state["error"],
@@ -73,6 +86,9 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
+
+        stop_job_logging(handler_id)
+        finalize_job_log(log_path, "success")
 
         return CrawlResponse(
             status="success",
@@ -94,6 +110,10 @@ class ScrollerService:
             mode = setting.llm_mode if setting else "gemini_only"
             
         logger.info(f"📊 이슈 클러스터링 워크플로우 시작 (Mode: {mode})")
+        
+        # 세션 로그 시작
+        handler_id, log_path = start_job_logging("cluster")
+        session_logger = logger.bind(job_type="cluster")
 
         initial_state = {
             "llm_mode": mode,
@@ -106,9 +126,17 @@ class ScrollerService:
         
         # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
         config = {"configurable": {"thread_id": "scroller_cluster_session"}}
-        final_state = self.cluster_app.invoke(initial_state, config=config)
+        try:
+            final_state = self.cluster_app.invoke(initial_state, config=config)
+        except Exception as e:
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            raise e
         
+        # 2. 결과 처리
         if final_state.get("error"):
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
             return ClusterResponse(
                 status="error",
                 message=final_state["error"],
@@ -117,6 +145,9 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
+
+        stop_job_logging(handler_id)
+        finalize_job_log(log_path, "success")
             
         return ClusterResponse(
             status="success",
