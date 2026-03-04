@@ -189,6 +189,20 @@ class ScrollerService:
             self.repo.db.rollback()
             return ResetResponse(status="error", message=f"삭제 오류: {e}")
 
+    def get_execution_logs(self, limit: int = 10) -> list[ExecutionLog]:
+        """최근 실행 이력을 조회합니다."""
+        return self.repo.get_execution_logs(limit)
+
+    def update_llm_mode(self, mode: str) -> str:
+        """시스템 LLM 모드를 업데이트하고 결과를 반환합니다."""
+        try:
+            settings = self.repo.update_system_llm_mode(mode)
+            self.db.commit()
+            return settings.llm_mode
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
 # ==========================================
 # NLP 검색 로직 (기존 nlp_search.py 대체)
 # ==========================================

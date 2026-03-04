@@ -37,3 +37,11 @@ class SearchResponse(BaseModel):
     success: bool
     data: dict = None
     message: str = None
+
+class LLMModeUpdateRequest(BaseModel):
+    mode: LLMMode
+
+class SettingsResponse(BaseModel):
+    status: str
+    message: str
+    current_mode: Optional[str] = None

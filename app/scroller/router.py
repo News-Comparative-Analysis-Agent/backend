@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.scroller.schemas import SearchRequest, SearchResponse
-from app.scroller.schemas import CrawlRequest, ClusterRequest, CrawlResponse, ClusterResponse, ResetResponse
+from app.scroller.schemas import (
+    CrawlRequest, ClusterRequest, CrawlResponse, ClusterResponse, 
+    ResetResponse, LLMModeUpdateRequest, SettingsResponse
+)
 from app.scroller.service import ScrollerService
 from app.scroller.service import NLPSearchService
-from app.domains.system.models import ExecutionLog
 
 router = APIRouter()
 
@@ -51,4 +53,23 @@ def get_execution_logs(
     """
     크롤링 및 클러스터링 작업의 최근 실행 이력을 조회합니다.
     """
-    return db.query(ExecutionLog).order_by(ExecutionLog.id.desc()).limit(limit).all()
+    service = ScrollerService(db)
+    return service.get_execution_logs(limit)
+
+@router.post("/settings/llm-mode", response_model=SettingsResponse, summary="글로벌 LLM 모드 설정")
+def update_llm_mode(request: LLMModeUpdateRequest, db: Session = Depends(get_db)):
+    """
+    시스템 전체에서 사용할 기본 LLM 모드를 설정합니다.
+    """
+    service = ScrollerService(db)
+    try:
+        new_mode = service.update_llm_mode(request.mode)
+        return SettingsResponse(
+            status="success",
+            message=f"LLM 모드가 '{new_mode}'로 성공적으로 변경되었습니다.",
+            current_mode=new_mode
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    
