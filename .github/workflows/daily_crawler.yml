@@ -52,8 +52,8 @@ jobs:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         # 로컬 LLM 서버 설정 (GitHub Secrets에 등록 권장)
         LLM_SERVER_IP: ${{ secrets.LLM_SERVER_IP}}
-        7B_1_PORT: ${{ secrets.PORT_7B_1}}
-        7B_2_PORT: ${{ secrets.PORT_7B_2}}
+        PORT_7B_1: ${{ secrets.PORT_7B_1}}
+        PORT_7B_2: ${{ secrets.PORT_7B_2}}
         LLM_SERVER_API_URI: ${{ secrets.LLM_SERVER_API_URI}}
         PYTHONPATH: .
       run: |

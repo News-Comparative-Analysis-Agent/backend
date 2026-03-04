@@ -38,10 +38,10 @@ DAYS_TO_CRAWL = 4
 # 온프레미스 LLM 서버 설정 (OpenAI 호환 API 구조)
 LOCAL_LLM_SERVERS = {
     # 기사 요약 및 정치 성향 판단 모델 
-    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_1_PORT')}/{env.get('LLM_SERVER_API_URI')}",
+    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_1')}/{env.get('LLM_SERVER_API_URI')}",
 
     # 비평기사 작성 모델
-    "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_2_PORT')}/{env.get('LLM_SERVER_API_URI')}",
+    "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_2')}/{env.get('LLM_SERVER_API_URI')}",
 }
 
 class ScrollerNodes:
