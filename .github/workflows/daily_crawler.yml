@@ -50,6 +50,11 @@ jobs:
         # GitHub Secrets에서 가져온 환경 변수
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        # 로컬 LLM 서버 설정 (GitHub Secrets에 등록 권장)
+        LLM_SERVER_IP: ${{ secrets.LLM_SERVER_IP}}
+        7B_1_PORT: ${{ secrets.PORT_7B_1}}
+        7B_2_PORT: ${{ secrets.PORT_7B_2}}
+        LLM_SERVER_API_URI: ${{ secrets.LLM_SERVER_API_URI}}
         PYTHONPATH: .
       run: |
         python -m app.scroller.scroller_test.run_pipeline
