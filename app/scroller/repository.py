@@ -6,7 +6,7 @@ from app.domains.articles.models import Article
 from app.domains.articles.models import ArticleBody
 from app.domains.publishers.models import Publisher
 from app.domains.issues.models import IssueLabel
-from app.domains.system.models import ExecutionLog, SystemSettings
+from app.domains.system.models import SystemSettings
 
 class ScrollerRepository:
     """
@@ -212,17 +212,6 @@ class ScrollerRepository:
         # CASCADE 옵션을 통해 연관된 데이터까지 모두 삭제
         self.db.execute(text("TRUNCATE TABLE issue_labels, articles RESTART IDENTITY CASCADE"))
 
-    def get_execution_logs(self, limit: int = 10) -> list[ExecutionLog]:
-        """
-        최근 실행 이력을 조회합니다.
-        
-        Args:
-            limit (int): 조회할 로그의 최대 개수
-            
-        Returns:
-            list[ExecutionLog]: 최신순으로 정렬된 실행 로그 리스트
-        """
-        return self.db.query(ExecutionLog).order_by(ExecutionLog.id.desc()).limit(limit).all()
 
     def update_system_llm_mode(self, mode: str) -> SystemSettings:
         """

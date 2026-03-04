@@ -45,16 +45,6 @@ def reset_database(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/logs", summary="최근 실행 이력 조회")
-def get_execution_logs(
-    limit: int = 10,
-    db: Session = Depends(get_db)
-):
-    """
-    크롤링 및 클러스터링 작업의 최근 실행 이력을 조회합니다.
-    """
-    service = ScrollerService(db)
-    return service.get_execution_logs(limit)
 
 @router.post("/settings/llm-mode", response_model=SettingsResponse, summary="글로벌 LLM 모드 설정")
 def update_llm_mode(request: LLMModeUpdateRequest, db: Session = Depends(get_db)):

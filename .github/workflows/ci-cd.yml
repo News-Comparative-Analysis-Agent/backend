@@ -62,6 +62,7 @@ jobs:
         host: ${{ secrets.DEPLOY_HOST }}
         username: root
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        command_timeout: 30m
         script: |
           # 1. 기존 프로젝트 폴더 삭제 (클린 배포)
           rm -rf ~/backend

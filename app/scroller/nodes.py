@@ -24,8 +24,6 @@ from app.scroller.repository import ScrollerRepository
 from app.scroller.state import CrawlState, ClusterState
 from app.core.logger import logger, log_llm_event
 
-# 로깅 설정
-# logger = logging.getLogger(__name__) # 기존 로거 대신 app.core.logger 사용
 
 # .env 로드
 load_dotenv()
@@ -167,7 +165,7 @@ class ScrollerNodes:
                 if res.status_code == 200:
                     return res
             except requests.exceptions.RequestException as e:
-                print(f"⚠️ {attempt + 1}번째 시도 실패: {url} -> {e}")
+                logger.warning(f"⚠️ {attempt + 1}번째 시도 실패: {url} -> {e}")
                 time.sleep(2)
         return None
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.scroller.repository import ScrollerRepository
 from sqlalchemy import func
 from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, LLMMode
-from app.domains.system.models import SystemSettings, ExecutionLog
+from app.domains.system.models import SystemSettings
 from app.scroller.graph import create_crawl_graph, create_cluster_graph
 from app.scroller.nodes import ScrollerNodes 
 from app.core.logger import logger, log_llm_event
@@ -33,17 +33,6 @@ class ScrollerService:
         self.crawl_app = create_crawl_graph(db)
         self.cluster_app = create_cluster_graph(db)
 
-    def _cleanup_old_logs(self, days: int = 10):
-        """10일이 지난 오래된 실행 로그를 삭제합니다."""
-        threshold = datetime.now() - timedelta(days=days)
-        try:
-            deleted_count = self.db.query(ExecutionLog).filter(ExecutionLog.started_at < threshold).delete()
-            if deleted_count > 0:
-                self.db.commit()
-                logger.info(f"🧹 오래된 로그 정리 완료: {deleted_count}개 삭제됨 (기준일: {threshold.date()})")
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"⚠️ 로그 정리 중 오류 발생: {e}")
 
     # ==========================================
     # 크롤링 비즈니스 로직 (LangGraph 연동)
@@ -59,14 +48,6 @@ class ScrollerService:
             mode = setting.llm_mode if setting else "gemini_only"
 
         logger.info(f"🔄 뉴스 크롤링 워크플로우 시작 (Mode: {mode})")
-        
-        # 0. 오래된 로그 정리 (보관 기간: 10일)
-        self._cleanup_old_logs(days=10)
-        
-        # 1. 실행 로그 생성
-        log = ExecutionLog(job_type="crawl", mode=mode, status="running")
-        self.db.add(log)
-        self.db.commit()
 
         initial_state = {
             "llm_mode": mode,
@@ -82,12 +63,7 @@ class ScrollerService:
         config = {"configurable": {"thread_id": "scroller_crawl_session"}}
         final_state = self.crawl_app.invoke(initial_state, config=config)
         
-        # 2. 결과 로그 업데이트
-        log.finished_at = func.now()
         if final_state.get("error"):
-            log.status = "failed"
-            log.logs = final_state["error"]
-            self.db.commit()
             return CrawlResponse(
                 status="error",
                 message=final_state["error"],
@@ -97,15 +73,6 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
-        
-        log.status = "success"
-        log.result_summary = {
-            "saved_count": final_state.get("saved_count", 0),
-            "skipped_count": final_state.get("skipped_count", 0),
-            "deleted_count": final_state.get("deleted_count", 0)
-        }
-        log.logs = result_msg
-        self.db.commit()
 
         return CrawlResponse(
             status="success",
@@ -127,14 +94,6 @@ class ScrollerService:
             mode = setting.llm_mode if setting else "gemini_only"
             
         logger.info(f"📊 이슈 클러스터링 워크플로우 시작 (Mode: {mode})")
-        
-        # 0. 오래된 로그 정리 (보관 기간: 10일)
-        self._cleanup_old_logs(days=10)
-        
-        # 1. 실행 로그 생성
-        log = ExecutionLog(job_type="cluster", mode=mode, status="running")
-        self.db.add(log)
-        self.db.commit()
 
         initial_state = {
             "llm_mode": mode,
@@ -149,12 +108,7 @@ class ScrollerService:
         config = {"configurable": {"thread_id": "scroller_cluster_session"}}
         final_state = self.cluster_app.invoke(initial_state, config=config)
         
-        # 2. 결과 로그 업데이트
-        log.finished_at = func.now()
         if final_state.get("error"):
-            log.status = "failed"
-            log.logs = final_state["error"]
-            self.db.commit()
             return ClusterResponse(
                 status="error",
                 message=final_state["error"],
@@ -163,13 +117,6 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
-        
-        log.status = "success"
-        log.result_summary = {
-            "saved_issue_count": final_state.get("saved_issue_count", 0)
-        }
-        log.logs = result_msg
-        self.db.commit()
             
         return ClusterResponse(
             status="success",
@@ -189,9 +136,6 @@ class ScrollerService:
             self.repo.db.rollback()
             return ResetResponse(status="error", message=f"삭제 오류: {e}")
 
-    def get_execution_logs(self, limit: int = 10) -> list[ExecutionLog]:
-        """최근 실행 이력을 조회합니다."""
-        return self.repo.get_execution_logs(limit)
 
     def update_llm_mode(self, mode: str) -> str:
         """시스템 LLM 모드를 업데이트하고 결과를 반환합니다."""
@@ -275,7 +219,6 @@ class NLPSearchService:
             processed_articles.append(art_data)
             source_counter[press_name] += 1
 
-        print("🤖 AI 분석가가 보고서를 작성 중입니다...")
         briefing = self.generate_briefing(user_query, processed_articles)
         if not briefing:
              return {"success": False, "message": "AI 브리핑 생성에 실패했습니다."}
