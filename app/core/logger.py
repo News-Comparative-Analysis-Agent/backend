@@ -28,20 +28,13 @@ logger.add(
 # ==========================================
 # 2. 전역 에러 파일 핸들러 (날짜별 자동 분류)
 # ==========================================
-def get_error_log_path(record):
-    """
-    에러 발생 시 현재 날짜에 맞는 로그 파일 경로를 동적으로 반환합니다.
-    경로 예시: logs/2026-03-04/error.log
-    """
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    date_dir = os.path.join(LOG_DIR, date_str)
-    # 폴더가 없으면 에러가 발생하므로, 로그를 기록하기 직전에 폴더 존재 여부를 확인하고 생성합니다.
-    os.makedirs(date_dir, exist_ok=True)
-    return os.path.join(date_dir, "error.log")
-
 # 시스템 전반에서 발생하는 ERROR(또는 CRITICAL) 레벨의 로그만 따로 모아서 기록합니다.
+# loguru는 경로에 {time}이 포함된 문자열을 sink로 받으면 자동으로 디렉토리를 생성하고 시간을 채워줍니다.
+# 함수(callable)를 sink로 쓸 경우 rotation, retention 옵션을 사용할 수 없으므로 문자열 경로로 수정합니다.
+ERROR_LOG_PATH = os.path.join(LOG_DIR, "{time:YYYY-MM-DD}", "error.log")
+
 logger.add(
-    get_error_log_path,
+    ERROR_LOG_PATH,
     rotation="10 MB",    # 파일 크기가 10MB가 넘으면 새 파일을 생성합니다.
     retention="10 days", # 최근 10일치 로그만 보관하고 나머지는 삭제하여 용량을 관리합니다.
     level="ERROR",
