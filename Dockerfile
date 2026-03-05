@@ -22,5 +22,5 @@ COPY . .
 # entrypoint.sh에 실행 권한 부여
 RUN chmod +x /app/entrypoint.sh
 
-# 실행 명령어 (entrypoint 사용)
-ENTRYPOINT ["/app/entrypoint.sh"]
+# 실행 명령어 (sh를 통해 실행하여 권한 문제 방지)
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]

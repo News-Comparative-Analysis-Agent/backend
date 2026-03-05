@@ -24,8 +24,6 @@ from app.scroller.repository import ScrollerRepository
 from app.scroller.state import CrawlState, ClusterState
 from app.core.logger import logger, log_llm_event
 
-# 로깅 설정
-# logger = logging.getLogger(__name__) # 기존 로거 대신 app.core.logger 사용
 
 # .env 로드
 load_dotenv()
@@ -39,9 +37,11 @@ DAYS_TO_CRAWL = 4
 
 # 온프레미스 LLM 서버 설정 (OpenAI 호환 API 구조)
 LOCAL_LLM_SERVERS = {
-    "1.5B": f"http://{env.get('LLM_SERVER_IP')}:{env.get('1.5B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
-    "3B":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('3B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
-    "7B":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('7B_PORT')}/{env.get('LLM_SERVER_API_URI')}",
+    # 기사 요약 및 정치 성향 판단 모델 
+    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_1')}/{env.get('LLM_SERVER_API_URI')}",
+
+    # 비평기사 작성 모델
+    "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_2')}/{env.get('LLM_SERVER_API_URI')}",
 }
 
 class ScrollerNodes:
@@ -105,7 +105,15 @@ class ScrollerNodes:
             response.raise_for_status()
             result = response.json()
             content = result['choices'][0]['message']['content']
-            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content)
+            
+            # 토큰 정보 추출 (OpenAI 호환 포맷)
+            usage = result.get('usage', {})
+            token_info = {
+                'prompt_tokens': usage.get('prompt_tokens', 0),
+                'completion_tokens': usage.get('completion_tokens', 0)
+            }
+            
+            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content, token_info=token_info)
             return content
         except Exception as e:
             log_llm_event("LocalLLM", f"Error: {e}", details=str(e))
@@ -148,7 +156,15 @@ class ScrollerNodes:
             log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
             model = genai.GenerativeModel('gemini-2.0-flash')
             response = model.generate_content(prompt)
-            log_llm_event("Gemini", "Response received", details=response.text)
+            
+            # 토큰 정보 추출 (Gemini 포맷)
+            usage = response.usage_metadata
+            token_info = {
+                'prompt_tokens': usage.prompt_token_count,
+                'completion_tokens': usage.candidates_token_count
+            }
+            
+            log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
             return self._parse_llm_json(response.text)
         except Exception as e:
             log_llm_event("Gemini", f"Error: {e}", details=str(e))
@@ -167,7 +183,7 @@ class ScrollerNodes:
                 if res.status_code == 200:
                     return res
             except requests.exceptions.RequestException as e:
-                print(f"⚠️ {attempt + 1}번째 시도 실패: {url} -> {e}")
+                logger.warning(f"⚠️ {attempt + 1}번째 시도 실패: {url} -> {e}")
                 time.sleep(2)
         return None
 
@@ -253,6 +269,7 @@ class ScrollerNodes:
             
             # 사전에 정의된 주요 언론사별 루프
             for press_name, oid in TARGET_PRESS_DICT.items():
+                logger.info(f"📰 [{date_str}] {press_name} 뉴스 목록 가져오는 중...")
                 url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
                 try:
                     res = self._fetch_with_retry(url, headers=headers, timeout=20)
@@ -304,7 +321,7 @@ class ScrollerNodes:
                         # 부하 조절을 위한 짧은 대기
                         time.sleep(random.uniform(0.05, 0.1))
                 except Exception as e:
-                    logger.error(f"언론사 {press_name} 크롤링 중 에러: {e}")
+                    logger.error(f"❌ {press_name} 크롤링 중 에러: {e}")
         
         msg = f"신규 정치 기사 {len(all_news)}건 수집됨"
         log_llm_event("crawl", msg)
@@ -342,10 +359,9 @@ class ScrollerNodes:
         if mode == "gemini_only":
             return self._call_gemini(common_prompt)
 
-        # 2. 로컬/하이브리드 모드 처리 (3B 단일 호출로 통합)
+        # 2. 로컬/하이브리드 모드 처리 (7B_1 단일 호출로 통합)
         try:
-            # 병렬 호출 없이 3B 모델에게 모든 역할을 몰아서 요청
-            parsed = self._call_llm(common_prompt, "3B", state)
+            parsed = self._call_llm(common_prompt, "7B_1", state)
             
             if parsed:
                 return parsed
@@ -353,7 +369,7 @@ class ScrollerNodes:
             raise ValueError("LLM 응답 파싱 빈값")
 
         except Exception as e:
-            logger.error(f"3B 통합 분석 중 에러: {e}")
+            logger.error(f"7B_1 통합 분석 중 에러: {e}")
             return {
                 "summary": "분석 실패",
                 "bias": "neutral",
@@ -377,8 +393,11 @@ class ScrollerNodes:
             return {"saved_count": 0, "skipped_count": 0, "messages": ["수집된 새 기사가 없어 분석 생략"]}
 
         # 수집된 각 기사에 대해 루프 실행
-        for _, row in df_unique.iterrows():
+        total_raw = len(df_unique)
+        for idx, row in df_unique.iterrows():
             try:
+                if (idx + 1) % 5 == 0 or (idx + 1) == total_raw:
+                    logger.info(f"📝 기사 분석 진행 중... ({idx + 1}/{total_raw})")
                 # 1. 언론사 객체 획득 (없으면 생성)
                 publisher = self.repo.get_or_create_publisher(row['press'])
                 
@@ -598,8 +617,7 @@ class ScrollerNodes:
             3. 기사에 등장하는 '특정 인물 실명', '특정 정책', '사건명'이 제목에 명확히 드러나야 합니다. '정치권 소식' 같은 뭉뚱그려진 제목은 금지합니다.
             4. 제목은 명사형으로 끝맺을 것.
             """
-            # 사용자의 요청에 따라 프로젝트의 핵심인 로컬 LLM(3B)을 다시 사용하도록 복구합니다.
-            parsed = self._call_llm(prompt, "3B", state)
+            parsed = self._call_llm(prompt, "7B_1", state)
             
             if parsed:
                 return (

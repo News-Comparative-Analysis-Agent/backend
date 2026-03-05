@@ -6,6 +6,7 @@ from app.domains.articles.models import Article
 from app.domains.articles.models import ArticleBody
 from app.domains.publishers.models import Publisher
 from app.domains.issues.models import IssueLabel
+from app.domains.system.models import SystemSettings
 
 class ScrollerRepository:
     """
@@ -210,3 +211,19 @@ class ScrollerRepository:
         """
         # CASCADE 옵션을 통해 연관된 데이터까지 모두 삭제
         self.db.execute(text("TRUNCATE TABLE issue_labels, articles RESTART IDENTITY CASCADE"))
+
+
+    def update_system_llm_mode(self, mode: str) -> SystemSettings:
+        """
+        시스템 전역 LLM 모드를 업데이트합니다.
+        id=1인 레코드를 업데이트하며, 없으면 생성합니다.
+        """
+        settings = self.db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+        if not settings:
+            settings = SystemSettings(id=1, llm_mode=mode)
+            self.db.add(settings)
+        else:
+            settings.llm_mode = mode
+        
+        self.db.flush()
+        return settings

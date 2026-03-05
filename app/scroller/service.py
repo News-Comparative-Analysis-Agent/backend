@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 from app.scroller.repository import ScrollerRepository
 from sqlalchemy import func
 from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, LLMMode
-from app.domains.system.models import SystemSettings, ExecutionLog
+from app.domains.system.models import SystemSettings
 from app.scroller.graph import create_crawl_graph, create_cluster_graph
 from app.scroller.nodes import ScrollerNodes 
-from app.core.logger import logger, log_llm_event
+from app.core.logger import logger, log_llm_event, start_job_logging, stop_job_logging, finalize_job_log
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
@@ -33,17 +33,6 @@ class ScrollerService:
         self.crawl_app = create_crawl_graph(db)
         self.cluster_app = create_cluster_graph(db)
 
-    def _cleanup_old_logs(self, days: int = 10):
-        """10일이 지난 오래된 실행 로그를 삭제합니다."""
-        threshold = datetime.now() - timedelta(days=days)
-        try:
-            deleted_count = self.db.query(ExecutionLog).filter(ExecutionLog.started_at < threshold).delete()
-            if deleted_count > 0:
-                self.db.commit()
-                logger.info(f"🧹 오래된 로그 정리 완료: {deleted_count}개 삭제됨 (기준일: {threshold.date()})")
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"⚠️ 로그 정리 중 오류 발생: {e}")
 
     # ==========================================
     # 크롤링 비즈니스 로직 (LangGraph 연동)
@@ -60,13 +49,10 @@ class ScrollerService:
 
         logger.info(f"🔄 뉴스 크롤링 워크플로우 시작 (Mode: {mode})")
         
-        # 0. 오래된 로그 정리 (보관 기간: 10일)
-        self._cleanup_old_logs(days=10)
-        
-        # 1. 실행 로그 생성
-        log = ExecutionLog(job_type="crawl", mode=mode, status="running")
-        self.db.add(log)
-        self.db.commit()
+        # 세션 로그 시작
+        handler_id, log_path = start_job_logging("crawler")
+        # 이 세션에서 발생하는 모든 로그는 해당 파일로 스트리밍됨
+        session_logger = logger.bind(job_type="crawler")
 
         initial_state = {
             "llm_mode": mode,
@@ -80,14 +66,21 @@ class ScrollerService:
         
         # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
         config = {"configurable": {"thread_id": "scroller_crawl_session"}}
-        final_state = self.crawl_app.invoke(initial_state, config=config)
+        try:
+            final_state = self.crawl_app.invoke(initial_state, config=config)
+        except Exception as e:
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            raise e
         
-        # 2. 결과 로그 업데이트
-        log.finished_at = func.now()
+        # 2. 결과 처리
+        saved = final_state.get("saved_count", 0)
+        skipped = final_state.get("skipped_count", 0)
+        
         if final_state.get("error"):
-            log.status = "failed"
-            log.logs = final_state["error"]
-            self.db.commit()
+            session_logger.error(f"❌ 크롤링 중 오류 발생: {final_state['error']}")
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
             return CrawlResponse(
                 status="error",
                 message=final_state["error"],
@@ -97,21 +90,17 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
+
+        session_logger.success(f"✅ 뉴스 크롤링 완료: 신규 저장 {saved}건, 중복 스킵 {skipped}건")
         
-        log.status = "success"
-        log.result_summary = {
-            "saved_count": final_state.get("saved_count", 0),
-            "skipped_count": final_state.get("skipped_count", 0),
-            "deleted_count": final_state.get("deleted_count", 0)
-        }
-        log.logs = result_msg
-        self.db.commit()
+        stop_job_logging(handler_id)
+        finalize_job_log(log_path, "success")
 
         return CrawlResponse(
             status="success",
             message=result_msg,
-            saved_count=final_state.get("saved_count", 0),
-            skipped_count=final_state.get("skipped_count", 0)
+            saved_count=saved,
+            skipped_count=skipped
         )
 
     # ==========================================
@@ -128,13 +117,9 @@ class ScrollerService:
             
         logger.info(f"📊 이슈 클러스터링 워크플로우 시작 (Mode: {mode})")
         
-        # 0. 오래된 로그 정리 (보관 기간: 10일)
-        self._cleanup_old_logs(days=10)
-        
-        # 1. 실행 로그 생성
-        log = ExecutionLog(job_type="cluster", mode=mode, status="running")
-        self.db.add(log)
-        self.db.commit()
+        # 세션 로그 시작
+        handler_id, log_path = start_job_logging("cluster")
+        session_logger = logger.bind(job_type="cluster")
 
         initial_state = {
             "llm_mode": mode,
@@ -147,14 +132,20 @@ class ScrollerService:
         
         # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
         config = {"configurable": {"thread_id": "scroller_cluster_session"}}
-        final_state = self.cluster_app.invoke(initial_state, config=config)
+        try:
+            final_state = self.cluster_app.invoke(initial_state, config=config)
+        except Exception as e:
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            raise e
         
-        # 2. 결과 로그 업데이트
-        log.finished_at = func.now()
+        # 2. 결과 처리
+        saved_issues = final_state.get("saved_issue_count", 0)
+        
         if final_state.get("error"):
-            log.status = "failed"
-            log.logs = final_state["error"]
-            self.db.commit()
+            session_logger.error(f"❌ 클러스터링 중 오류 발생: {final_state['error']}")
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
             return ClusterResponse(
                 status="error",
                 message=final_state["error"],
@@ -163,18 +154,16 @@ class ScrollerService:
             
         msgs = final_state.get("messages", [])
         result_msg = "\n".join(msgs) # 모든 메시지를 줄바꿈으로 합침
-        
-        log.status = "success"
-        log.result_summary = {
-            "saved_issue_count": final_state.get("saved_issue_count", 0)
-        }
-        log.logs = result_msg
-        self.db.commit()
+
+        session_logger.success(f"✅ 이슈 클러스터링 완료: 생성된 이슈 {saved_issues}건")
+
+        stop_job_logging(handler_id)
+        finalize_job_log(log_path, "success")
             
         return ClusterResponse(
             status="success",
             message=result_msg,
-            saved_issue_count=final_state.get("saved_issue_count", 0)
+            saved_issue_count=saved_issues
         )
 
     # ==========================================
@@ -184,10 +173,26 @@ class ScrollerService:
         try:
             self.repo.truncate_all_data()
             self.repo.db.commit()
+            logger.warning("🗑️ 데이터베이스 초기화(Truncate)가 실행되었습니다.")
             return ResetResponse(status="success", message="모든 데이터가 삭제되고 PK 1번으로 리셋되었습니다.")
         except Exception as e:
             self.repo.db.rollback()
+            logger.error(f"❌ 데이터베이스 초기화 실패: {e}")
             return ResetResponse(status="error", message=f"삭제 오류: {e}")
+
+
+    def update_llm_mode(self, mode: str) -> str:
+        """시스템 LLM 모드를 업데이트하고 결과를 반환합니다."""
+        try:
+            old_mode = self.db.query(SystemSettings).first().llm_mode
+            settings = self.repo.update_system_llm_mode(mode)
+            self.db.commit()
+            logger.info(f"⚙️ 시스템 LLM 모드 변경: {old_mode} -> {settings.llm_mode}")
+            return settings.llm_mode
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ LLM 모드 변경 실패: {e}")
+            raise e
 
 # ==========================================
 # NLP 검색 로직 (기존 nlp_search.py 대체)
@@ -235,9 +240,10 @@ class NLPSearchService:
             return None
 
     def execute_search_briefing(self, user_query):
-        print(f"🔍 '{user_query}' 관련 기사 우리 DB에서 검색 중...")
+        logger.info(f"🔍 '{user_query}' 관련 기사 내부 DB 검색 중...")
         items = self.repo.search_articles_by_keyword(user_query, limit=15)
         if not items: 
+            logger.info(f"ℹ️ '{user_query}' 관련 검색 결과 없음")
             return {"success": False, "message": "내부 DB에 해당 키워드를 포함한 기사가 없습니다."}
 
         processed_articles = []
@@ -261,7 +267,6 @@ class NLPSearchService:
             processed_articles.append(art_data)
             source_counter[press_name] += 1
 
-        print("🤖 AI 분석가가 보고서를 작성 중입니다...")
         briefing = self.generate_briefing(user_query, processed_articles)
         if not briefing:
              return {"success": False, "message": "AI 브리핑 생성에 실패했습니다."}

@@ -15,6 +15,7 @@ from app.domains.drafts.schemas import (
     SimilarityRequest, SimilarityResponse,
     ArticleInfo, PerspectiveItem, PerspectivesResponse
 )
+from app.core.logger import logger
 
 # Gemini 초기 설정
 google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -175,7 +176,7 @@ class DraftService:
             else:
                 return ChatResponse(response="무엇을 도와드릴까요?", modified_content=None)
         except Exception as e:
-            print(f"Gemini Chat Error: {str(e)}")
+            logger.error(f"❌ Gemini Chat Error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"AI 응답 생성 중 오류가 발생했습니다: {str(e)}")
 
     # ==========================================

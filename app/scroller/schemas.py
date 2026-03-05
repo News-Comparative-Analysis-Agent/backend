@@ -37,3 +37,29 @@ class SearchResponse(BaseModel):
     success: bool
     data: dict = None
     message: str = None
+
+class LLMModeUpdateRequest(BaseModel):
+    mode: LLMMode
+
+class SettingsResponse(BaseModel):
+    status: str
+    message: str
+    current_mode: Optional[str] = None
+
+# 로그 조회용 DTO
+from typing import List
+
+class LogFileItem(BaseModel):
+    date: str
+    filename: str
+    size: int
+    last_modified: str
+
+class LogListResponse(BaseModel):
+    status: str
+    logs: List[LogFileItem]
+
+class LogDetailResponse(BaseModel):
+    status: str
+    filename: str
+    content: str
