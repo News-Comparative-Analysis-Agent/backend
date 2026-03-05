@@ -23,7 +23,12 @@ class ArticleRepository:
             Article.issue_label_id == issue_label_id
         ).order_by(Article.published_at.desc()).limit(limit).all()
 
-    def get_articles_by_publisher(self, publisher_id: int, limit: int = 20) -> List[Article]:
+    def get_publishers_by_names(self, names: List[str]):
+        """언론사명 리스트로 언론사 목록 조회"""
+        from app.domains.publishers.models import Publisher
+        return self.db.query(Publisher).filter(Publisher.name.in_(names)).all()
+
+    def get_articles_by_publisher(self, publisher_id: int, limit: int = 10) -> List[Article]:
         """언론사별 기사 목록 조회"""
         return self.db.query(Article).filter(
             Article.publisher_id == publisher_id

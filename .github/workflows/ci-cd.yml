@@ -70,6 +70,9 @@ jobs:
           # 2. 새로운 코드 다시 복제
           git clone https://${{ secrets.GH_TOKEN }}@github.com/News-Comparative-Analysis-Agent/backend.git
 
+          # 2-1. 로그 폴더 생성 (배포 시 삭제 대응)
+          mkdir -p ~/backend/cron_logs
+
           # 3. GitHub Secrets에서 .env 파일 생성
           # ENV_FILE 시크릿에 .env 내용 전체를 넣어주세요.
           echo "${{ secrets.ENV_FILE }}" > ~/backend/.env
