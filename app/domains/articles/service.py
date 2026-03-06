@@ -41,3 +41,13 @@ class ArticleService:
             result[pub.name] = articles
             
         return result
+
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str):
+        """에이전트 1의 추출 결과를 저장합니다."""
+        db_claim = self.repo.save_article_claim(issue_id, article_id, press, claim, evidence)
+        self.db.commit() # 트랜잭션 관리
+        return db_claim
+
+    def get_claims_by_issue(self, issue_id: int):
+        """이슈 ID로 저장된 주장 데이터를 조회합니다."""
+        return self.repo.get_claims_by_issue(issue_id)

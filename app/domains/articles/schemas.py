@@ -28,3 +28,6 @@ class ArticleResponse(ArticleBase):
 class ArticleDetail(ArticleResponse):
     """상세 조회 시 본문 포함"""
     content: Optional[str] = None 
+
+
+

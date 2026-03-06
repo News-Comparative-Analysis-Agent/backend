@@ -50,3 +50,18 @@ class ArticleBody(Base):
 
     # 관계 설정
     article = relationship("Article", back_populates="body")
+
+
+class ArticleClaim(Base):
+    __tablename__ = "article_claim_card"
+    id = Column(Integer, primary_key=True, index=True)
+    issue_id = Column(Integer, ForeignKey("issue_labels.id"))
+    article_id = Column(Integer, ForeignKey("articles.id"))
+
+    press = Column(String, nullable=False)   # 언론사
+    claim = Column(Text, nullable=False)    # 핵심 주장
+    evidence = Column(Text)                 # 근거 문장
+    
+    # 관계 설정
+    issue = relationship("IssueLabel")
+    article = relationship("Article")

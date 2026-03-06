@@ -1,7 +1,7 @@
 
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.domains.articles.models import Article
+from app.domains.articles.models import Article, ArticleClaim
 
 class ArticleRepository:
     def __init__(self, db: Session):
@@ -27,6 +27,22 @@ class ArticleRepository:
         """언론사명 리스트로 언론사 목록 조회"""
         from app.domains.publishers.models import Publisher
         return self.db.query(Publisher).filter(Publisher.name.in_(names)).all()
+
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str) -> ArticleClaim:
+        """에이전트 1이 추출한 주장 데이터를 저장합니다."""
+        db_claim = ArticleClaim(
+            issue_id=issue_id,
+            article_id=article_id,
+            press=press,
+            claim=claim,
+            evidence=evidence
+        )
+        self.db.add(db_claim)
+        return db_claim
+
+    def get_claims_by_issue(self, issue_id: int) -> list[ArticleClaim]:
+        """이슈 ID에 해당하는 모든 주장 데이터를 조회합니다."""
+        return self.db.query(ArticleClaim).filter(ArticleClaim.issue_id == issue_id).all()
 
     def get_articles_by_publisher(self, publisher_id: int, limit: int = 10) -> List[Article]:
         """언론사별 기사 목록 조회"""

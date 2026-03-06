@@ -11,8 +11,9 @@ from app.scroller.repository import ScrollerRepository
 from sqlalchemy import func
 from app.scroller.schemas import CrawlResponse, ClusterResponse, ResetResponse, LLMMode
 from app.domains.system.models import SystemSettings
-from app.scroller.graph import create_crawl_graph, create_cluster_graph
+from app.scroller.graph import create_crawl_graph, create_cluster_graph, create_comparison_graph
 from app.scroller.nodes import ScrollerNodes 
+from app.domains.articles.service import ArticleService
 from app.core.logger import logger, log_llm_event, start_job_logging, stop_job_logging, finalize_job_log
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -32,6 +33,8 @@ class ScrollerService:
         # 서버 기동 시 또는 서비스 객체 생성 시 그래프 컴파일
         self.crawl_app = create_crawl_graph(db)
         self.cluster_app = create_cluster_graph(db)
+        self.comparison_app = create_comparison_graph(db)
+        self.article_service = ArticleService(db)
 
 
     # ==========================================
@@ -165,6 +168,64 @@ class ScrollerService:
             message=result_msg,
             saved_issue_count=saved_issues
         )
+
+    # ==========================================
+    # 비교 분석 비즈니스 로직 (LangGraph 연동)
+    # ==========================================
+    def execute_comparison_pipeline(self, issue_id: int, mode: str = None) -> dict:
+        """
+        특정 이슈에 대한 언론사별 주장을 추출하고 비교 비평을 생성하는 워크플로우를 실행합니다.
+        """
+        if not mode:
+            setting = self.db.query(SystemSettings).first()
+            mode = setting.llm_mode if setting else "gemini_only"
+
+        logger.info(f"⚖️ 언론사별 주장 비교 분석 워크플로우 시작 (Issue ID: {issue_id}, Mode: {mode})")
+        
+        handler_id, log_path = start_job_logging("comparison")
+        session_logger = logger.bind(job_type="comparison")
+
+        initial_state = {
+            "llm_mode": mode,
+            "issue_id": issue_id,
+            "articles": [],
+            "extracted_claims": [],
+            "final_analysis": "",
+            "messages": [],
+            "error": ""
+        }
+        
+        config = {"configurable": {"thread_id": f"comparison_{issue_id}"}}
+        try:
+            final_state = self.comparison_app.invoke(initial_state, config=config)
+        except Exception as e:
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            raise e
+        
+        if final_state.get("error"):
+            session_logger.error(f"❌ 비교 분석 중 오류 발생: {final_state['error']}")
+            stop_job_logging(handler_id)
+            finalize_job_log(log_path, "failed")
+            return {"status": "error", "message": final_state["error"]}
+            
+        session_logger.success(f"✅ 비교 분석 완료 (Issue ID: {issue_id})")
+        stop_job_logging(handler_id)
+        finalize_job_log(log_path, "success")
+        
+        return {
+            "status": "success",
+            "final_analysis": final_state.get("final_analysis", ""),
+            "extracted_claims_count": len(final_state.get("extracted_claims", []))
+        }
+
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str):
+        """에이전트 1의 추출 결과를 저장합니다."""
+        return self.article_service.save_article_claim(issue_id, article_id, press, claim, evidence)
+
+    def get_claims_by_issue(self, issue_id: int):
+        """이슈 ID로 저장된 주장 데이터를 조회합니다."""
+        return self.article_service.get_claims_by_issue(issue_id)
 
     # ==========================================
     # 초기화 비즈니스 로직

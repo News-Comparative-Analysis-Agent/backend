@@ -60,6 +60,8 @@ class ScrollerNodes:
             db (Session): 작업을 위한 데이터베이스 세션
         """
         self.repo = ScrollerRepository(db)
+        from app.domains.articles.service import ArticleService
+        self.article_service = ArticleService(db)
 
     def _get_kst_now(self):
         """
@@ -670,3 +672,146 @@ class ScrollerNodes:
             msg = f"저장 중 에러: {e}"
             log_llm_event("name_and_save", msg, type="ERROR")
             return {"saved_issue_count": 0, "error": str(e), "messages": [msg]}
+    # ==========================================
+    # Comparison Graph Nodes (Agent 1 & 2)
+    # ==========================================
+    def node_fetch_comparison_data(self, state: ComparisonState) -> dict:
+        """
+        [Node] 이슈 ID에 해당하는 기사 목록을 가져옵니다.
+        """
+        issue_id = state.get("issue_id")
+        log_llm_event("fetch_comparison", f"이슈 ID {issue_id} 기사 데이터 로드 시작")
+        
+        articles = self.repo.get_articles_by_issue(issue_id)
+        data = []
+        for a in articles:
+            content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
+            data.append({
+                'article_id': a.id,
+                'press': a.publisher.name if a.publisher else "알수없음",
+                'title': a.title,
+                'content': content,
+                'link': a.url
+            })
+            
+        msg = f"기사 {len(data)}건 로드 완료"
+        log_llm_event("fetch_comparison", msg)
+        return {"articles": data, "messages": [msg]}
+
+    def node_agent_extractor(self, state: ComparisonState) -> dict:
+        """
+        [Node / Agent 1] 기사 원문에서 주장과 근거문장 추출하여 JSON 형식으로 변환하여 DB에 저장합니다.
+        반환예시
+        {
+            "publisher": "언론사명",
+            "claim": "주장",
+            "evidence": "근거문장",
+            "link": "기사링크"
+        }
+        """
+        articles = state.get("articles", [])
+        issue_id = state.get("issue_id")
+        log_llm_event("agent_extractor", f"에이전트 1: {len(articles)}개 기사 주장 추출 및 저장 시작")
+        
+        extracted_claims = []
+        for art in articles:
+            prompt = f"""
+            다음 뉴스 기사에서 핵심 주장과 그 근거를 추출하여 JSON 형식으로 반환해주세요.
+            
+            언론사: {art['press']}
+            제목: {art['title']}
+            내용: {art['content'][:2000]}
+            
+            [반환 형식 (순수 JSON만)]
+            {{
+                "publisher": "{art['press']}",
+                "claim": "기사의 핵심 주장 (1문장)",
+                "evidence": "핵심 주장을 뒷받침하는 기사 내 구체적인 문장",
+                "link": "{art['link']}"
+            }}
+            """
+            
+            try:
+                if state.get("llm_mode") == "gemini_only":
+                    gen_model = genai.GenerativeModel('gemini-2.0-flash')
+                    response = gen_model.generate_content(prompt)
+                    final_text = response.text
+                else:
+                    final_text = self._call_local_llm("7B_1", prompt)
+                
+                # JSON 파싱
+                claim_data = self._parse_llm_json(final_text)
+                if claim_data:
+                    # ArticleService를 통한 저장 대행
+                    self.article_service.save_article_claim(
+                        issue_id=issue_id,
+                        article_id=art['article_id'],
+                        press=claim_data.get('publisher', art['press']),
+                        claim=claim_data.get('claim', ''),
+                        evidence=claim_data.get('evidence', '')
+                    )
+                    extracted_claims.append(claim_data)
+            except Exception as e:
+                logger.error(f"주장 추출 및 저장 실패 ({art['press']}): {e}")
+        
+        msg = f"총 {len(extracted_claims)}개의 주장 데이터 추출 및 서비스 레이어 저장 완료"
+        log_llm_event("agent_extractor", msg)
+        return {"extracted_claims": extracted_claims, "messages": [msg]}
+
+    def node_agent_analyzer(self, state: ComparisonState) -> dict:
+        """
+        [Node / Agent 2] 서비스 레이어를 통해 추출된 주장 데이터를 불러와 다각도 비평 보고서를 생성합니다.
+        """
+        issue_id = state.get("issue_id")
+        log_llm_event("agent_analyzer", f"에이전트 2: 이슈 ID {issue_id} 서비스 레이어 기반 비평 보고서 생성 시작")
+        
+        # ArticleService를 통해 DB에서 데이터 로드
+        db_claims = self.article_service.get_claims_by_issue(issue_id)
+        if not db_claims:
+            return {"final_analysis": "추출된 주장 데이터가 없어 분석을 진행할 수 없습니다.", "messages": ["분석 데이터 부재"]}
+            
+        claims_list = [
+            {
+                "publisher": c.press,
+                "claim": c.claim,
+                "evidence": c.evidence
+            } for c in db_claims
+        ]
+        
+        claims_json = json.dumps(claims_list, ensure_ascii=False, indent=2)
+        
+        prompt = f"""
+        다음은 동일한 이슈에 대한 여러 언론사의 주장 데이터입니다.
+        이를 바탕으로 쟁점별 비교 비평 보고서를 작성해주세요.
+        
+        [데이터 목록]
+        {claims_json}
+        
+        [작성 형식]
+        1. 첫 줄에 이슈에 대한 한 줄 총평을 작성하십시오.
+        2. 주요 쟁점별로 소제목을 달고, 각 언론사의 입장을 비교하여 서술하십시오.
+        3. 마크다운 형식을 사용하여 가독성 있게 작성하십시오.
+        4. 예시 구조:
+        
+        ### 쟁점1: [쟁점 내용]
+        - **매체A**: [입장 요약]
+        - **매체B**: [입장 요약]
+        - **매체C**: [입장 요약]
+        
+        ...
+        """
+        
+        try:
+            if state.get("llm_mode") == "gemini_only":
+                gen_model = genai.GenerativeModel('gemini-2.0-flash')
+                response = gen_model.generate_content(prompt)
+                final_text = response.text
+            else:
+                final_text = self._call_local_llm("7B_2", prompt)
+                
+            log_llm_event("agent_analyzer", "비평 보고서 생성 완료")
+            return {"final_analysis": final_text, "messages": ["비교 비평 보고서 생성 완료"]}
+        except Exception as e:
+            msg = f"비평 보고서 생성 실패: {e}"
+            log_llm_event("agent_analyzer", msg, type="ERROR")
+            return {"final_analysis": "보고서 생성 중 오류가 발생했습니다.", "messages": [msg]}

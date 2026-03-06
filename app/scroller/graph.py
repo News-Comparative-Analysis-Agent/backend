@@ -60,3 +60,30 @@ def create_cluster_graph(db: Session):
     # 메모리 기반 체크포인터 적용하여 컴파일
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
+
+def create_comparison_graph(db: Session):
+    """
+    언론사별 주장을 비교 분석 파이프라인 그래프 (LangGraph) 생성
+    - Agent 1: 각 기사별 주장을 추출
+    - Agent 2: 추출된 주장을 바탕으로 비교 비평 생성
+    """
+    from app.scroller.state import ComparisonState
+    nodes = ScrollerNodes(db)
+    
+    # 1. 상태(State) 정의와 함께 그래프 초기화
+    workflow = StateGraph(ComparisonState)
+    
+    # 노드 등록
+    workflow.add_node("fetch", nodes.node_fetch_comparison_data) # 이슈 관련 기사 로드
+    workflow.add_node("extractor", nodes.node_agent_extractor, retry=RETRY_POLICY) # 에이전트 1: 주장 추출
+    workflow.add_node("analyzer", nodes.node_agent_analyzer, retry=RETRY_POLICY) # 에이전트 2: 비교 비평
+    
+    # 엣지 정의
+    workflow.add_edge(START, "fetch")
+    workflow.add_edge("fetch", "extractor")
+    workflow.add_edge("extractor", "analyzer")
+    workflow.add_edge("analyzer", END)
+    
+    # 메모리 기반 체크포인터 적용하여 컴파일
+    checkpointer = MemorySaver()
+    return workflow.compile(checkpointer=checkpointer)
