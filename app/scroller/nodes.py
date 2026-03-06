@@ -21,7 +21,7 @@ import os
 from dotenv import load_dotenv
 
 from app.scroller.repository import ScrollerRepository
-from app.scroller.state import CrawlState, ClusterState
+from app.scroller.state import CrawlState, ClusterState, ComparisonState
 from app.core.logger import logger, log_llm_event
 
 
@@ -87,7 +87,7 @@ class ScrollerNodes:
             logger.error(f"JSON 파싱 실패: {e}\n원본 텍스트: {text}")
             return None
 
-    def _call_local_llm(self, model_size: str, prompt: str) -> str:
+    def _call_local_llm(self, model_size: str, prompt: str, json_mode: bool = False) -> str:
         """
         온프레미스 로컬 LLM 서버에 요청을 보냅니다.
         """
@@ -100,6 +100,8 @@ class ScrollerNodes:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         
         try:
             log_llm_event("LocalLLM", f"Requesting {model_size}", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
@@ -733,11 +735,29 @@ class ScrollerNodes:
             
             try:
                 if state.get("llm_mode") == "gemini_only":
-                    gen_model = genai.GenerativeModel('gemini-2.0-flash')
+                    # 제미나이 2.0 모델은 JSON Schema를 통한 강력한 형식 고정을 지원합니다.
+                    response_schema = {
+                        "type": "OBJECT",
+                        "properties": {
+                            "publisher": {"type": "STRING"},
+                            "claim": {"type": "STRING"},
+                            "evidence": {"type": "STRING"},
+                            "link": {"type": "STRING"}
+                        },
+                        "required": ["publisher", "claim", "evidence", "link"]
+                    }
+                    gen_model = genai.GenerativeModel(
+                        model_name='gemini-2.0-flash',
+                        generation_config={
+                            "response_mime_type": "application/json",
+                            "response_schema": response_schema
+                        }
+                    )
                     response = gen_model.generate_content(prompt)
                     final_text = response.text
                 else:
-                    final_text = self._call_local_llm("7B_1", prompt)
+                    # 로컬 LLM의 경우 OpenAI 호환 response_format 사용 시도
+                    final_text = self._call_local_llm("7B_1", prompt, json_mode=True)
                 
                 # JSON 파싱
                 claim_data = self._parse_llm_json(final_text)

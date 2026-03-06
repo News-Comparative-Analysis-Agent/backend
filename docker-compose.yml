@@ -17,6 +17,21 @@ services:
       - db_server
     restart: always
 
+  # 3. Caddy (Reverse Proxy & HTTPS)
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api_server
+
   # 2. PostgreSQL 데이터베이스
   db_server: # Docker compose 내부에서 사용하는 이름
     image: postgres:15-alpine
@@ -34,3 +49,5 @@ services:
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

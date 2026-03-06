@@ -1,0 +1,7 @@
+{
+    email ajk60@example.com  # Please replace with your actual email for Let's Encrypt notifications
+}
+
+209.38.76.211.nip.io {
+    reverse_proxy api_server:8000
+}
