@@ -54,10 +54,15 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
         logger.error(f"[{issue.name}] 초안 생성 중 오류 발생: {e}")
         return ""
 
+from app.scroller.graph import create_comparison_graph
+
 def run_draft_generation():
-    log_llm_event("DraftGen", "상위 5개 이슈 초안 자동 생성 시작")
-    logger.info("🚀 [Draft Gen] 상위 5개 이슈 초안 자동 상성을 시작합니다...")
+    log_llm_event("DraftGen", "상위 5개 이슈 초안 자동 생성 시작 (Multi-Agent)")
+    logger.info("🚀 [Draft Gen] 상위 5개 이슈 다중 에이전트 기반 초안 생성 시작...")
     db: Session = SessionLocal()
+    
+    # 그래프 컴파일
+    comparison_app = create_comparison_graph(db)
     
     try:
         # 최근 이슈 중, 기사 수가 가장 많은 상위 5개 가져오기
@@ -74,12 +79,40 @@ def run_draft_generation():
                 logger.info(f"{idx}. [{issue.name}] - 이미 초안이 존재합니다. 건너뜁니다.")
                 continue
                 
-            logger.info(f"{idx}. [{issue.name}] (기사 수: {issue.total_count}) - 초안 생성 중...")
-            draft_text = generate_draft_for_issue(issue)
+            logger.info(f"{idx}. [{issue.name}] (기사 수: {issue.total_count}) - Multi-Agent 분석 및 초안 생성 중...")
             
-            if draft_text:
-                issue.pre_generated_draft = draft_text
-                generated_count += 1
+            # LangGraph 초기 상태 주입 (5단계 에이전트 인터페이스에 맞춤)
+            initial_state = {
+                "llm_mode": "local_priority", 
+                "issue_id": issue.id,
+                "articles": [],
+                "claim_cards": [],
+                "structured_issues": [],
+                "draft_article": "",
+                "edited_article": "",
+                "edit_log": "",
+                "judge_status": "",
+                "judge_feedback": "",
+                "retry_count": 0,
+                "messages": [],
+                "error": ""
+            }
+            
+            config = {"configurable": {"thread_id": f"issue_draft_{issue.id}"}}
+            try:
+                final_state = comparison_app.invoke(initial_state, config=config)
+                
+                # 에이전트들이 평가 루프를 거치고 완성한 최종 검수 완료 기사
+                draft_text = final_state.get("edited_article", "")
+                
+                if draft_text and "오류가 발생" not in draft_text:
+                    issue.pre_generated_draft = draft_text
+                    generated_count += 1
+                    logger.success(f"    ↳ 작성 완료! (재시도 횟수: {final_state.get('retry_count')})")
+                else:
+                    logger.warning(f"    ↳ 작성 실패 또는 에러 발생")
+            except Exception as e:
+                logger.error(f"    ↳ 에이전트 그래프 실행 중 에러: {e}")
                 
         if generated_count > 0:
             db.commit()

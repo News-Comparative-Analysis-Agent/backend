@@ -21,7 +21,7 @@ import os
 from dotenv import load_dotenv
 
 from app.scroller.repository import ScrollerRepository
-from app.scroller.state import CrawlState, ClusterState, ComparisonState
+from app.agents.state import CrawlState, ClusterState, ComparisonState
 from app.core.logger import logger, log_llm_event
 
 

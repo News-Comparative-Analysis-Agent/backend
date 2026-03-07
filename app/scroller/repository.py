@@ -1,5 +1,5 @@
 # app/scroller/repository.py
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from datetime import datetime, timedelta
 from app.domains.articles.models import Article, ArticleBody
@@ -202,6 +202,17 @@ class ScrollerRepository:
         update_query.update({"issue_label_id": issue.id}, synchronize_session=False)
         
         return issue
+
+    def get_articles_by_issue(self, issue_id: int) -> list[Article]:
+        """
+        특정 이슈에 속한 모든 기사와 본문, 언론사 정보를 한꺼번에 가져옵니다.
+        """
+        return (
+            self.db.query(Article)
+            .options(joinedload(Article.body), joinedload(Article.publisher))
+            .filter(Article.issue_label_id == issue_id)
+            .all()
+        )
 
     def truncate_all_data(self):
         """
