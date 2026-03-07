@@ -268,7 +268,7 @@ class DraftService:
         except Exception as e:
             return f"분석 중 오류 발생: {str(e)}"
 
-async def analyze_perspectives(self, issue_id: int) -> PerspectivesResponse:
+    async def analyze_perspectives(self, issue_id: int) -> PerspectivesResponse:
         issue = self.repo.get_issue_by_id(issue_id)
         if not issue:
             raise HTTPException(status_code=404, detail="Issue not found")
@@ -320,3 +320,30 @@ async def analyze_perspectives(self, issue_id: int) -> PerspectivesResponse:
             issue_name=issue.name,
             perspectives=results
         )
+
+    # ==========================================
+    # 6. 작업실 저장 (초안 복사) 로직
+    # ==========================================
+    def save_issue_draft_to_workspace(self, user_id: int, request: SaveDraftRequest) -> int:
+        from app.domains.drafts.models import Draft
+        
+        issue = self.repo.get_issue_by_id(request.issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+        if not issue.pre_generated_draft:
+            raise HTTPException(status_code=400, detail="해당 이슈에 미리 생성된 초안이 없습니다.")
+            
+        # 새로운 Draft 생성 후 내 작업실로 복사
+        new_draft = Draft(
+            user_id=user_id,
+            title=f"[{issue.name}] 비평 기사 초안",
+            content=issue.pre_generated_draft,
+            status="draft"
+        )
+        
+        # 실제로는 repo에 save 메서드를 추가해야 하지만 직접 add
+        self.repo.db.add(new_draft)
+        self.repo.db.commit()
+        self.repo.db.refresh(new_draft)
+        
+        return new_draft.id

@@ -62,3 +62,13 @@ class PerspectivesResponse(BaseModel):
     issue_id: int
     issue_name: str
     perspectives: List[PerspectiveItem]
+
+# ==========================================
+# Workspace (작업실 저장) 관련 Schema
+# ==========================================
+class SaveDraftRequest(BaseModel):
+    issue_id: int
+
+class SaveDraftResponse(BaseModel):
+    message: str
+    draft_id: int

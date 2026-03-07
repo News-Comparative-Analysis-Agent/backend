@@ -9,6 +9,7 @@ class IssueResponse(BaseModel):
     description: Optional[str] = None # 이슈 배경
     article_count: int # 관련 기사 수
     rank: Optional[int] = None # 순위
+    pre_generated_draft: Optional[str] = None # 미리 생성된 초안
     created_at: datetime
 
     class Config:
