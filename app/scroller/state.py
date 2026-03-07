@@ -23,3 +23,16 @@ class ClusterState(TypedDict):
     saved_issue_count: int                     # DB에 저장된 이슈 라벨 수
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                 # 에러 발생 시 에러 메시지 저장
+
+class ComparisonState(TypedDict): # 주장 카드 생성 파이프라인 전역 상태 state
+    """
+    언론사별 주장 비교 분석 파이프라인 전역 상태 데이터
+    """
+    llm_mode: str                             # "gemini_only", "local_priority", "local_only"
+    issue_id: int                             # 분석 대상 이슈 ID
+    articles: List[Dict[str, Any]]            # 이슈에 속한 기사 리스트
+    extracted_claims: List[Dict[str, Any]]    # 에이전트1이 추출한 언론사별 주장/근거 (JSON 리스트)
+    final_analysis: str                       # 에이전트2가 생성한 최종 비평 보고서
+    messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
+    error: str                                 # 에러 발생 시 에러 메시지 저장
+

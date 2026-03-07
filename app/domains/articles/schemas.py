@@ -10,6 +10,7 @@ class ArticleBase(BaseModel):
     bias: Optional[str] = None
     bias_score: Optional[float] = None
     reporter: Optional[str] = None # 기자 이름
+    image_url: Optional[str] = None # 1위 기사용 대표 이미지
 
 class ArticleCreate(ArticleBase):
     publisher_id: Optional[int] = None
@@ -27,3 +28,6 @@ class ArticleResponse(ArticleBase):
 class ArticleDetail(ArticleResponse):
     """상세 조회 시 본문 포함"""
     content: Optional[str] = None 
+
+
+
