@@ -8,7 +8,7 @@ class IssueAgent:
     Agent 2) Issue Agent (쟁점 구조화)
     주장 카드들을 분석하여 서로 충돌하거나 보완하는 '핵심 쟁점(Points of Contention)' 구조를 생성합니다.
     """
-    def __init__(self):
+    def __init__(self, db=None):
         pass
 
     def node_structure_issues(self, state: ComparisonState) -> dict:

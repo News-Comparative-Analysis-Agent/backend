@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.agents.state import CrawlState, ClusterState, ComparisonState
 from app.scroller.nodes import ScrollerNodes
 from app.core.logger import logger
+from app.agents.utils import log_execution_time
 
 # 자동 재시도 정책 정의
 # 외부 API(네이버, 제미나이, 로컬 LLM) 통신 오류 시 최대 3회 재시도 (지수 백오프 적용)
