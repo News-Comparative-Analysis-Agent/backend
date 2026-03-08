@@ -13,7 +13,8 @@ from app.domains.drafts.repository import DraftRepository
 from app.domains.drafts.schemas import (
     ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
-    ArticleInfo, PerspectiveItem, PerspectivesResponse
+    ArticleInfo, PerspectiveItem, PerspectivesResponse,
+    SaveDraftRequest
 )
 from app.core.logger import logger
 
