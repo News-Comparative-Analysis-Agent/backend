@@ -26,10 +26,13 @@ class JudgeAgent:
         claim_cards = state.get("claim_cards", [])
         retry_count = state.get("retry_count", 0)
         
-        log_llm_event("agent_judge", f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})")
+        msg_start = f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})"
+        logger.info(f"⚖️ [JudgeAgent] {msg_start}")
+        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 기사길이={len(edited_article)}, 쟁점수={len(structured_issues)}, 주장카드수={len(claim_cards)}")
         
         if not edited_article or "오류가 발생" in edited_article:
             msg = "초안이 없어 검증 불가"
+            logger.warning(f"⚖️ [JudgeAgent] {msg}")
             return {"judge_status": "FAIL_WRITER", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
             
         issues_json = json.dumps(structured_issues, ensure_ascii=False)
@@ -84,8 +87,11 @@ class JudgeAgent:
             score = result.get("score", 0)
             
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
-            log_llm_event("agent_judge", msg)
-            
+            if status == "PASS":
+                logger.success(f"⚖️ [JudgeAgent] {msg}")
+            else:
+                logger.warning(f"⚖️ [JudgeAgent] {msg}")
+                
             return {
                 "judge_status": status,
                 "judge_feedback": feedback,

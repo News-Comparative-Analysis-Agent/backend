@@ -31,7 +31,13 @@ class ComparisonState(TypedDict):
     """
     llm_mode: str                             # "gemini_only", "local_priority", "local_only"
     issue_id: int                             # 분석 대상 이슈 ID
-    articles: List[Dict[str, Any]]            # 이슈에 속한 원본 기사 리스트
+    
+    # 통합 파이프라인 중간 단계 데이터
+    raw_articles: List[Dict[str, Any]]        # 크롤링된 기사 리스트
+    unclustered_articles: List[Dict[str, Any]] # 이슈 미배정 기사 리스트
+    clustered_topics: List[Dict[str, Any]]     # 군집화된 토픽 상세 리스트
+    
+    articles: List[Dict[str, Any]]            # 최종 분석 대상 이슈에 속한 기사 리스트
     
     # 1. Evidence Agent 출력
     claim_cards: List[Dict[str, Any]]         # 매체별 주장 카드 (주장 1문장, 원문 인용 근거, 기사 URL/매체)

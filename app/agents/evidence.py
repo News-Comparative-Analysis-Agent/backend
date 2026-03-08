@@ -41,8 +41,15 @@ class EvidenceAgent:
                 'url': a.url
             })
             
-        msg = f"기사 {len(data)}건 로드 완료"
-        log_llm_event("agent_evidence", msg)
+        msg = f"이슈 ID {issue_id}에 대해 기사 {len(data)}건 로드 완료"
+        logger.info(f"🔍 [EvidenceAgent:Fetch] {msg}")
+        
+        # 기사 정보 로깅 추가
+        if data:
+            logger.info(f"🔍 [EvidenceAgent:Fetch] 분석 대상 기사 리스트:")
+            for i, d in enumerate(data, 1):
+                logger.info(f"   {i}. [{d['press']}] {d['title']}")
+                
         return {"articles": data, "messages": [msg]}
 
     def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str) -> dict:
@@ -116,7 +123,9 @@ class EvidenceAgent:
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
         workers = 5 if llm_mode == "gemini_only" else 2
         
-        log_llm_event("agent_evidence", f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 추출 시작 (Workers: {workers})")
+        msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 추출 시작 (Mode: {llm_mode}, Workers: {workers})"
+        logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")
+        log_llm_event("agent_evidence", msg_start)
         
         claim_cards = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -146,11 +155,11 @@ class EvidenceAgent:
         # 변경 사항 커밋
         try:
             self.db.commit()
-            msg = f"총 {len(claim_cards)}개의 주장 카드 생성 완료 및 DB 저장 완료 ({saved_claims_count}건)"
+            msg = f"총 {len(claim_cards)}개의 주장 카드 생성 및 DB 저장 완료 ({saved_claims_count}건)"
+            logger.info(f"🔍 [EvidenceAgent:Extract] {msg}")
         except Exception as e:
             self.db.rollback()
-            msg = f"총 {len(claim_cards)}개의 주장 카드 생성 완료했으나, DB 저장 실패: {e}"
-            logger.error(msg)
+            msg = f"주장 카드 생성 완료({len(claim_cards)}건) 및 DB 저장 실패: {e}"
+            logger.error(f"🔍 [EvidenceAgent:Extract] {msg}")
             
-        log_llm_event("agent_evidence", msg)
         return {"claim_cards": claim_cards, "messages": [msg]}

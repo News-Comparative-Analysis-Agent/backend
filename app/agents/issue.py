@@ -98,6 +98,7 @@ class IssueAgent:
                 structured_data = [{"issue_title": "구조화 파싱 실패", "media_differences": str(structured_data), "evidence_sources": []}]
 
             msg = f"총 {len(structured_data)}개의 핵심 쟁점 도출 완료"
+            logger.success(f"🧩 [IssueAgent] {msg}")
             log_llm_event("agent_issue", msg)
             return {"structured_issues": structured_data, "messages": [msg]}
             

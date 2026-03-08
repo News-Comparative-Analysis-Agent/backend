@@ -24,9 +24,11 @@ class EditorAgent:
         retry_count = state.get("retry_count", 0)
         llm_mode = state.get("llm_mode", "local_priority")
         
-        log_llm_event("agent_editor", f"Agent 4 (Editor): 초안 교정 시작 (Retry: {retry_count})")
+        msg_start = f"Agent 4 (Editor): 초안 교정 시작 (Mode: {llm_mode}, Retry: {retry_count})"
+        logger.info(f"🎨 [EditorAgent] {msg_start}")
         
         if not draft or "오류가 발생" in draft:
+            logger.warning("🎨 [EditorAgent] 전송된 초안이 없어 교정을 생략합니다.")
             return {"edited_article": draft, "edit_log": "전송된 초안이 없어 교정을 생략합니다.", "messages": ["에디터 패스"]}
             
         prompt = f"""
@@ -77,7 +79,7 @@ class EditorAgent:
                 edited_article = final_text.strip()
                 
             msg = "표현 및 중복 톤 정리 완료"
-            log_llm_event("agent_editor", msg)
+            logger.success(f"🎨 [EditorAgent] {msg}")
             
             return {
                 "edited_article": edited_article, 
@@ -87,6 +89,5 @@ class EditorAgent:
             
         except Exception as e:
             msg = f"에디팅 실패: {e}"
-            logger.error(msg)
-            log_llm_event("agent_editor", msg)
+            logger.error(f"🎨 [EditorAgent] {msg}")
             return {"edited_article": draft, "edit_log": msg, "messages": [msg]}

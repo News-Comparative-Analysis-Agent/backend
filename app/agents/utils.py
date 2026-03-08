@@ -2,6 +2,7 @@ import os
 import json
 import re
 import requests
+import google.generativeai as genai
 from app.core.logger import logger, log_llm_event
 
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
@@ -62,7 +63,55 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
             
         log_llm_event("LocalLLM", "Response received", details=content, token_info=token_info_dict)
         return content
+    except requests.exceptions.ConnectionError as e:
+        err_msg = f"로컬 LLM 서버({model_size}) 연결 거부: 서버가 작동 중인지 확인하십시오. ({e})"
+        log_llm_event("LocalLLM", "Connection Error", details=err_msg)
+        logger.error(err_msg)
+        return "{}" if json_mode else ""
     except Exception as e:
         log_llm_event("LocalLLM", f"Error: {e}")
         logger.error(f"로컬 LLM({model_size}) 호출 실패: {e}")
         return "{}" if json_mode else ""
+
+def call_gemini(prompt: str) -> dict:
+    """제미나이 API를 호출합니다."""
+    try:
+        log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(prompt)
+        
+        usage = response.usage_metadata
+        token_info = {
+            'prompt_tokens': usage.prompt_token_count,
+            'completion_tokens': usage.candidates_token_count
+        }
+        
+        log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
+        return parse_llm_json(response.text)
+    except Exception as e:
+        log_llm_event("Gemini", f"Error: {e}", details=str(e))
+        logger.error(f"Gemini 호출 실패: {e}")
+        return None
+
+def call_llm(prompt: str, model_size: str, state: dict) -> dict:
+    """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다."""
+    mode = state.get("llm_mode", "gemini_only")
+    
+    if mode == "local_only":
+        content = call_local_llm(model_size, prompt)
+        return parse_llm_json(content)
+        
+    if mode == "gemini_only":
+        return call_gemini(prompt)
+        
+    if mode == "local_priority":
+        try:
+            content = call_local_llm(model_size, prompt)
+            parsed = parse_llm_json(content)
+            if parsed: return parsed
+            raise ValueError("로컬 LLM 응답 파싱 실패")
+        except Exception as e:
+            logger.warning(f"로컬 LLM 실패로 인해 제미나이로 폴백합니다: {e}")
+            return call_gemini(prompt)
+    
+    return call_gemini(prompt)
