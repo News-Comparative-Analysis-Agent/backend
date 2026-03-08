@@ -43,7 +43,7 @@ jobs:
         
         # 임시로 스크립트에 필요한 필수 패키지 명시적 설치
         pip install requests beautifulsoup4 pandas sqlalchemy psycopg2-binary
-        pip install python-dotenv pytz "google-generativeai" "bertopic" "scikit-learn" "konlpy" "langgraph" "langchain-core" "loguru"
+        pip install python-dotenv pytz "google-generativeai" "bertopic" "scikit-learn" "konlpy" "langgraph" "langchain-core" "loguru" "aiohttp" "nest_asyncio"
         
     - name: 파이프라인 실행 (크롤링 + 클러스터링 + 초안생성)
       env:

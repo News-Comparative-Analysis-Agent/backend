@@ -20,6 +20,8 @@ passlib[bcrypt]==1.7.4
 # Utilities
 loguru==0.7.2
 requests==2.31.0
+pytz
+
 
 # Crawling
 beautifulsoup4==4.12.3
@@ -33,6 +35,8 @@ pandas==2.2.0
 bertopic
 pyarrow
 langgraph
+aiohttp
+nest_asyncio
 # Testing
 pytest==8.0.0
 httpx==0.27.0

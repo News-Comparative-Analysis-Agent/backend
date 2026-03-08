@@ -84,7 +84,6 @@ class EvidenceAgent:
                 }
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
-                import json
                 # Gemini 2.0 모델은 Structured Outputs를 통해 완벽한 JSON을 보장하므로 정규식 파서 불필요
                 card_data = json.loads(response.text)
             else:
