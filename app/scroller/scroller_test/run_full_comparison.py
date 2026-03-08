@@ -28,10 +28,18 @@ def run_full_pipeline():
         logger.info("🛠️  에이전트 그래프 컴파일 중...")
         app = create_comparison_graph(db)
         
-        # 2. 초기 상태 설정
+        # 2. DB에서 시스템 설정(LLM 모드) 조회
+        from app.scroller.repository import ScrollerRepository
+        repo = ScrollerRepository(db)
+        settings = repo.get_system_settings()
+        llm_mode = settings.llm_mode
+        
+        logger.info(f"⚙️  DB 설정 기반 LLM 모드 로드: {llm_mode}")
+        
+        # 3. 초기 상태 설정
         # ComparisonState 정의와 100% 일치하도록 구성
         initial_state = {
-            "llm_mode": "local_priority", # gemini_only, local_priority, local_only
+            "llm_mode": llm_mode,         # DB 설정을 따름 (gemini_only, local_priority, local_only)
             "issue_id": None,              # 클러스터링 단계에서 자동 결정됨
             "raw_articles": [],
             "unclustered_articles": [],

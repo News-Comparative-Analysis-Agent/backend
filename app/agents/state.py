@@ -59,3 +59,6 @@ class ComparisonState(TypedDict):
     
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                 # 에러 발생 시 에러 메시지 저장
+    
+    # 토큰 사용량 추적
+    total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}

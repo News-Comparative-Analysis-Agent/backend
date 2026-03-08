@@ -1,7 +1,7 @@
 import json
 import google.generativeai as genai
 from app.agents.state import ComparisonState
-from app.agents.utils import parse_llm_json
+from app.agents.utils import parse_llm_json, update_total_tokens
 from app.core.logger import logger, log_llm_event
 
 class JudgeAgent:
@@ -14,8 +14,8 @@ class JudgeAgent:
       o 중복률
       o status: "PASS", "FAIL_WRITER" (내용 부족), "FAIL_EDITOR" (톤/문맥 불량)
     """
-    def __init__(self):
-        pass
+    def __init__(self, db=None):
+        self.db = db
 
     def node_evaluate_draft(self, state: ComparisonState) -> dict:
         """
@@ -78,9 +78,19 @@ class JudgeAgent:
             response = gen_model.generate_content(prompt)
             result = parse_llm_json(response.text)
             
+            # 토큰 정보 추출
+            usage_metadata = response.usage_metadata
+            usage = {
+                "prompt_tokens": usage_metadata.prompt_token_count,
+                "completion_tokens": usage_metadata.candidates_token_count
+            }
+            
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage)
+
             if not result:
                 logger.warning("Judge JSON 파싱 실패 -> 안전망 강제 PASS 처리")
-                return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"]}
+                return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"], "total_tokens": total_tokens}
                 
             status = result.get("status", "FAIL_WRITER").upper()
             feedback = result.get("feedback", "")
@@ -89,6 +99,13 @@ class JudgeAgent:
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
             if status == "PASS":
                 logger.success(f"⚖️ [JudgeAgent] {msg}")
+                # 최종 통과 시 DB에 저장 (웹 서비스 조회용)
+                issue_id = state.get("issue_id")
+                if issue_id and self.db:
+                    from app.scroller.repository import ScrollerRepository
+                    repo = ScrollerRepository(self.db)
+                    repo.update_issue_draft(issue_id, edited_article)
+                    logger.info(f"⚖️ [JudgeAgent] 최종 비평 기사가 DB(IssueLabel.pre_generated_draft)에 저장되었습니다. (Issue ID: {issue_id})")
             else:
                 logger.warning(f"⚖️ [JudgeAgent] {msg}")
                 
@@ -96,7 +113,8 @@ class JudgeAgent:
                 "judge_status": status,
                 "judge_feedback": feedback,
                 "retry_count": retry_count + 1,
-                "messages": [msg]
+                "messages": [msg],
+                "total_tokens": total_tokens
             }
             
         except Exception as e:

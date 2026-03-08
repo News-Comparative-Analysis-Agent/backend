@@ -13,7 +13,7 @@ TARGET_PRESS_DICT = {
     "한겨레": "028", "경향신문": "032", 
     "조선일보": "023", "동아일보": "020", "연합뉴스": "001"
 }
-DAYS_TO_CRAWL = 2
+DAYS_TO_CRAWL = 4
 
 class ScoutAgent:
     """
@@ -122,7 +122,7 @@ class ScoutAgent:
         collected_count = 0
         
         for item in list_items:
-            if collected_count >= 4: # 각 언론사당 2개 제한 (테스트용)
+            if collected_count >= 4: # 각 언론사당 4개 제한 (테스트용)
                 break
                 
             link_tag = item.select_one('a')

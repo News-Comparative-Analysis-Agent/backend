@@ -5,7 +5,7 @@ import google.generativeai as genai
 from sqlalchemy.orm import Session
 
 from app.agents.state import ComparisonState
-from app.agents.utils import call_local_llm, parse_llm_json
+from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
 from app.domains.articles.service import ArticleService
 from app.scroller.repository import ScrollerRepository
@@ -52,7 +52,7 @@ class EvidenceAgent:
                 
         return {"articles": data, "messages": [msg]}
 
-    def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str) -> dict:
+    def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str, state: ComparisonState) -> tuple[dict | None, dict]:
         
         prompt = f"""
         당신은 사실 기반 팩트체커입니다. 아래 뉴스 기사 본문에서 핵심 주장을 발췌하여 JSON 주장 카드를 생성하세요.
@@ -77,6 +77,7 @@ class EvidenceAgent:
         }}
         """
         
+        usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
             if llm_mode == "gemini_only":
                 response_schema = {
@@ -91,22 +92,23 @@ class EvidenceAgent:
                 }
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
-                import json
                 # Gemini 2.0 모델은 Structured Outputs를 통해 완벽한 JSON을 보장하므로 정규식 파서 불필요
                 card_data = json.loads(response.text)
+                # Gemini API는 토큰 정보를 직접 반환하지 않으므로 추정치 또는 0으로 설정
+                usage["prompt_tokens"] = len(prompt) // 4 # Rough estimate
+                usage["completion_tokens"] = len(response.text) // 4 # Rough estimate
             else:
-                final_text = call_local_llm("7B_1", prompt, json_mode=True)
-                # 로컬 모델은 불필요한 마크다운 백틱 등을 포함할 수 있어 파싱 헬퍼 필수
-                card_data = parse_llm_json(final_text)
+                # call_llm은 (data, usage)를 반환함
+                card_data, usage = call_llm(prompt, "7B_1", state)
             
             if card_data:
                 # 내부 식별용 매핑 (리스트 취합 후 메인 스레드에서 일괄 저장 용도)
                 card_data['article_id'] = art['article_id'] 
-                return card_data
+                return card_data, usage
         except Exception as e:
             logger.error(f"주장 추출 실패 ({art['press']}): {e}")
             
-        return None
+        return None, usage
 
     def node_extract_claims(self, state: ComparisonState) -> dict:
         """
@@ -128,38 +130,55 @@ class EvidenceAgent:
         log_llm_event("agent_evidence", msg_start)
         
         claim_cards = []
+        node_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(self._extract_single_card, art, issue_id, llm_mode) for art in articles]
+            futures = [executor.submit(self._extract_single_card, art, issue_id, llm_mode, state) for art in articles]
             for future in concurrent.futures.as_completed(futures):
-                res = future.result()
-                if res:
-                    claim_cards.append(res)
+                card_data, usage = future.result()
+                
+                # 토큰 합산
+                node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+
+                if card_data:
+                    claim_cards.append(card_data)
                     
         # 스레드가 모두 종료된 후 메인 스레드에서 일괄 데이터베이스 저장 (Thread-Safety 보장)
         saved_claims_count = 0
-        for card in claim_cards:
-            try:
-                # 딕셔너리에서 원본 press 정보를 가져오고, 없으면 fallback
-                target_press = card.get('press', '알수없음')
-                self.article_service.save_article_claim(
-                    issue_id=issue_id,
-                    article_id=card['article_id'],
-                    press=target_press,
-                    claim=card.get('claim', ''),
-                    evidence=card.get('evidence', '')
-                )
-                saved_claims_count += 1
-            except Exception as e:
-                logger.error(f"Claim 일괄 저장 중 DB 에러: {e}")
-                
-        # 변경 사항 커밋
         try:
+            for card in claim_cards:
+                try:
+                    # 딕셔너리에서 원본 press 정보를 가져오고, 없으면 fallback
+                    target_press = card.get('press', '알수없음')
+                    self.article_service.save_article_claim(
+                        issue_id=issue_id,
+                        article_id=card['article_id'],
+                        press=target_press,
+                        claim=card.get('claim', ''),
+                        evidence=card.get('evidence', '')
+                    )
+                    saved_claims_count += 1
+                except Exception as e:
+                    logger.error(f"Claim 일괄 저장 중 DB 에러: {e}")
+                
+            # 7. 기사 카드 로깅 강화
+            if claim_cards:
+                logger.info(f"🔍 [EvidenceAgent:Extract] 추출된 주장 카드 목록:")
+                for i, card in enumerate(claim_cards, 1):
+                    logger.info(f"   {i}. [{card.get('press')}] {card.get('claim')[:50]}...")
+                    # 상세 내용은 log_llm_event로 남김
+                    log_llm_event("agent_evidence", f"Card {i} Details", details=json.dumps(card, ensure_ascii=False, indent=2))
+            
             self.db.commit()
-            msg = f"총 {len(claim_cards)}개의 주장 카드 생성 및 DB 저장 완료 ({saved_claims_count}건)"
+            msg = f"총 {len(claim_cards)}개 핵심 주장 카드 추출 완료 및 DB 저장 완료 ({saved_claims_count}건)"
             logger.info(f"🔍 [EvidenceAgent:Extract] {msg}")
         except Exception as e:
             self.db.rollback()
             msg = f"주장 카드 생성 완료({len(claim_cards)}건) 및 DB 저장 실패: {e}"
             logger.error(f"🔍 [EvidenceAgent:Extract] {msg}")
+        
+        # 전체 상태 업데이트
+        total_tokens = update_total_tokens(state, node_usage)
             
-        return {"claim_cards": claim_cards, "messages": [msg]}
+        return {"claim_cards": claim_cards, "messages": [msg], "total_tokens": total_tokens}

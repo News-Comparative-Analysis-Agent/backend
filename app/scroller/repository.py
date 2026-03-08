@@ -237,3 +237,26 @@ class ScrollerRepository:
         
         self.db.flush()
         return settings
+
+    def get_system_settings(self) -> SystemSettings:
+        """
+        시스템 설정을 조회합니다. 없으면 기본값으로 생성합니다.
+        """
+        settings = self.db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+        if not settings:
+            # 기본 설정 생성
+            settings = SystemSettings(id=1, llm_mode="gemini_only")
+            self.db.add(settings)
+            self.db.flush()
+        return settings
+
+    def update_issue_draft(self, issue_id: int, draft_text: str):
+        """
+        이슈 레이블의 pre_generated_draft 컬럼을 업데이트합니다.
+        """
+        issue = self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+        if issue:
+            issue.pre_generated_draft = draft_text
+            self.db.flush()
+            return True
+        return False
