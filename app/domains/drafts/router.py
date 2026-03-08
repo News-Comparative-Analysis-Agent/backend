@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.domains.drafts.schemas import (
     StreamDraftRequest, ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
-    PerspectivesResponse
+    PerspectivesResponse, SaveDraftRequest
 )
 from app.domains.drafts.service import DraftService
 

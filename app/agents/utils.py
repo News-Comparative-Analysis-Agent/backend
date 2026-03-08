@@ -8,7 +8,7 @@ from app.core.logger import logger, log_llm_event
 LLM_SERVER_IP = os.getenv("LLM_SERVER_IP", os.getenv("HOST_IP", "127.0.0.1")).strip()
 
 # 포트 설정 (.env 우선, 없으면 기본값)
-PORT_3B = os.getenv("3B_PORT", "8081").strip()
+# PORT_3B = os.getenv("3B_PORT", "8081").strip()
 PORT_7B_1 = os.getenv("7B_PORT", "8000").strip() # 기본 추출용
 PORT_7B_2 = os.getenv("7B_PORT_WRITER", "8001").strip() # 비평 작성 전용 (있을 경우)
 
@@ -16,7 +16,7 @@ PORT_7B_2 = os.getenv("7B_PORT_WRITER", "8001").strip() # 비평 작성 전용 (
 API_PATH = os.getenv("LLM_SERVER_API_URI", "v1/chat/completions").strip()
 
 LOCAL_LLM_SERVERS = {
-    "3B": f"http://{LLM_SERVER_IP}:{PORT_3B}/{API_PATH}",
+    # "3B": f"http://{LLM_SERVER_IP}:{PORT_3B}/{API_PATH}",
     "7B_1": f"http://{LLM_SERVER_IP}:{PORT_7B_1}/{API_PATH}",
     "7B_2": f"http://{LLM_SERVER_IP}:{PORT_7B_2}/{API_PATH}",
 }
