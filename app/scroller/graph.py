@@ -66,6 +66,8 @@ def create_cluster_graph(db: Session):
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
 
+
+@log_execution_time("issue_generation_pipeline")
 def create_comparison_graph(db: Session):
     """
     언론사별 주장을 비교 분석 파이프라인 그래프 (LangGraph) 생성
@@ -87,10 +89,10 @@ def create_comparison_graph(db: Session):
     scout_agent = ScoutAgent(db)
     cluster_agent = ClusterAgent(db)
     evidence_agent = EvidenceAgent(db)
-    issue_agent = IssueAgent()
+    issue_agent = IssueAgent(db)
     writer_agent = WriterAgent()
     editor_agent = EditorAgent()
-    judge_agent = JudgeAgent()
+    judge_agent = JudgeAgent(db)
     
     # 1. 상태(State) 정의와 함께 그래프 초기화
     workflow = StateGraph(ComparisonState)

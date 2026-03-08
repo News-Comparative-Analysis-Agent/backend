@@ -99,13 +99,22 @@ class JudgeAgent:
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
             if status == "PASS":
                 logger.success(f"⚖️ [JudgeAgent] {msg}")
-                # 최종 통과 시 DB에 저장 (웹 서비스 조회용)
+                # 최종 통과 시 DB에 모든 분석 결과 저장 (웹 서비스 조회용)
                 issue_id = state.get("issue_id")
                 if issue_id and self.db:
                     from app.scroller.repository import ScrollerRepository
                     repo = ScrollerRepository(self.db)
+                    
+                    # 1. 초안 저장
                     repo.update_issue_draft(issue_id, edited_article)
-                    logger.info(f"⚖️ [JudgeAgent] 최종 비평 기사가 DB(IssueLabel.pre_generated_draft)에 저장되었습니다. (Issue ID: {issue_id})")
+                    
+                    # 2. 나머지 분석 메타데이터(background, description) 저장
+                    repo.update_issue_analysis_results(
+                        issue_id=issue_id,
+                        description=state.get("description"),
+                        background=state.get("background"),
+                    )
+                    logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과(초안, 배경, 요약)가 DB(IssueLabel)에 저장되었습니다. (Issue ID: {issue_id})")
             else:
                 logger.warning(f"⚖️ [JudgeAgent] {msg}")
                 

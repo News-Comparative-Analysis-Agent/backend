@@ -260,3 +260,19 @@ class ScrollerRepository:
             self.db.flush()
             return True
         return False
+
+    def update_issue_analysis_results(self, issue_id: int, 
+                                     description: str = None,
+                                     background: str = None):
+        """
+        이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다.
+        """
+        issue = self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+        if issue:
+            if description is not None:
+                issue.description = description
+            if background is not None:
+                issue.background = background
+            self.db.flush()
+            return True
+        return False

@@ -41,7 +41,8 @@ class ClusterAgent:
             "민주당", "국민의힘", "의원", "대통령", "대표", "정부", "국회", "여야",
             "국민", "라며", "대한", "상황", "입장", "발언", "논란", "한국", "우리",
             "이재명", "윤석열", "한동훈", "장관", "수사", "주장", "평가", "문제", "이유",
-            "이날", "예정", "시간", "최근", "다시", "크게", "이후", "통해", "사실"
+            "이날", "예정", "시간", "최근", "다시", "크게", "이후", "통해", "사실", "한동훈",
+            "국민의힘", "더불어민주당", "이재명", "윤석열", "조국"
         ]
         
         vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
@@ -249,11 +250,20 @@ class ClusterAgent:
                 if t["count"] > max_count:
                     max_count = t["count"]
                     target_issue_id = issue.id
+                    target_description = desc
+                    target_background = bg
             
             self.db.commit()
             msg = f"이슈 {len(saved_ids)}개 저장 완료. 다음 분석 이슈 ID: {target_issue_id}"
             logger.info(f"📊 [ClusterAgent:Save] {msg}")
-            return {"issue_id": target_issue_id, "messages": [msg]}
+            
+            # 다음 분석 단계를 위해 선택된 타겟의 상세 정보를 상태에 기록
+            return {
+                "issue_id": target_issue_id, 
+                "description": target_description if 'target_description' in locals() else None,
+                "background": target_background if 'target_background' in locals() else None,
+                "messages": [msg]
+            }
         except Exception as e:
             self.db.rollback()
             logger.error(f"📊 [ClusterAgent:Save] 이슈 저장 실패: {e}")

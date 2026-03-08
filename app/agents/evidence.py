@@ -180,5 +180,5 @@ class EvidenceAgent:
         
         # 전체 상태 업데이트
         total_tokens = update_total_tokens(state, node_usage)
-            
+        
         return {"claim_cards": claim_cards, "messages": [msg], "total_tokens": total_tokens}
