@@ -101,8 +101,11 @@ class ClusterAgent:
             4. 제목은 명사형으로 끝맺을 것.
             """
             
-            # call_llm은 utils.py에 정의된 공통 함수를 사용합니다.
-            parsed = call_llm(prompt, "7B_1", state)
+            # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
+            parsed, usage = call_llm(prompt, "7B_1", state)
+            
+            # 토큰 업데이트
+            state["total_tokens"] = update_total_tokens(state, usage)
             
             if parsed:
                 return (
@@ -262,6 +265,7 @@ class ClusterAgent:
                 "issue_id": target_issue_id, 
                 "description": target_description if 'target_description' in locals() else None,
                 "background": target_background if 'target_background' in locals() else None,
+                "total_tokens": state.get("total_tokens"),
                 "messages": [msg]
             }
         except Exception as e:

@@ -59,7 +59,7 @@ class IssueService:
         # 1. 이슈 기본 정보 및 분석 메타데이터 조회
         issue = self.repo.get_by_id(issue_id)
         if not issue:
-            raise HTTPException(status_code=404, detail="Issue not found")
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
 
         # 2. 관련 주장 카드 데이터 조회
         claims = self.repo.get_claims_by_issue(issue_id)
