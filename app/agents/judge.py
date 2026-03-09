@@ -73,14 +73,30 @@ class JudgeAgent:
             }
             gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
             response = gen_model.generate_content(prompt)
-            result = parse_llm_json(response.text)
+            
+            # Gemini 2.0 JSON Schema 모드에서는 response.text가 순수 JSON임을 보장합니다.
+            try:
+                result = json.loads(response.text)
+            except json.JSONDecodeError as je:
+                logger.error(f"Judge JSON 파싱 치명적 실패: {je}\nRaw: {response.text}")
+                return {
+                    "judge_status": "FAIL_WRITER", 
+                    "judge_feedback": "Judge 결과 데이터 파싱 실패 (시스템 오류). 재검증을 위해 다시 작성하십시오.", 
+                    "retry_count": retry_count + 1,
+                    "messages": ["JSON 파싱 에러로 인한 강제 반려"]
+                }
             
             if not result:
-                logger.warning("Judge JSON 파싱 실패 -> 안전망 강제 PASS 처리")
-                return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"]}
+                logger.warning("Judge 결과값이 비어있음 -> 안전을 위해 반려 처리")
+                return {
+                    "judge_status": "FAIL_WRITER", 
+                    "judge_feedback": "Judge 평가 결과가 생성되지 않았습니다. 다시 시도하십시오.", 
+                    "retry_count": retry_count + 1,
+                    "messages": ["빈 결과값으로 인한 반려"]
+                }
                 
             status = result.get("status", "FAIL_WRITER").upper()
-            feedback = result.get("feedback", "")
+            feedback = result.get("feedback", "피드백이 제공되지 않았습니다.")
             score = result.get("score", 0)
             
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
@@ -94,7 +110,13 @@ class JudgeAgent:
             }
             
         except Exception as e:
-            msg = f"Judge 평가 시스템 에러: {e}"
+            msg = f"Judge 평가 시스템 치명적 에러: {e}"
             logger.error(msg)
             log_llm_event("agent_judge", msg)
-            return {"judge_status": "PASS", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
+            # 🔥 시스템 에러 발생 시 절대 PASS 시키지 않고 FAIL_WRITER로 돌려보내 안전장치 가동
+            return {
+                "judge_status": "FAIL_WRITER", 
+                "judge_feedback": f"시스템 오류 발생으로 인한 자동 반려: {e}", 
+                "retry_count": retry_count + 1, 
+                "messages": [msg]
+            }

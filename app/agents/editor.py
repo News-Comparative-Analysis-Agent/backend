@@ -51,12 +51,19 @@ class EditorAgent:
         
         # 이전 Judge 단계에서 Editor를 향한 사소한 피드백이 있다면 반영
         if judge_status == "FAIL_EDITOR" and judge_feedback:
+            previous_edit = state.get("edited_article", "")
             prompt += f"""
             
             [🚨 이전 발행 검토 피드백 반영 (데스크 지시) 🚨]
             편집장(Judge)으로부터 문장 톤이나 중복에 관한 지시가 내려왔습니다.
+            본인이 교정했던 [이전 수정본]을 확인하고, 지시 사항을 반영하여 재교정하십시오.
+            
             수정 지시: {judge_feedback}
+            
+            [본인이 교정했던 이전 수정본]
+            {previous_edit}
             """
+            log_llm_event("agent_editor", f"Editor 피드백 반영 및 재교정 모드 활성화")
             
         try:
             if llm_mode == "gemini_only":
