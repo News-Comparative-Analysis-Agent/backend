@@ -1,7 +1,7 @@
 import json
 import google.generativeai as genai
 from app.agents.state import ComparisonState
-from app.agents.utils import parse_llm_json
+from app.agents.utils import parse_llm_json, update_total_tokens
 from app.core.logger import logger, log_llm_event
 
 class JudgeAgent:
@@ -14,8 +14,8 @@ class JudgeAgent:
       o 중복률
       o status: "PASS", "FAIL_WRITER" (내용 부족), "FAIL_EDITOR" (톤/문맥 불량)
     """
-    def __init__(self):
-        pass
+    def __init__(self, db=None):
+        self.db = db
 
     def node_evaluate_draft(self, state: ComparisonState) -> dict:
         """
@@ -26,10 +26,13 @@ class JudgeAgent:
         claim_cards = state.get("claim_cards", [])
         retry_count = state.get("retry_count", 0)
         
-        log_llm_event("agent_judge", f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})")
+        msg_start = f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})"
+        logger.info(f"⚖️ [JudgeAgent] {msg_start}")
+        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 기사길이={len(edited_article)}, 쟁점수={len(structured_issues)}, 주장카드수={len(claim_cards)}")
         
         if not edited_article or "오류가 발생" in edited_article:
             msg = "초안이 없어 검증 불가"
+            logger.warning(f"⚖️ [JudgeAgent] {msg}")
             return {"judge_status": "FAIL_WRITER", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
             
         issues_json = json.dumps(structured_issues, ensure_ascii=False)
@@ -75,22 +78,52 @@ class JudgeAgent:
             response = gen_model.generate_content(prompt)
             result = parse_llm_json(response.text)
             
+            # 토큰 정보 추출
+            usage_metadata = response.usage_metadata
+            usage = {
+                "prompt_tokens": usage_metadata.prompt_token_count,
+                "completion_tokens": usage_metadata.candidates_token_count
+            }
+            
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage)
+
             if not result:
                 logger.warning("Judge JSON 파싱 실패 -> 안전망 강제 PASS 처리")
-                return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"]}
+                return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"], "total_tokens": total_tokens}
                 
             status = result.get("status", "FAIL_WRITER").upper()
             feedback = result.get("feedback", "")
             score = result.get("score", 0)
             
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
-            log_llm_event("agent_judge", msg)
-            
+            if status == "PASS":
+                logger.success(f"⚖️ [JudgeAgent] {msg}")
+                # 최종 통과 시 DB에 모든 분석 결과 저장 (웹 서비스 조회용)
+                issue_id = state.get("issue_id")
+                if issue_id and self.db:
+                    from app.scroller.repository import ScrollerRepository
+                    repo = ScrollerRepository(self.db)
+                    
+                    # 1. 초안 저장
+                    repo.update_issue_draft(issue_id, edited_article)
+                    
+                    # 2. 나머지 분석 메타데이터(background, description) 저장
+                    repo.update_issue_analysis_results(
+                        issue_id=issue_id,
+                        description=state.get("description"),
+                        background=state.get("background"),
+                    )
+                    logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과(초안, 배경, 요약)가 DB(IssueLabel)에 저장되었습니다. (Issue ID: {issue_id})")
+            else:
+                logger.warning(f"⚖️ [JudgeAgent] {msg}")
+                
             return {
                 "judge_status": status,
                 "judge_feedback": feedback,
                 "retry_count": retry_count + 1,
-                "messages": [msg]
+                "messages": [msg],
+                "total_tokens": total_tokens
             }
             
         except Exception as e:

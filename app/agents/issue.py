@@ -1,58 +1,53 @@
 import json
-import google.generativeai as genai
 from app.agents.state import ComparisonState
-from app.agents.utils import call_local_llm, parse_llm_json
+from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
 
 class IssueAgent:
     """
     Agent 2) Issue Agent (쟁점 구조화)
-    • 입력: 주장 카드 목록
-    • 출력(JSON): 쟁점 3~6개로 구조화
-      o 쟁점 제목
-      o 매체별 차이(강조/비판/중립 등)
-      o 해당 쟁점의 근거 claim_id (여기서는 article URL이나 press 명으로 맵핑)
+    주장 카드들을 분석하여 서로 충돌하거나 보완하는 '핵심 쟁점(Points of Contention)' 구조를 생성합니다.
     """
-    def __init__(self):
+    def __init__(self, db=None):
         pass
 
     def node_structure_issues(self, state: ComparisonState) -> dict:
         """
-        [Node] 주장 카드 목록을 읽고 쟁점(Issue Point) 단위로 묶어서 JSON 구조로 반환합니다.
+        [Node] 추출된 주장 카드들을 바탕으로 논쟁적인 쟁점 리스트를 생성합니다.
         """
         claim_cards = state.get("claim_cards", [])
-        llm_mode = state.get("llm_mode", "gemini_only")
+        llm_mode = state.get("llm_mode", "local_priority")
         
-        log_llm_event("agent_issue", f"Agent 2 (Issue): {len(claim_cards)}개의 주장 카드를 기반으로 쟁점 구조화 시작")
+        log_llm_event("agent_issue", f"Agent 2 (Issue): {len(claim_cards)}개 주장 기반 쟁점 구조화 시작")
         
         if not claim_cards:
-            return {"structured_issues": [], "messages": ["주장 카드가 부족하여 쟁점 구조화 불가"]}
+            return {"structured_issues": [], "messages": ["주장 카드가 없어 Issue 중단"]}
             
         cards_json = json.dumps(claim_cards, ensure_ascii=False, indent=2)
         
         prompt = f"""
-        당신은 뛰어난 데이터 아키텍트이자 뉴스 분석가입니다.
-        아래 제공된 '주장 카드 목록'을 읽고, 
-        이 이슈를 관통하는 핵심 쟁점(Point of Contention) 3~6개를 도출하여 구조화하십시오.
-        각 쟁점별로 어느 매체가 어떤 차이(강조/비판/중립 등)를 보이는지 명시하고, 
-        그 근거가 되는 언론사와 원문 URL을 꼭 연결하십시오.
+        당신은 상충하는 언론 보도를 분석하여 핵심 쟁점을 도출하는 분석 전문가입니다.
+        아래 제공된 '주장 카드' 리스트를 읽고, 언론사들이 서로 다른 목소리를 내고 있는 핵심 쟁점(Issue)들을 구조화하세요.
         
         [주장 카드 목록]
         {cards_json}
         
-        [반환 형식 - 순수 JSON List만]
+        [쟁점 구조화 규칙]
+        1. 쟁점명: 언론사 간 시각 차이가 뚜렷한 주제를 제목으로 설정.
+        2. 양측 관점: 어떤 매체가 어떤 지점에서 대립하는지 서술.
+        3. 출처 연결: 해당 쟁점과 관련된 매체명과 URL을 정확히 기재.
+        
+        반드시 다음 JSON 형식으로만 응답하세요.
+        
+        [JSON 출력 형식]
         [
-            {{
-                "issue_title": "첫 번째 핵심 쟁점 제목",
-                "media_differences": "매체별 시각 차이 (예: A 매체는 논란 강조, B 매체는 해명에 집중)",
-                "evidence_sources": [
-                    {{
-                        "press": "A 매체",
-                        "url": "해당 기사 URL"
-                    }}
-                ]
-            }},
-            ...
+          {{
+            "issue_title": "쟁점 제목",
+            "media_stances": "매체별 관점 비교 설명 (A사는 ~, 반면 B사는 ~)",
+            "sources": [
+              {{"press": "매체명", "url": "기사URL"}}
+            ]
+          }}
         ]
         """
         
@@ -64,42 +59,37 @@ class IssueAgent:
                         "type": "OBJECT",
                         "properties": {
                             "issue_title": {"type": "STRING"},
-                            "media_differences": {"type": "STRING"},
-                            "evidence_sources": {
+                            "media_stances": {"type": "STRING"},
+                            "sources": {
                                 "type": "ARRAY",
                                 "items": {
                                     "type": "OBJECT",
                                     "properties": {
                                         "press": {"type": "STRING"},
                                         "url": {"type": "STRING"}
-                                    }
+                                    },
+                                    "required": ["press", "url"]
                                 }
                             }
                         },
-                        "required": ["issue_title", "media_differences", "evidence_sources"]
+                        "required": ["issue_title", "media_stances", "sources"]
                     }
                 }
-                gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
-                response = gen_model.generate_content(prompt)
-                final_text = response.text
+                from app.agents.utils import call_gemini
+                structured_data, usage = call_gemini(prompt)
             else:
-                final_text = call_local_llm("7B_1", prompt, json_mode=True)
-                
-            structured_data = parse_llm_json(final_text)
+                structured_data, usage = call_llm(prompt, "7B_1", state)
             
-            # 파싱 결과가 딕셔너리면 리스트로 변환 시도
-            if isinstance(structured_data, dict) and len(structured_data) == 1:
-                key = list(structured_data.keys())[0]
-                if isinstance(structured_data[key], list):
-                    structured_data = structured_data[key]
-                else:
-                    structured_data = [structured_data]
-            elif not isinstance(structured_data, list):
-                structured_data = [{"issue_title": "구조화 파싱 실패", "media_differences": str(structured_data), "evidence_sources": []}]
-
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage)
+            
+            if not structured_data:
+                structured_data = []
+                
             msg = f"총 {len(structured_data)}개의 핵심 쟁점 도출 완료"
+            logger.success(f"🧩 [IssueAgent] {msg}")
             log_llm_event("agent_issue", msg)
-            return {"structured_issues": structured_data, "messages": [msg]}
+            return {"structured_issues": structured_data, "messages": [msg], "total_tokens": total_tokens}
             
         except Exception as e:
             msg = f"쟁점 구조화 시스템 에러: {e}"

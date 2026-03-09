@@ -48,3 +48,6 @@ newspaper3k
 
 # ci.cd #오류 해결을 위해 필요한 라이브러리
 konlpy
+aiohttp
+nest-asyncio
+scikit-learn

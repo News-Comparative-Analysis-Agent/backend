@@ -1,6 +1,5 @@
-import google.generativeai as genai
 from app.agents.state import ComparisonState
-from app.agents.utils import call_local_llm
+from app.agents.utils import call_local_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
 
 class EditorAgent:
@@ -24,9 +23,11 @@ class EditorAgent:
         retry_count = state.get("retry_count", 0)
         llm_mode = state.get("llm_mode", "local_priority")
         
-        log_llm_event("agent_editor", f"Agent 4 (Editor): 초안 교정 시작 (Retry: {retry_count})")
+        msg_start = f"Agent 4 (Editor): 초안 교정 시작 (Mode: {llm_mode}, Retry: {retry_count})"
+        logger.info(f"🎨 [EditorAgent] {msg_start}")
         
         if not draft or "오류가 발생" in draft:
+            logger.warning("🎨 [EditorAgent] 전송된 초안이 없어 교정을 생략합니다.")
             return {"edited_article": draft, "edit_log": "전송된 초안이 없어 교정을 생략합니다.", "messages": ["에디터 패스"]}
             
         prompt = f"""
@@ -60,13 +61,20 @@ class EditorAgent:
             
         try:
             if llm_mode == "gemini_only":
+                import google.generativeai as genai
                 gen_model = genai.GenerativeModel('gemini-2.0-flash')
                 response = gen_model.generate_content(prompt)
                 final_text = response.text
+                usage = {
+                    "prompt_tokens": len(prompt) // 4,
+                    "completion_tokens": len(final_text) // 4
+                }
             else:
-                # Editor 역시 로컬 워커 모델 사용 (여유가 된다면 동일하게 7B_2 사용)
-                final_text = call_local_llm("7B_2", prompt)
-                
+                final_text, usage = call_local_llm("7B_2", prompt)
+            
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage)
+
             # 수정 로그와 기사 본문을 파싱 (단순 split 활용)
             parts = final_text.split("## 최종 수정 초안")
             if len(parts) == 2:
@@ -77,16 +85,17 @@ class EditorAgent:
                 edited_article = final_text.strip()
                 
             msg = "표현 및 중복 톤 정리 완료"
-            log_llm_event("agent_editor", msg)
+            logger.success(f"🎨 [EditorAgent] {msg}")
+            log_llm_event("agent_editor", msg, details=final_text)
             
             return {
                 "edited_article": edited_article, 
                 "edit_log": edit_log, 
-                "messages": [msg]
+                "messages": [msg],
+                "total_tokens": total_tokens
             }
             
         except Exception as e:
             msg = f"에디팅 실패: {e}"
-            logger.error(msg)
-            log_llm_event("agent_editor", msg)
+            logger.error(f"🎨 [EditorAgent] {msg}")
             return {"edited_article": draft, "edit_log": msg, "messages": [msg]}

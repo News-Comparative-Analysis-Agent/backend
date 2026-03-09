@@ -122,7 +122,7 @@ class ScoutAgent:
         collected_count = 0
         
         for item in list_items:
-            if collected_count >= 15: # 각 언론사당 15개 제한
+            if collected_count >= 4: # 각 언론사당 4개 제한 (테스트용)
                 break
                 
             link_tag = item.select_one('a')
@@ -178,6 +178,11 @@ class ScoutAgent:
         for res_list in results:
             all_news.extend(res_list)
             
+        if all_news:
+            logger.info("📄 [ScoutAgent:Crawl] 수집된 기사 리스트:")
+            for i, art in enumerate(all_news, 1):
+                logger.info(f"   {i}. [{art['press']}] {art['title']}")
+                
         return all_news
 
     def cleanup_old_data(self):
@@ -185,7 +190,6 @@ class ScoutAgent:
         log_llm_event("ScoutAgent", "데이터 클린업 시작")
         deleted_count = self.repo.delete_old_articles(days=30)
         msg = f"과거 데이터 삭제 완료: {deleted_count}건"
-        log_llm_event("ScoutAgent", msg)
         return msg
 
     def node_crawl(self, state: CrawlState) -> dict:
@@ -196,6 +200,7 @@ class ScoutAgent:
         
         # 과거 데이터 삭제
         cleanup_msg = self.cleanup_old_data()
+        logger.info(f"⚡ [ScoutAgent:Crawl] {cleanup_msg}")
         
         # 비동기 실행을 위한 이벤트 루프
         import nest_asyncio
@@ -205,10 +210,51 @@ class ScoutAgent:
         all_news = loop.run_until_complete(self.run_async_crawl())
         
         msg = f"비동기 크롤링 완료: 총 {len(all_news)}건의 유효한 정치 기사 수집됨"
-        logger.info(msg)
-        log_llm_event("ScoutAgent", msg)
+        logger.success(f"⚡ [ScoutAgent:Crawl] {msg}")
         
         return {
             "raw_articles": all_news,
             "messages": [cleanup_msg, msg]
         }
+    def node_save_articles(self, state: dict) -> dict:
+        """
+        [Node] 수집된 raw_articles를 DB에 저장합니다.
+        """
+        raw_articles = state.get("raw_articles", [])
+        if not raw_articles:
+            logger.warning("⚡ [ScoutAgent:Save] 저장할 기사 데이터가 없습니다.")
+            return {"messages": ["저장할 기사 없음"]}
+            
+        saved_count = 0
+        logger.info(f"⚡ [ScoutAgent:Save] {len(raw_articles)}건의 기사 저장 시도...")
+        
+        for art in raw_articles:
+            try:
+                # 1. 중복 체크 (URL 기준)
+                if self.repo.is_article_exists(art['link']):
+                    continue
+                
+                # 2. 언론사 ID 획득
+                publisher = self.repo.get_or_create_publisher(art['press'])
+                
+                # 3. 기사 및 본문 저장
+                new_art = self.repo.save_article_with_body(
+                    publisher_id=publisher.id,
+                    title=art['title'],
+                    url=art['link'],
+                    image_urls=[],
+                    published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(),
+                    content=art['content']
+                )
+                
+                if new_art:
+                    saved_count += 1
+                    logger.info(f"   ✅ 저장 성공: [{art['press']}] {art['title'][:40]}...")
+            except Exception as e:
+                logger.error(f"⚡ [ScoutAgent:Save] 기사 저장 중 오류 ([{art.get('press')}] {art.get('title')[:20]}): {e}")
+                
+        msg = f"총 {saved_count}건의 새로운 기사 DB 저장 완료"
+        logger.success(f"⚡ [ScoutAgent:Save] {msg}")
+        self.db.commit() # 최종 커밋
+        
+        return {"saved_count": saved_count, "messages": [msg]}
