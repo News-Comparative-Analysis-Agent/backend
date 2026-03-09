@@ -31,7 +31,13 @@ class ComparisonState(TypedDict):
     """
     llm_mode: str                             # "gemini_only", "local_priority", "local_only"
     issue_id: int                             # 분석 대상 이슈 ID
-    articles: List[Dict[str, Any]]            # 이슈에 속한 원본 기사 리스트
+    
+    # 통합 파이프라인 중간 단계 데이터
+    raw_articles: List[Dict[str, Any]]        # 크롤링된 기사 리스트
+    unclustered_articles: List[Dict[str, Any]] # 이슈 미배정 기사 리스트
+    clustered_topics: List[Dict[str, Any]]     # 군집화된 토픽 상세 리스트
+    
+    articles: List[Dict[str, Any]]            # 최종 분석 대상 이슈에 속한 기사 리스트
     
     # 1. Evidence Agent 출력
     claim_cards: List[Dict[str, Any]]         # 매체별 주장 카드 (주장 1문장, 원문 인용 근거, 기사 URL/매체)
@@ -53,3 +59,10 @@ class ComparisonState(TypedDict):
     
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                 # 에러 발생 시 에러 메시지 저장
+    
+    # 이슈 메타데이터
+    description: str                           # 이슈 요약 설명
+    background: str                            # 이슈 배경 정보
+    
+    # 토큰 사용량 추적
+    total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}

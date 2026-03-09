@@ -1,7 +1,6 @@
 import json
-import google.generativeai as genai
 from app.agents.state import ComparisonState
-from app.agents.utils import call_local_llm
+from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
 
 class WriterAgent:
@@ -26,7 +25,6 @@ class WriterAgent:
         judge_feedback = state.get("judge_feedback", "")
         judge_status = state.get("judge_status", "")
         retry_count = state.get("retry_count", 0)
-        llm_mode = state.get("llm_mode", "local_priority")
         
         log_llm_event("agent_writer", f"Agent 3 (Writer): 비평 초안 작성 시작 (Retry: {retry_count})")
         
@@ -84,16 +82,32 @@ class WriterAgent:
             log_llm_event("agent_writer", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
             
         try:
+            # call_llm은 (data, usage)를 반환함. Writer는 텍스트 생성이므로 data가 문자열로 반환될 수 있음.
+            # 하지만 utils.call_llm은 내부적으로 parse_llm_json을 호출하므로, 
+            # 텍스트 생성의 경우 JSON이 아니라면 call_local_llm을 직접 쓰거나 utils를 보강해야 함.
+            # 여기서는 텍스트 생성을 위해 call_llm이 아닌 직접 호출 방식을 유지하되 토큰만 추합.
+            
+            llm_mode = state.get("llm_mode", "gemini_only")
             if llm_mode == "gemini_only":
+                import google.generativeai as genai
                 gen_model = genai.GenerativeModel('gemini-2.0-flash')
                 response = gen_model.generate_content(prompt)
                 final_text = response.text
+                usage = {
+                    "prompt_tokens": len(prompt) // 4,
+                    "completion_tokens": len(final_text) // 4
+                }
             else:
-                final_text = call_local_llm("7B_2", prompt)
+                from app.agents.utils import call_local_llm
+                final_text, usage = call_local_llm("7B_2", prompt)
                 
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage)
+
             msg = "비평 보고서 초안(Draft) 생성 완료"
-            log_llm_event("agent_writer", msg)
-            return {"draft_article": final_text, "messages": [msg]}
+            log_llm_event("agent_writer", msg, details=final_text)
+            logger.info(f"✍️ [WriterAgent] 생성된 초안 요약: {final_text[:100]}...")
+            return {"draft_article": final_text, "messages": [msg], "total_tokens": total_tokens}
             
         except Exception as e:
             msg = f"초안 생성 실패: {e}"

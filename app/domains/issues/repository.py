@@ -37,3 +37,10 @@ class IssueRepository:
             .join(Publisher)\
             .filter(Article.issue_label_id == issue_id)\
             .all()
+
+    def get_claims_by_issue(self, issue_id: int):
+        """특정 이슈에 속한 모든 주장 카드 조회"""
+        from app.domains.articles.models import ArticleClaim
+        return self.db.query(ArticleClaim)\
+            .filter(ArticleClaim.issue_id == issue_id)\
+            .all()

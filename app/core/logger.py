@@ -26,11 +26,24 @@ logger.add(
 )
 
 # ==========================================
-# 2. 전역 에러 파일 핸들러 (날짜별 자동 분류)
+# 2. 전역 INFO 파일 핸들러 (날짜별 자동 분류)
+# ==========================================
+# 시스템 전반의 INFO 레벨 이상의 모든 로그를 파일로 기록합니다.
+INFO_LOG_PATH = os.path.join(LOG_DIR, "{time:YYYY-MM-DD}", "info.log")
+
+logger.add(
+    INFO_LOG_PATH,
+    rotation="20 MB",    # INFO 로그는 양이 많을 수 있으므로 20MB 단위로 회전
+    retention="15 days", # 최소 15일치 보관
+    level="INFO",
+    enqueue=True,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
+
+# ==========================================
+# 3. 전역 에러 파일 핸들러 (날짜별 자동 분류)
 # ==========================================
 # 시스템 전반에서 발생하는 ERROR(또는 CRITICAL) 레벨의 로그만 따로 모아서 기록합니다.
-# loguru는 경로에 {time}이 포함된 문자열을 sink로 받으면 자동으로 디렉토리를 생성하고 시간을 채워줍니다.
-# 함수(callable)를 sink로 쓸 경우 rotation, retention 옵션을 사용할 수 없으므로 문자열 경로로 수정합니다.
 ERROR_LOG_PATH = os.path.join(LOG_DIR, "{time:YYYY-MM-DD}", "error.log")
 
 logger.add(

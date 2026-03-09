@@ -54,46 +54,35 @@ class IssueService:
 
     def get_issue_analysis(self, issue_id: int) -> IssueAnalysisResponse:
         """
-        특정 이슈에 대한 언론사별 기사 묶음 상세 분석 데이터 제공
+        특정 이슈에 대한 고도화된 분석 데이터(메타데이터 + 주장 카드) 제공
         """
-        # 1. 이슈 기본 정보 조회
+        # 1. 이슈 기본 정보 및 분석 메타데이터 조회
         issue = self.repo.get_by_id(issue_id)
         if not issue:
-            raise HTTPException(status_code=404, detail="Issue not found")
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
 
-        # 2. 관련 기사 및 언론사 데이터 조회
-        articles = self.repo.get_articles_with_publisher(issue_id)
+        # 2. 관련 주장 카드 데이터 조회
+        claims = self.repo.get_claims_by_issue(issue_id)
         
-        # 3. 언론사별 그룹화 가공
-        pub_groups = defaultdict(list)
-        for art in articles:
-            # ArticleResponse DTO로 변환하여 리스트에 추가
-            art_dto = ArticleResponse(
-                id=art.id,
-                title=art.title,
-                url=art.url,
-                published_at=art.published_at,
-                summary=art.summary,
-                bias=art.bias,
-                bias_score=art.bias_score,
-                reporter=art.reporter,
-                publisher_id=art.publisher_id,
-                publisher_name=art.publisher.name
-            )
-            pub_groups[art.publisher].append(art_dto)
-
-        publisher_analyses = []
-        for publisher, art_dtos in pub_groups.items():
-            publisher_analyses.append(PublisherAnalysis(
-                publisher_id=publisher.id,
-                publisher_name=publisher.name,
-                articles=art_dtos, # 기사 DTO 리스트 (JSON 형태)
-                article_count=len(art_dtos)
-            ))
+        from app.domains.issues.schemas import ClaimCardResponse
+        claim_cards = [
+            ClaimCardResponse(
+                id=c.id,
+                press=c.press,
+                claim=c.claim,
+                evidence=c.evidence,
+                url=c.article.url if c.article else None
+            ) for c in claims
+        ]
 
         return IssueAnalysisResponse(
-            issue_id=issue.id,
-            issue_name=issue.name,
-            issue_description=issue.description,
-            publisher_analyses=publisher_analyses
+            id=issue.id,
+            name=issue.name,
+            description=issue.description,
+            background=issue.background,
+            core_contentions=issue.core_contentions,
+            media_ratio=issue.media_ratio,
+            pre_generated_draft=issue.pre_generated_draft,
+            created_at=issue.created_at,
+            claim_cards=claim_cards
         )
