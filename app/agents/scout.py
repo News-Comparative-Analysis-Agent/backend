@@ -10,8 +10,17 @@ from app.core.logger import logger, log_llm_event
 from app.domains.articles.models import Article
 
 TARGET_PRESS_DICT = {
-    "한겨레": "028", "경향신문": "032", 
-    "조선일보": "023", "동아일보": "020", "연합뉴스": "001"
+    # 🔵 진보/개혁 (Progressive) - 7개
+    "한겨레": "028", "경향신문": "032", "오마이뉴스": "047", "MBC": "214",
+    "JTBC": "437", "노컷뉴스": "079", "프레시안": "002",
+    
+    # 🔴 보수/경제 (Conservative) - 7개
+    "조선일보": "023", "동아일보": "020", "중앙일보": "025", "문화일보": "021",
+    "한국경제": "015", "세계일보": "022", "TV조선": "448",
+    
+    # ⚪ 중도/팩트/통신 (Centrist & Fact) - 6개
+    "연합뉴스": "001", "한국일보": "046", "YTN": "052",
+    "뉴스1": "421", "뉴시스": "003", "SBS": "055"
 }
 DAYS_TO_CRAWL = 4
 
@@ -24,10 +33,14 @@ class ScoutAgent:
     def __init__(self, db: Session):
         self.db = db
         self.repo = ScrollerRepository(db)
-        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        # 봇 차단 방지를 위한 여러 개의 User-Agent 풀을 사용하면 더 좋습니다.
+        self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        # 🔥 네이버 차단 방지: 한 번에 최대 5개의 동시 요청만 허용
+        self.semaphore = asyncio.Semaphore(5)
 
     def _get_kst_now(self) -> datetime:
-        return datetime.utcnow() + timedelta(hours=9)
+        now = datetime.utcnow() + timedelta(hours=9)
+        return now
 
     def _get_existing_url_hashes(self) -> set:
         """최근 데이터의 URL을 로드하여 해시 Set으로 반환 (In-memory Caching)"""
@@ -42,16 +55,25 @@ class ScoutAgent:
         return url_hashes
 
     async def _fetch_html(self, session: aiohttp.ClientSession, url: str, max_retries=3) -> str:
-        """단일 URL에 비동기 GET 요청 수행 (재시도 로직 포함)"""
-        for attempt in range(max_retries):
-            try:
-                async with session.get(url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        return await response.text()
-            except Exception as e:
-                pass
-            await asyncio.sleep(1)
-        return None
+        """단일 URL에 비동기 GET 요청 수행 (세마포어 적용)"""
+        async with self.semaphore: # 🔥 동시에 5개만 실행됨
+            for attempt in range(max_retries):
+                try:
+                    # 봇처럼 보이지 않기 위해 요청 전에 아주 짧은 난수 딜레이를 줌 (선택 사항)
+                    # await asyncio.sleep(random.uniform(0.1, 0.5))
+                    async with session.get(url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                        if response.status == 200:
+                            return await response.text()
+                        elif response.status == 429:
+                            logger.warning(f"🚨 [ScoutAgent] 429 Too Many Requests (Rate limit): {url}")
+                            await asyncio.sleep(3) # 잠시 멈췄다 재시도
+                except asyncio.TimeoutError:
+                    logger.warning(f"⌛ [ScoutAgent] 타임아웃 발생 (시도 {attempt+1}/{max_retries}): {url}")
+                except Exception as e:
+                    logger.error(f"❌ [ScoutAgent] HTTP 요청 에러 ({url}): {e}")
+                    
+                await asyncio.sleep(1) # 실패 시 1초 대기 후 재시도
+            return None
 
     async def _parse_article_detail(self, session: aiohttp.ClientSession, link: str, title: str, press_name: str) -> dict:
         """기사 상세 페이지를 비동기로 파싱"""
@@ -75,15 +97,15 @@ class ScoutAgent:
         if section != "정치":
             return None
             
-        # 본문 파싱
-        content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article')
+        # 🔥 본문 파싱 셀렉터 강화 (포토뉴스 등 방어)
+        content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
         content = ""
         if content_area:
             for tag in content_area.select('.img_desc, .end_photo_org, .media_end_summary, .byline_s'):
                 tag.extract()
             content = content_area.get_text(strip=True)
             
-        if len(content) < 50:
+        if len(content) < 50: # 너무 짧은 기사(사진만 있는 경우 등) 방어
             return None
             
         # 이미지 및 날짜
@@ -122,7 +144,7 @@ class ScoutAgent:
         collected_count = 0
         
         for item in list_items:
-            if collected_count >= 4: # 각 언론사당 4개 제한 (테스트용)
+            if collected_count >= 20: # 각 언론사당 20개 제한
                 break
                 
             link_tag = item.select_one('a')
@@ -152,6 +174,50 @@ class ScoutAgent:
         valid_results = [res for res in results if res and not isinstance(res, Exception)]
         return valid_results
 
+    async def _crawl_headline_news(self, session: aiohttp.ClientSession, existing_hashes: set) -> list:
+        """정치 섹션 메인 헤드라인 뉴스 수집 (많이 본 뉴스 랭킹에 오르기 전 실시간/주요 기사 포착)"""
+        url = "https://news.naver.com/section/100"
+        html = await self._fetch_html(session, url, max_retries=2)
+        if not html:
+            return []
+            
+        soup = BeautifulSoup(html, 'html.parser')
+        # 네이버 뉴스 정치 메인 헤드라인 영역
+        items = soup.select('.as_headline .sa_text, .sa_list .sa_text')
+        
+        tasks = []
+        for item in items:
+            press_tag = item.select_one('.sa_text_press')
+            title_tag = item.select_one('.sa_text_title')
+            link_tag = item.select_one('a')
+            
+            if not (press_tag and title_tag and link_tag):
+                continue
+                
+            press_name = press_tag.get_text(strip=True).replace('언론사 선정', '').strip()
+            # 타겟 언론사 소속 기사만 수집
+            if press_name not in TARGET_PRESS_DICT:
+                continue
+                
+            link = link_tag['href']
+            if link.startswith("/"): link = "https://news.naver.com" + link
+            
+            # URL Hashing Check
+            link_hash = hashlib.sha256(link.encode('utf-8')).hexdigest()
+            if link_hash in existing_hashes:
+                continue
+                
+            existing_hashes.add(link_hash)
+            title = title_tag.get_text(strip=True)
+            
+            tasks.append(self._parse_article_detail(session, link, title, press_name))
+            
+        if not tasks:
+            return []
+            
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [res for res in results if res and not isinstance(res, Exception)]
+
     async def run_async_crawl(self) -> list:
         """비동기 크롤러 실행 엔트리"""
         logger.info("⚡ In-memory URL Hash 캐싱 로드 중...")
@@ -163,6 +229,9 @@ class ScoutAgent:
         
         # aiohttp ClientSession 생성 및 동시 요청
         async with aiohttp.ClientSession() as session:
+            # 1. 정치 섹션 메인 헤드라인 뉴스 수집 태스크 추가 (실시간 주요 뉴스 포착)
+            tasks.append(self._crawl_headline_news(session, existing_hashes))
+            
             for day_offset in range(DAYS_TO_CRAWL):
                 target_date = today - timedelta(days=day_offset)
                 date_str = target_date.strftime("%Y%m%d")
@@ -170,7 +239,7 @@ class ScoutAgent:
                 for press_name, oid in TARGET_PRESS_DICT.items():
                     tasks.append(self._crawl_ranking_page(session, press_name, oid, date_str, existing_hashes))
             
-            logger.info(f"⚡ {len(tasks)}개의 랭킹 페이지 비동기 수집 태스크 병렬 실행 시작...")
+            logger.info(f"⚡ {len(tasks)}개의 수집 태스크(헤드라인+랭킹) 병렬 실행 시작...")
             results = await asyncio.gather(*tasks)
             
         # 2차원 리스트 플래튼
@@ -185,12 +254,12 @@ class ScoutAgent:
                 
         return all_news
 
-    def cleanup_old_data(self):
+    def cleanup_old_data(self, state: CrawlState = None) -> dict:
         """오래된 기사 캐시 및 DB 데이터 정리"""
         log_llm_event("ScoutAgent", "데이터 클린업 시작")
         deleted_count = self.repo.delete_old_articles(days=30)
         msg = f"과거 데이터 삭제 완료: {deleted_count}건"
-        return msg
+        return {"messages": [msg]}
 
     def node_crawl(self, state: CrawlState) -> dict:
         """
@@ -199,7 +268,8 @@ class ScoutAgent:
         log_llm_event("ScoutAgent", "비동기 크롤러 노드 시작")
         
         # 과거 데이터 삭제
-        cleanup_msg = self.cleanup_old_data()
+        cleanup_res = self.cleanup_old_data(state)
+        cleanup_msg = cleanup_res.get("messages", [""])[0] if isinstance(cleanup_res, dict) else cleanup_res
         logger.info(f"⚡ [ScoutAgent:Crawl] {cleanup_msg}")
         
         # 비동기 실행을 위한 이벤트 루프
@@ -238,11 +308,12 @@ class ScoutAgent:
                 publisher = self.repo.get_or_create_publisher(art['press'])
                 
                 # 3. 기사 및 본문 저장
+                image_list = [art.get('image_url')] if art.get('image_url') else []
                 new_art = self.repo.save_article_with_body(
                     publisher_id=publisher.id,
                     title=art['title'],
                     url=art['link'],
-                    image_urls=[],
+                    image_urls=image_list,
                     published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(),
                     content=art['content']
                 )

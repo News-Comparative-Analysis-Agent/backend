@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 # 새로운 agents 상태 임포트
 from app.agents.state import CrawlState, ClusterState, ComparisonState
-from app.scroller.nodes import ScrollerNodes
 from app.core.logger import logger
 from app.agents.utils import log_execution_time
 
@@ -20,16 +19,15 @@ def create_crawl_graph(db: Session):
     - Checkpointer: 장애 복구를 위한 상태 저장소 적용
     """
     from app.agents.scout import ScoutAgent
-    nodes = ScrollerNodes(db)
     scout = ScoutAgent(db)
     
     # 1. 상태(State) 정의와 함께 그래프 초기화
     workflow = StateGraph(CrawlState)
     
     # 노드 등록 (재시도 정책 적용)
-    workflow.add_node("cleanup", nodes.node_clean_old_data) # 과거 데이터 정리 노드
+    workflow.add_node("cleanup", scout.cleanup_old_data) # 과거 데이터 정리 노드
     workflow.add_node("crawl", scout.node_crawl, retry=RETRY_POLICY) # 비동기 뉴스 수집 (ScoutAgent)
-    workflow.add_node("analyze_save", nodes.node_analyze_and_save, retry=RETRY_POLICY) # AI 분석 및 저장 노드
+    workflow.add_node("analyze_save", scout.node_save_articles, retry=RETRY_POLICY) # DB 저장 노드 (ScoutAgent)
     
     # 엣지 정의
     workflow.add_edge(START, "cleanup") # 시작 시 바로 정리 작업 진입
@@ -47,15 +45,16 @@ def create_cluster_graph(db: Session):
     - RetryPolicy: 군집화 및 명명 노드에 적용
     - Checkpointer: 장애 복구를 위한 상태 저장소 적용
     """
-    nodes = ScrollerNodes(db)
+    from app.agents.cluster import ClusterAgent
+    cluster = ClusterAgent(db)
     
     # 1. 상태(State) 정의와 함께 그래프 초기화
     workflow = StateGraph(ClusterState)
     
     # 노드 등록 (재시도 정책 적용)
-    workflow.add_node("fetch", nodes.node_fetch_unclustered) # 미분류 데이터 로드 노드
-    workflow.add_node("cluster", nodes.node_bertopic_cluster, retry=RETRY_POLICY) # AI 군집화 노드
-    workflow.add_node("name_and_save", nodes.node_name_and_save_issues, retry=RETRY_POLICY) # 이슈 명명 및 통합 저장 노드
+    workflow.add_node("fetch", cluster.node_fetch_unclustered) # 미분류 데이터 로드 노드
+    workflow.add_node("cluster", cluster.node_lexical_cluster, retry=RETRY_POLICY) # AI 군집화 노드
+    workflow.add_node("name_and_save", cluster.node_name_and_save_issues, retry=RETRY_POLICY) # 이슈 명명 및 통합 저장 노드
     
     # 엣지 정의
     workflow.add_edge(START, "fetch") # 시작 시 데이터 로드 진입
@@ -102,7 +101,7 @@ def create_comparison_graph(db: Session):
     workflow.add_node("crawl", scout_agent.node_crawl)                      # 1. 크롤링
     workflow.add_node("save", scout_agent.node_save_articles)               # 1-1. DB 저장
     workflow.add_node("cluster_fetch", cluster_agent.node_fetch_unclustered) # 2. 클러스터링 대상 로드
-    workflow.add_node("cluster", cluster_agent.node_bertopic_cluster)       # 3. 군집화 수행
+    workflow.add_node("cluster", cluster_agent.node_lexical_cluster)       # 3. 군집화 수행
     workflow.add_node("cluster_save", cluster_agent.node_name_and_save_issues) # 4. 이슈 저장 및 타겟 선정
     workflow.add_node("cluster_cleanup", cluster_agent.node_cleanup_unclustered) # 5. 미분류 노이즈 제거
     

@@ -10,17 +10,21 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     default-jdk \
     default-jre \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # 패키지 목록 복사 및 설치 (캐싱 효율화)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 소스 코드 전체 복사 (entrypoint.sh 포함)
+# 소스 코드 전체 복사
 COPY . .
 
-# entrypoint.sh에 실행 권한 부여
-RUN chmod +x /app/entrypoint.sh
+# entrypoint.sh를 볼륨 마운트 영향이 없는 루트 디렉토리로 복사 및 줄바꿈 변환
+# (docker-compose의 .:/app 마운트가 윈도우의 CRLF 파일로 덮어쓰는 것을 방지)
+RUN cp entrypoint.sh /entrypoint.sh && \
+    dos2unix /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 
-# 실행 명령어 (sh를 통해 실행하여 권한 문제 방지)
-ENTRYPOINT ["sh", "/app/entrypoint.sh"]
+# 실행 명령어 (루트의 안전한 entrypoint 실행)
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
