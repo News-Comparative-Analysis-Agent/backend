@@ -45,7 +45,7 @@ jobs:
         pip install requests beautifulsoup4 pandas sqlalchemy psycopg2-binary
         pip install python-dotenv pytz "google-generativeai" "bertopic" "scikit-learn" "konlpy" "langgraph" "langchain-core" "loguru" "aiohttp" "nest_asyncio"
         
-    - name: 파이프라인 실행 (크롤링 + 클러스터링 + 초안생성)
+    - name: 파이프라인 실행 (크롤링 + 클러스터링 테스트)
       env:
         # GitHub Secrets에서 가져온 환경 변수
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -57,7 +57,7 @@ jobs:
         LLM_SERVER_API_URI: ${{ secrets.LLM_SERVER_API_URI}}
         PYTHONPATH: .
       run: |
-        python -m app.scroller.scroller_test.run_pipeline
+        python -m app.scroller.scroller_test.run_crawl_cluster
 
     - name: 실행 로그 업로드 (Artifacts)
       if: always() # 실패하더라도 로그는 업로드

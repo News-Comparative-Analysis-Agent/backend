@@ -66,15 +66,20 @@ class WriterAgent:
         
         # 이전 Judge 단계에서 Writer를 향한 반려 사유가 있다면 프롬프트에 추가
         if judge_status == "FAIL_WRITER" and judge_feedback:
+            previous_draft = state.get("draft_article", "")
             prompt += f"""
             
             [🚨 이전 초안 검토 피드백 반영 필수 🚨]
             편집장(Judge)으로부터 다음과 같은 피드백이 도착했습니다. 
-            반드시 이 내용에 맞추어 초안을 전면 수정하십시오.
+            아래 당신이 작성했던 [이전 초안]을 확인하고, 피드백 내용에 맞추어 초안을 전면 수정하십시오.
             
-            피드백 내용: {judge_feedback}
+            [피드백 내용]
+            {judge_feedback}
+            
+            [당신이 작성했던 이전 초안]
+            {previous_draft}
             """
-            log_llm_event("agent_writer", f"Writer 피드백 반영 모드 활성화: {judge_feedback}")
+            log_llm_event("agent_writer", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
             
         try:
             # call_llm은 (data, usage)를 반환함. Writer는 텍스트 생성이므로 data가 문자열로 반환될 수 있음.

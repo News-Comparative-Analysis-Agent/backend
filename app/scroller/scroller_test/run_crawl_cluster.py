@@ -36,17 +36,7 @@ def run_daily_pipeline():
         cluster_result = service.execute_clustering()
         logger.success(f"결과: {cluster_result.message}")
         
-        # 3. 상위 이슈 초안 자동 생성
-        logger.info("=== 3단계: 상위 5개 이슈 초안 자동 생성 ===")
-        try:
-            from app.scroller.scroller_test.run_draft_gen import run_draft_generation
-            run_draft_generation()
-        except ImportError as e:
-            logger.error(f"❌ [Draft Gen] 모듈 임포트 실패: {e}")
-        except Exception as e:
-            logger.error(f"❌ [Draft Gen] 실행 중 오류: {e}")
-        
-        logger.success("🎉 [Pipeline] 모든 파이프라인이 성공적으로 종료되었습니다.")
+        logger.success("🎉 [Crawl & Cluster] 수집 및 분류 파이프라인이 성공적으로 종료되었습니다.")
         
     except Exception as e:
         logger.critical(f"❌ [Pipeline] 파이프라인 치명적 오류 발생: {e}")

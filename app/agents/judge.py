@@ -93,7 +93,7 @@ class JudgeAgent:
                 return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"], "total_tokens": total_tokens}
                 
             status = result.get("status", "FAIL_WRITER").upper()
-            feedback = result.get("feedback", "")
+            feedback = result.get("feedback", "피드백이 제공되지 않았습니다.")
             score = result.get("score", 0)
             
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
@@ -127,7 +127,13 @@ class JudgeAgent:
             }
             
         except Exception as e:
-            msg = f"Judge 평가 시스템 에러: {e}"
+            msg = f"Judge 평가 시스템 치명적 에러: {e}"
             logger.error(msg)
             log_llm_event("agent_judge", msg)
-            return {"judge_status": "PASS", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
+            # 🔥 시스템 에러 발생 시 절대 PASS 시키지 않고 FAIL_WRITER로 돌려보내 안전장치 가동
+            return {
+                "judge_status": "FAIL_WRITER", 
+                "judge_feedback": f"시스템 오류 발생으로 인한 자동 반려: {e}", 
+                "retry_count": retry_count + 1, 
+                "messages": [msg]
+            }

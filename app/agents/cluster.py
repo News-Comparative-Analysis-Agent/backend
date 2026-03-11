@@ -15,7 +15,8 @@ from bertopic import BERTopic
 from app.scroller.repository import ScrollerRepository
 from app.agents.state import ComparisonState
 from app.core.logger import logger, log_llm_event
-from app.agents.utils import parse_llm_json, call_llm
+from app.agents.utils import parse_llm_json, call_llm, call_llm_text, update_total_tokens
+import concurrent.futures
 
 class ClusterAgent:
     """
@@ -46,8 +47,8 @@ class ClusterAgent:
         ]
         
         vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
-        umap_model = UMAP(n_neighbors=3, n_components=10, min_dist=0.3, metric='cosine', random_state=42)
-        hdbscan_model = HDBSCAN(min_cluster_size=3, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.1)
+        umap_model = UMAP(n_neighbors=10, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+        hdbscan_model = HDBSCAN(min_cluster_size=4, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.05)
         
         ClusterAgent._topic_model = BERTopic(
             embedding_model="snunlp/KR-SBERT-V40K-klueNLI-augSTS",
@@ -83,6 +84,13 @@ class ClusterAgent:
         """이슈 그룹에 대해 제목과 배경 등을 생성"""
         try:
             prompt = f"""
+            당신은 뉴스 요약 및 이슈 추출가입니다. 중요 배경 지식을 먼저 숙지하세요:
+            [현재 시점: 2026년 3월]
+            [현재 대한민국 대통령: 이재명 (더불어민주당 출신)]
+            [과거 대통령: 윤석열, 문재인, 박근혜, 이명박 등]
+            
+            ※ 제목이나 본문에 '이 대통령'이라는 수식어가 등장할 경우, 문맥상 특별한 이유가 없다면 현직인 '이재명 대통령'을 지칭하는 것입니다. 이를 과거의 '이명박 대통령'으로 오해하여 요약명에 "이명박"을 적는 환각(Hallucination) 현상을 절대 일으키지 마세요.
+            
             다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
             {titles[:15]} (총 {len(titles)}건)
 
@@ -119,6 +127,38 @@ class ClusterAgent:
             logger.error(f"Issue LLM labeling failed: {e}")
             return titles[0], "에러 발생", "배경 부재", "쟁점 부재"
 
+    def _extract_core_event(self, article: dict, state: ComparisonState) -> Tuple[str, Dict[str, int]]:
+        """단일 기사에서 핵심 사건(Entity + Action)만 20자 이내로 추출"""
+        title = article.get('title', '')
+        content_lead = article.get('content', '')[:150]
+        
+        prompt = f"""
+        당신은 뉴스 데이터 분류기입니다. 중요 배경 지식을 숙지하세요:
+        [현재 시점: 2026년 3월]
+        [현재 대한민국 대통령: 이재명 (더불어민주당 출신)]
+        [과거 대통령: 윤석열, 문재인, 박근혜, 이명박 등]
+        
+        기사에 '이 대통령'이라고 나오면 문맥을 고려하되 기본적으로 '이재명 대통령'을 뜻합니다. 과거의 '이명박 대통령'으로 착각하는 환각(Hallucination)을 일으키지 마세요.
+        
+        다음 기사의 제목과 내용을 읽고, 이 기사가 다루는 '핵심 사건'을 20자 이내의 명사구로 요약하십시오.
+        (예: "의대 증원 반발 전공의 파업", "민주당 특검법 발의", "이재명 대통령 지지율 하락")
+        
+        [제목]: {title}
+        [내용]: {content_lead}
+        
+        오직 요약된 핵심 사건 키워드 딱 1줄만 출력하십시오. 부연 설명 금지.
+        """
+        
+        try:
+            # call_llm_text 사용 (순수 텍스트 결과)
+            core_event, usage = call_llm_text(prompt, "7B_1", state)
+            core_event = core_event.strip().replace('"', '')
+            if len(core_event) > 30: core_event = core_event[:30]
+            return core_event or title, usage
+        except Exception as e:
+            logger.error(f"Core event 추출 실패: {e}")
+            return title, {"prompt_tokens": 0, "completion_tokens": 0}
+
     # ==========================================
     # Graph Nodes
     # ==========================================
@@ -146,13 +186,12 @@ class ClusterAgent:
             log_llm_event("ClusterAgent", msg, type="ERROR")
             return {"unclustered_articles": [], "error": str(e), "messages": [msg]}
 
-    def node_bertopic_cluster(self, state: ComparisonState) -> Dict[str, Any]:
-        """BERTopic 군집화 수행"""
-        log_llm_event("ClusterAgent", "클러스터링 연산 노드 시작")
+    def node_lexical_cluster(self, state: ComparisonState) -> Dict[str, Any]:
+        """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
+        log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
         articles = state.get("unclustered_articles", [])
         logger.info(f"📊 [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
         
-        # 기사가 너무 적으면 BERTopic 연산 중(UMAP/HDBSCAN 등) 에러가 발생하기 쉬우므로 최소 5건 이상일 때만 시도
         if len(articles) < 5:
             msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다. (최소 5건 필요)"
             logger.warning(f"📊 [ClusterAgent:Cluster] {msg}")
@@ -167,52 +206,72 @@ class ClusterAgent:
             return {"clustered_topics": [], "messages": [msg]}
             
         try:
-            topic_model = self._get_topic_model()
-            # 제목과 본문을 조합하여 임베딩 (언론사 편향 방지를 위해 제목 비중 강화)
-            docs = [f"{str(t)} {str(t)} {str(c)[:500]}" for t, c in zip(df_clean['title'], df_clean['content'])]
-            
-            # BERTopic 연산 (데이터셋이 매우 작거나 불용어로 인해 어휘집이 비면 에러가 날 수 있음)
-            try:
-                topics, _ = topic_model.fit_transform(docs)
-            except Exception as e:
-                msg = f"BERTopic 연산 실패 (데이터셋 특성 등): {e}"
-                logger.error(f"📊 [ClusterAgent:Cluster] {msg}")
-                return {"clustered_topics": [], "messages": [msg]}
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.cluster import AgglomerativeClustering
+            from sklearn.metrics.pairwise import cosine_distances
 
-            df_clean['topic_id'] = topics
+            logger.info(f"🧠 [ClusterAgent] {len(df_clean)}개 기사의 핵심 사건(Core Event) LLM 추출 시작...")
             
-            topic_info = topic_model.get_topic_info()
+            # 병렬로 핵심 사건 추출
+            articles_list = df_clean.to_dict('records')
+            core_events = []
+            total_usage = {"prompt_tokens": 0, "completion_tokens": 0}
             
-            top_topics = topic_info[topic_info['Topic'] != -1].copy() 
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                results = list(executor.map(lambda x: self._extract_core_event(x, state), articles_list))
+                
+            for event, usage in results:
+                core_events.append(event)
+                total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
+            
+            state["total_tokens"] = update_total_tokens(state, total_usage)
+            df_clean['core_event'] = core_events
+
+            # TF-IDF 임베딩 (핵심 사건 + 제목)
+            docs = [f"{str(event)} {str(title)}" for event, title in zip(df_clean['core_event'], df_clean['title'])]
+            
+            custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
+            vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
+            X = vectorizer.fit_transform(docs)
+            
+            distance_matrix = cosine_distances(X)
+            
+            clustering_model = AgglomerativeClustering(
+                n_clusters=None, 
+                metric='precomputed',
+                linkage='average',
+                distance_threshold=0.75
+            )
+            
+            cluster_labels = clustering_model.fit_predict(distance_matrix)
+            df_clean['topic_id'] = cluster_labels
+            
             clustered_topics = []
-            for _, row in top_topics.iterrows():
-                topic_id = row['Topic']
-                count = row['Count']
+            unique_labels = set(cluster_labels)
+            
+            for topic_id in unique_labels:
+                if topic_id == -1: continue
                 
                 topic_articles = df_clean[df_clean['topic_id'] == topic_id]
+                count = len(topic_articles)
                 unique_press_count = topic_articles['press'].nunique()
                 
-                # 3개 기사 이상 AND 3개 언론사 이상 조건 체크
-                if count < 3 or unique_press_count < 3:
-                    continue
+                if count >= 2 and unique_press_count >= 1:
+                    clustered_topics.append({
+                        "topic_id": int(topic_id),
+                        "count": int(count),
+                        "press_count": int(unique_press_count),
+                        "titles": topic_articles['title'].tolist(),
+                        "article_ids": topic_articles['article_id'].tolist()
+                    })
 
-                clustered_topics.append({
-                    "topic_id": int(topic_id),
-                    "count": int(count),
-                    "press_count": int(unique_press_count),
-                    "titles": topic_articles['title'].tolist(),
-                    "article_ids": topic_articles['article_id'].tolist()
-                })
-
-            del docs
-            gc.collect()
-            msg = f"{len(clustered_topics)}개 이슈 발견"
+            msg = f"{len(clustered_topics)}개의 정밀한 이슈 군집 도출 완료"
             logger.info(f"📊 [ClusterAgent:Cluster] {msg}")
             
-            # 이슈별 포함 기사 제목 로깅 추가
             for i, t in enumerate(clustered_topics, 1):
                 logger.info(f"   🔥 Issue {i} ({t['count']}건, {t['press_count']}개 언론사):")
-                for title in t['titles']:
+                for title in t['titles'][:5]:
                     logger.info(f"      - {title}")
                     
             return {"clustered_topics": clustered_topics, "messages": [msg]}

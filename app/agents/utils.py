@@ -118,6 +118,41 @@ def update_total_tokens(state: dict, new_usage: dict) -> dict:
     
     return total
 
+def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
+    """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출하여 '순수 텍스트'를 반환합니다. (반환: 텍스트, 토큰정보)"""
+    mode = state.get("llm_mode", "gemini_only")
+    
+    if mode == "local_only":
+        return call_local_llm(model_size, prompt)
+        
+    if mode == "gemini_only":
+        try:
+            log_llm_event("GeminiText", "Requesting gemini-2.0-flash (Text Mode)", details=prompt)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(prompt)
+            
+            usage = response.usage_metadata
+            token_info = {
+                'prompt_tokens': usage.prompt_token_count,
+                'completion_tokens': usage.candidates_token_count
+            }
+            log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
+            return response.text.strip(), token_info
+        except Exception as e:
+            logger.error(f"Gemini Text 호출 실패: {e}")
+            return "", {"prompt_tokens": 0, "completion_tokens": 0}
+            
+    if mode == "local_priority":
+        try:
+            content, usage = call_local_llm(model_size, prompt)
+            if content: return content.strip(), usage
+            raise ValueError("로컬 LLM 응답 비어있음")
+        except Exception as e:
+            logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
+            return call_llm_text(prompt, model_size, state)
+    
+    return "", {"prompt_tokens": 0, "completion_tokens": 0}
+
 def call_llm(prompt: str, model_size: str, state: dict) -> tuple:
     """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
     mode = state.get("llm_mode", "gemini_only")
