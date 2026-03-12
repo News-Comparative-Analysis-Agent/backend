@@ -55,12 +55,14 @@ def create_cluster_graph(db: Session):
     workflow.add_node("fetch", cluster.node_fetch_unclustered) # 미분류 데이터 로드 노드
     workflow.add_node("cluster", cluster.node_lexical_cluster, retry=RETRY_POLICY) # AI 군집화 노드
     workflow.add_node("name_and_save", cluster.node_name_and_save_issues, retry=RETRY_POLICY) # 이슈 명명 및 통합 저장 노드
+    workflow.add_node("cleanup_unclustered", cluster.node_cleanup_unclustered) # 노이즈 기사 삭제 노드
     
     # 엣지 정의
     workflow.add_edge(START, "fetch") # 시작 시 데이터 로드 진입
     workflow.add_edge("fetch", "cluster") # 로드 완료 후 군집화 수행
     workflow.add_edge("cluster", "name_and_save") # 군집화 완료 후 이슈 이름 작성 및 저장
-    workflow.add_edge("name_and_save", END) # 모든 작업 완료 후 종료
+    workflow.add_edge("name_and_save", "cleanup_unclustered") # 이슈에 못 들어간 나머지 기사 삭제
+    workflow.add_edge("cleanup_unclustered", END) # 모든 작업 완료 후 종료
     
     # 메모리 기반 체크포인터 적용하여 컴파일
     checkpointer = MemorySaver()

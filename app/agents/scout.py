@@ -22,7 +22,7 @@ TARGET_PRESS_DICT = {
     "연합뉴스": "001", "한국일보": "046", "YTN": "052",
     "뉴스1": "421", "뉴시스": "003", "SBS": "055"
 }
-DAYS_TO_CRAWL = 4
+DAYS_TO_CRAWL = 1
 
 class ScoutAgent:
     """
@@ -315,7 +315,8 @@ class ScoutAgent:
                     url=art['link'],
                     image_urls=image_list,
                     published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(),
-                    content=art['content']
+                    content=art['content'],
+                    reporter=art.get('reporter')
                 )
                 
                 if new_art:
