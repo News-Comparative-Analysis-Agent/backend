@@ -114,8 +114,16 @@ def create_comparison_graph(db: Session):
     workflow.add_node("editor", editor_agent.node_edit_draft, retry=RETRY_POLICY)         # 10. 교정
     workflow.add_node("judge", judge_agent.node_evaluate_draft, retry=RETRY_POLICY)       # 11. 최종 검수
     
+    # 정리 후 분석 진행 여부 결정
+    def route_start(state) -> str:
+        if state.get("issue_id"):
+            logger.info(f"⏭️ [Graph] Issue ID {state.get('issue_id')}가 탐지되어 크롤링/클러스터링을 건너뛰고 바로 분석을 시작합니다.")
+            return "fetch"
+        return "crawl"
+
+    workflow.add_conditional_edges(START, route_start, {"crawl": "crawl", "fetch": "fetch"})
+    
     # 엣지 정의 (클러스터링 실패 여부와 상관없이 항상 cleanup을 거치도록 수정)
-    workflow.add_edge(START, "crawl")
     workflow.add_edge("crawl", "save")
     workflow.add_edge("save", "cluster_fetch")
     workflow.add_edge("cluster_fetch", "cluster")

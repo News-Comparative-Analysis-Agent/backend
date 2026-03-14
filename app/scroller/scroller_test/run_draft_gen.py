@@ -83,16 +83,16 @@ def run_draft_generation():
             
             # LangGraph 초기 상태 주입 (5단계 에이전트 인터페이스에 맞춤)
             initial_state = {
-                "llm_mode": "local_priority", 
+                "llm_mode": "gemini_only", 
                 "issue_id": issue.id,
                 "articles": [],
                 "claim_cards": [],
                 "structured_issues": [],
-                "draft_article": "",
-                "edited_article": "",
-                "edit_log": "",
+                "draft_article": {},
+                "edited_article": {},
+                "edit_log": {},
                 "judge_status": "",
-                "judge_feedback": "",
+                "judge_feedback": {},
                 "retry_count": 0,
                 "messages": [],
                 "error": ""
@@ -103,10 +103,12 @@ def run_draft_generation():
                 final_state = comparison_app.invoke(initial_state, config=config)
                 
                 # 에이전트들이 평가 루프를 거치고 완성한 최종 검수 완료 기사
-                draft_text = final_state.get("edited_article", "")
+                draft_data = final_state.get("edited_article", {})
                 
-                if draft_text and "오류가 발생" not in draft_text:
-                    issue.pre_generated_draft = draft_text
+                if draft_data and "오류가 발생" not in str(draft_data):
+                    # DB 저장을 위해 dict를 JSON 문자열로 변환
+                    import json
+                    issue.pre_generated_draft = json.dumps(draft_data, ensure_ascii=False)
                     generated_count += 1
                     logger.success(f"    ↳ 작성 완료! (재시도 횟수: {final_state.get('retry_count')})")
                 else:

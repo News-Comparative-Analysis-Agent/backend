@@ -2,6 +2,7 @@ import json
 from app.agents.state import ComparisonState
 from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
+from langsmith import traceable
 
 class IssueAgent:
     """
@@ -11,6 +12,7 @@ class IssueAgent:
     def __init__(self, db=None):
         pass
 
+    @traceable(name="Agent 2: Issue (쟁점 구조화) 🧩")
     def node_structure_issues(self, state: ComparisonState) -> dict:
         """
         [Node] 추출된 주장 카드들을 바탕으로 논쟁적인 쟁점 리스트를 생성합니다.
@@ -33,20 +35,25 @@ class IssueAgent:
         {cards_json}
         
         [쟁점 구조화 규칙]
-        1. 쟁점명: 언론사 간 시각 차이가 뚜렷한 주제를 제목으로 설정.
-        2. 양측 관점: 어떤 매체가 어떤 지점에서 대립하는지 서술.
-        3. 출처 연결: 해당 쟁점과 관련된 매체명과 URL을 정확히 기재.
+        1. contention_title: 언론사 간 시각 차이가 뚜렷한 주제를 제목으로 설정.
+        2. media_views: 이 쟁점에 대한 각 매체의 관점(press, claim, evidence, url) 배열.
+        3. media_differences: 각 매체 간의 의견 차이를 명확히 요약 설명 (A사는 ~, 반면 B사는 ~).
         
         반드시 다음 JSON 형식으로만 응답하세요.
         
-        [JSON 출력 형식]
+        [JSON 출력 형식 - contentions 배열만 리턴]
         [
           {{
-            "issue_title": "쟁점 제목",
-            "media_stances": "매체별 관점 비교 설명 (A사는 ~, 반면 B사는 ~)",
-            "sources": [
-              {{"press": "매체명", "url": "기사URL"}}
-            ]
+            "contention_title": "실무적 수사 공백 및 수사 지연 여부",
+            "media_views": [
+              {{
+                "press": "경향신문",
+                "claim": "보완수사권 폐지는 검찰 수사 역량의 심각한 저해를 초래한다.",
+                "evidence": "원문 인용구",
+                "url": "https://..."
+              }}
+            ],
+            "media_differences": "매체별 차이점 요약 서술"
           }}
         ]
         """
@@ -58,21 +65,23 @@ class IssueAgent:
                     "items": {
                         "type": "OBJECT",
                         "properties": {
-                            "issue_title": {"type": "STRING"},
-                            "media_stances": {"type": "STRING"},
-                            "sources": {
+                            "contention_title": {"type": "STRING"},
+                            "media_differences": {"type": "STRING"},
+                            "media_views": {
                                 "type": "ARRAY",
                                 "items": {
                                     "type": "OBJECT",
                                     "properties": {
                                         "press": {"type": "STRING"},
+                                        "claim": {"type": "STRING"},
+                                        "evidence": {"type": "STRING"},
                                         "url": {"type": "STRING"}
                                     },
-                                    "required": ["press", "url"]
+                                    "required": ["press", "claim", "evidence", "url"]
                                 }
                             }
                         },
-                        "required": ["issue_title", "media_stances", "sources"]
+                        "required": ["contention_title", "media_differences", "media_views"]
                     }
                 }
                 from app.agents.utils import call_gemini

@@ -2,20 +2,22 @@ import json
 from app.agents.state import ComparisonState
 from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
+from langsmith import traceable
 
 class WriterAgent:
     """
-    Agent 3) Writer Agent (비평 기사 초안 생성)
+    Agent 3) Writer Agent (비평 기사 구조화 초안 생성)
     • 입력: 쟁점 구조 + 근거
-    • 출력: 비평 기사 초안(고정 템플릿)
-      o 서론(이슈 소개)
-      o 쟁점1~3(매체별 관점 비교)
-      o 정리(논점 요약)
-    • 필수 규칙: 각 쟁점 문단 끝에 “근거(출처 링크)”를 반드시 포함
+    • 출력: JSON 형태의 기사 Outline (v2.0 명세)
+      o title, introduction(context/background)
+      o contentions (매체별 argument_summary 포함)
+      o summary
+    • 필수 규칙: 기존 Markdown 출력이 아닌 구조화된 JSON 응답.
     """
     def __init__(self):
         pass
 
+    @traceable(name="Agent 3: Writer (초안 구조 생성) ✍️")
     def node_write_draft(self, state: ComparisonState) -> dict:
         """
         [Node] 구조화된 쟁점과 근거 데이터를 바탕으로 기사 초안을 작성합니다.
@@ -35,33 +37,39 @@ class WriterAgent:
         
         prompt = f"""
         당신은 수석 논설위원입니다. 다음은 여러 언론사들의 관점 차이를 정리한 '핵심 쟁점(Issue)' 데이터입니다.
-        이를 바탕으로 고정된 템플릿에 맞춰 비교 비평 기사의 초안을 작성하세요.
+        이를 바탕으로 저성능 LLM의 환각을 방지하기 위한 '데이터 기반 기사 개요(Outline)'를 작성하세요.
         
         [쟁점 데이터 목록]
         {issues_json}
         
-        [고정 템플릿]
-        ## 서론
-        (이 사건/이슈가 무엇인지, 왜 중요한지 간략히 요약)
+        [필수 사항]
+        본문을 서술하지 마시고, 제공된 JSON 스키마에 맞추어 항목별 핵심을 요약(정리)하십시오.
+        새로운 주장을 지어내지 말고 쟁점 데이터 안에 있는 팩트와 출처(claim, evidence, url)만 재배치하십시오.
         
-        ## 쟁점 분석
-        ### 쟁점 1: [첫 번째 쟁점 제목]
-        (매체별 관점 비교 서술)
-        *근거: [A 매체](URL), [B 매체](URL)*
-        
-        ### 쟁점 2: [두 번째 쟁점 제목]
-        (매체별 관점 비교 서술)
-        *근거: [C 매체](URL)*
-        
-        (필요 시 쟁점 3, 4 등 추가)
-        
-        ## 정리 및 결론
-        (향후 전망 및 논점 요약)
-        
-        [필수 규칙 🚨]
-        1. 각 쟁점 문단의 끝에는 반드시 **"*근거: [매체명](URL), ...*"** 형식으로 출처 링크를 명시하십시오. (URL이 없다면 매체명이라도 작성)
-        2. 제공된 쟁점 데이터에 없는 새로운 주장을 지어내지 마십시오.
-        3. 마크다운 언어만을 사용하여 본문만 바로 출력하십시오.
+        [출력 JSON 구조]
+        {{
+          "title": "전체 기사 제목",
+          "introduction": {{
+            "context": "이슈 맥락",
+            "background": "사건 배경"
+          }},
+          "contentions": [
+            {{
+              "contention_title": "쟁점 제목",
+              "conflict_summary": "이 쟁점에서의 갈등 요약",
+              "media_views": [
+                {{
+                  "press": "매체명",
+                  "claim": "원문 주장",
+                  "evidence": "인용구",
+                  "url": "기사 URL",
+                  "argument_summary": "해당 매체의 관점 요약"
+                }}
+              ]
+            }}
+          ],
+          "summary": "전체 결론 요약"
+        }}
         """
         
         # 이전 Judge 단계에서 Writer를 향한 반려 사유가 있다면 프롬프트에 추가
@@ -76,8 +84,8 @@ class WriterAgent:
             [피드백 내용]
             {judge_feedback}
             
-            [당신이 작성했던 이전 초안]
-            {previous_draft}
+            [당신이 작성했던 이전 JSON 초안]
+            {json.dumps(previous_draft, ensure_ascii=False) if isinstance(previous_draft, dict) else previous_draft}
             """
             log_llm_event("agent_writer", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
             
@@ -90,24 +98,72 @@ class WriterAgent:
             llm_mode = state.get("llm_mode", "gemini_only")
             if llm_mode == "gemini_only":
                 import google.generativeai as genai
-                gen_model = genai.GenerativeModel('gemini-2.0-flash')
+                response_schema = {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING"},
+                        "introduction": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "context": {"type": "STRING"},
+                                "background": {"type": "STRING"}
+                            },
+                            "required": ["context", "background"]
+                        },
+                        "contentions": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "contention_title": {"type": "STRING"},
+                                    "conflict_summary": {"type": "STRING"},
+                                    "media_views": {
+                                        "type": "ARRAY",
+                                        "items": {
+                                            "type": "OBJECT",
+                                            "properties": {
+                                                "press": {"type": "STRING"},
+                                                "claim": {"type": "STRING"},
+                                                "evidence": {"type": "STRING"},
+                                                "url": {"type": "STRING"},
+                                                "argument_summary": {"type": "STRING"}
+                                            },
+                                            "required": ["press", "claim", "evidence", "url", "argument_summary"]
+                                        }
+                                    }
+                                },
+                                "required": ["contention_title", "conflict_summary", "media_views"]
+                            }
+                        },
+                        "summary": {"type": "STRING"}
+                    },
+                    "required": ["title", "introduction", "contentions", "summary"]
+                }
+                gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
-                final_text = response.text
+                
+                try:
+                    final_data = json.loads(response.text)
+                except:
+                    from app.agents.utils import parse_llm_json
+                    final_data = parse_llm_json(response.text)
+                
                 usage = {
                     "prompt_tokens": len(prompt) // 4,
-                    "completion_tokens": len(final_text) // 4
+                    "completion_tokens": len(response.text) // 4
                 }
             else:
-                from app.agents.utils import call_local_llm
-                final_text, usage = call_local_llm("7B_2", prompt)
+                from app.agents.utils import call_llm
+                final_data, usage = call_llm(prompt, "7B_2", state)
                 
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
 
-            msg = "비평 보고서 초안(Draft) 생성 완료"
-            log_llm_event("agent_writer", msg, details=final_text)
-            logger.info(f"✍️ [WriterAgent] 생성된 초안 요약: {final_text[:100]}...")
-            return {"draft_article": final_text, "messages": [msg], "total_tokens": total_tokens}
+            msg = "비평 보고서 개요(Outline JSON) 생성 완료"
+            log_llm_event("agent_writer", msg)
+            if isinstance(final_data, dict):
+                logger.info(f"✍️ [WriterAgent] 생성된 초안 제목: {final_data.get('title', '제목 없음')}")
+            return {"draft_article": final_data, "messages": [msg], "total_tokens": total_tokens}
             
         except Exception as e:
             msg = f"초안 생성 실패: {e}"

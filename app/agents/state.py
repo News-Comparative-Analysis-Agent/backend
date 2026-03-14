@@ -46,10 +46,10 @@ class ComparisonState(TypedDict):
     structured_issues: List[Dict[str, Any]]   # 구조화된 쟁점 리스트 (쟁점 제목, 매체별 차이, 근거 claim_id)
     
     # 3. Writer Agent 출력
-    draft_article: str                        # 비평 기사 초안 (마크다운)
+    draft_article: Dict[str, Any]             # 비평 기사 초안 (JSON Outline)
     
     # 4. Editor Agent 출력
-    edited_article: str                       # 수정/톤 정제된 비평 기사
+    edited_article: Dict[str, Any]            # 수정/톤 정제된 비평 기사 (JSON)
     edit_log: str                             # 에디터 수정 로그
     
     # 5. Judge Agent 출력 및 라우팅 상태
