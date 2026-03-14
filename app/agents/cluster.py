@@ -34,7 +34,7 @@ class ClusterAgent:
         if ClusterAgent._topic_model is not None:
             return ClusterAgent._topic_model
 
-        logger.info("🤖 ClusterAgent: BERTopic 모델 로딩 시작...")
+        logger.info("ClusterAgent: BERTopic 모델 로딩 시작...")
         
         korean_stopwords = [
             "뉴스", "종합", "속보", "기자", "특파원", "위해", "밝혔다", "대해", "관련", 
@@ -59,7 +59,7 @@ class ClusterAgent:
             calculate_probabilities=True,
             verbose=False
         )
-        logger.info("✅ ClusterAgent: BERTopic 모델 로드 완료.")
+        logger.info(" ClusterAgent: BERTopic 모델 로드 완료.")
         return ClusterAgent._topic_model
 
     def _remove_duplicates_fast(self, df: pd.DataFrame, threshold: float = 0.95) -> pd.DataFrame:
@@ -179,7 +179,7 @@ class ClusterAgent:
                 })
             
             msg = f"미분류 기사 {len(data)}건 로드됨"
-            logger.info(f"📊 [ClusterAgent:Fetch] {msg}")
+            logger.info(f"[ClusterAgent:Fetch] {msg}")
             return {"unclustered_articles": data, "messages": [msg]}
         except Exception as e:
             msg = f"미분류 기사 로드 실패: {e}"
@@ -190,11 +190,11 @@ class ClusterAgent:
         """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
         log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
         articles = state.get("unclustered_articles", [])
-        logger.info(f"📊 [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
+        logger.info(f" [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
         
         if len(articles) < 5:
             msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다. (최소 5건 필요)"
-            logger.warning(f"📊 [ClusterAgent:Cluster] {msg}")
+            logger.warning(f"[ClusterAgent:Cluster] {msg}")
             return {"clustered_topics": [], "messages": [msg]}
 
         df = pd.DataFrame(articles)
@@ -202,7 +202,7 @@ class ClusterAgent:
 
         if len(df_clean) < 3:
             msg = "중복 제거 후 남은 기사가 부족(3건 미만)하여 클러스터링을 건너뜁니다."
-            logger.warning(f"📊 [ClusterAgent:Cluster] {msg}")
+            logger.warning(f"[ClusterAgent:Cluster] {msg}")
             return {"clustered_topics": [], "messages": [msg]}
             
         try:
@@ -210,7 +210,7 @@ class ClusterAgent:
             from sklearn.cluster import AgglomerativeClustering
             from sklearn.metrics.pairwise import cosine_distances
 
-            logger.info(f"🧠 [ClusterAgent] {len(df_clean)}개 기사의 핵심 사건(Core Event) LLM 추출 시작...")
+            logger.info(f" [ClusterAgent] {len(df_clean)}개 기사의 핵심 사건(Core Event) LLM 추출 시작...")
             
             # 병렬로 핵심 사건 추출
             articles_list = df_clean.to_dict('records')
@@ -241,7 +241,7 @@ class ClusterAgent:
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=0.75
+                distance_threshold=0.82
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
@@ -257,7 +257,7 @@ class ClusterAgent:
                 count = len(topic_articles)
                 unique_press_count = topic_articles['press'].nunique()
                 
-                if count >= 2 and unique_press_count >= 1:
+                if count >= 3 and unique_press_count >= 3:
                     clustered_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),
@@ -267,16 +267,16 @@ class ClusterAgent:
                     })
 
             msg = f"{len(clustered_topics)}개의 정밀한 이슈 군집 도출 완료"
-            logger.info(f"📊 [ClusterAgent:Cluster] {msg}")
+            logger.info(f"[ClusterAgent:Cluster] {msg}")
             
             for i, t in enumerate(clustered_topics, 1):
-                logger.info(f"   🔥 Issue {i} ({t['count']}건, {t['press_count']}개 언론사):")
+                logger.info(f"   Issue {i} ({t['count']}건, {t['press_count']}개 언론사):")
                 for title in t['titles'][:5]:
                     logger.info(f"      - {title}")
                     
             return {"clustered_topics": clustered_topics, "messages": [msg]}
         except Exception as e:
-            logger.error(f"📊 [ClusterAgent:Cluster] 치명적 오류: {e}")
+            logger.error(f"[ClusterAgent:Cluster] 치명적 오류: {e}")
             return {"clustered_topics": [], "messages": [f"클러스터링 중단됨: {e}"]}
 
     def node_name_and_save_issues(self, state: ComparisonState) -> Dict[str, Any]:
@@ -285,10 +285,10 @@ class ClusterAgent:
         topics = state.get("clustered_topics", [])
         if not topics:
             msg = "분류된 토픽이 없어 이슈 저장 단계를 건너뜁니다."
-            logger.info(f"📊 [ClusterAgent:Save] {msg}")
+            logger.info(f"[ClusterAgent:Save] {msg}")
             return {"issue_id": None, "messages": [msg]}
 
-        logger.info(f"📊 [ClusterAgent:Save] 입력 토픽 수: {len(topics)}건")
+        logger.info(f"[ClusterAgent:Save] 입력 토픽 수: {len(topics)}건")
 
         saved_ids = []
         max_count = 0
@@ -317,7 +317,7 @@ class ClusterAgent:
             
             self.db.commit()
             msg = f"이슈 {len(saved_ids)}개 저장 완료. 다음 분석 이슈 ID: {target_issue_id}"
-            logger.info(f"📊 [ClusterAgent:Save] {msg}")
+            logger.info(f"[ClusterAgent:Save] {msg}")
             
             # 다음 분석 단계를 위해 선택된 타겟의 상세 정보를 상태에 기록
             return {
@@ -329,7 +329,7 @@ class ClusterAgent:
             }
         except Exception as e:
             self.db.rollback()
-            logger.error(f"📊 [ClusterAgent:Save] 이슈 저장 실패: {e}")
+            logger.error(f"[ClusterAgent:Save] 이슈 저장 실패: {e}")
             return {"error": str(e), "messages": [f"이슈 저장 실패: {e}"]}
 
     def node_cleanup_unclustered(self, state: ComparisonState) -> Dict[str, Any]:

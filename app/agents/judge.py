@@ -3,20 +3,21 @@ import google.generativeai as genai
 from app.agents.state import ComparisonState
 from app.agents.utils import parse_llm_json, update_total_tokens
 from app.core.logger import logger, log_llm_event
+from langsmith import traceable
 
 class JudgeAgent:
     """
     Agent 5) Judge Agent (품질 검증 + 재생성 판단)
-    • 입력: 수정 초안 + 쟁점 + 주장카드
-    • 출력(JSON): 점수/경고/재실행 지시
-      o 출처 매체 수(최소 3)
-      o 근거 존재 여부
-      o 중복률
-      o status: "PASS", "FAIL_WRITER" (내용 부족), "FAIL_EDITOR" (톤/문맥 불량)
+    • 입력: 최종 JSON 문서 + 쟁점 + 주장카드
+    • 출력(JSON): 점수/검증지표/행동지침 포함된 v2.0 평가 데이터
+      o metrics: claims_utilization, media_diversity 등
+      o action: "PROCEED", "RETRY_FROM_WRITER", "RETRY_FROM_EDITOR"
+      o feedback: summary, rejection_reason (FAIL 시)
     """
     def __init__(self, db=None):
         self.db = db
 
+    @traceable(name="Agent 5: Judge (최종 검수) ⚖️")
     def node_evaluate_draft(self, state: ComparisonState) -> dict:
         """
         [Node] 데스크를 통과한 최종 기사(edited_article)를 가장 엄격하게 검증합니다.
@@ -38,27 +39,39 @@ class JudgeAgent:
         issues_json = json.dumps(structured_issues, ensure_ascii=False)
         
         prompt = f"""
-        당신은 편집국장(Judge)입니다. 기자(Writer)와 데스크(Editor)를 거쳐 올라온 최종 비평 기사를 검증하십시오.
+        당신은 편집국장(Judge)입니다. 기자(Writer)와 데스크(Editor)를 거쳐 완성된 '최종 JSON 비평 기사'를 엄격히 검증하십시오.
         
-        [검증 대상 최종 기사]
-        {edited_article}
+        [검증 대상 최종 기사 (JSON)]
+        {json.dumps(edited_article, ensure_ascii=False, indent=2) if isinstance(edited_article, dict) else edited_article}
         
         [원본 쟁점 데이터]
         {issues_json}
         
         [검증 항목]
-        1. 매체 다양성: 기사에 언급된 출처(매체)가 최소 3개 이상인가? (부족하면 FAIL_WRITER)
-        2. 근거 존재 여부: 각 쟁점 끝에 "근거([매체명](URL))" 형태로 출처가 명확히 달려 있는가? (없거나 지어냈다면 FAIL_WRITER)
-        3. 문맥/논리성(중복률): 문장이 지나치게 반복되거나 톤앤매너가 신문 기사에 맞지 않는가? (에디팅이 불량하면 FAIL_EDITOR)
+        1. claims_utilization (주장 활용 지수): 원본 쟁점 데이터의 핵심 주장이 누락 없이 초안에 반영되었는가? (낮으면 RETRY_FROM_WRITER)
+        2. media_diversity (매체 다양성): 기사에 언급된 출처 매체가 3곳 이상의 다양한 관점을 포함하는가? (부족하면 RETRY_FROM_WRITER)
+        3. factual_accuracy (사실 정확성): 지어낸 허위 사실 없이 원본 인용구가 그대로 쓰였는가? (조작 정황 시 RETRY_FROM_WRITER)
+        4. draft_professionalism (기사 전문성): 문장이 지나치게 반복되지 않고 신문 기사다운 톤을 갖췄는가? (톤불량 시 RETRY_FROM_EDITOR)
         
-        모든 기준을 완벽히 통과하면 status를 "PASS"로 하십시오.
+        모든 기준을 완벽히 통과하면 action을 "PROCEED", 내용 보강 필요 시 "RETRY_FROM_WRITER", 단순 문장 다듬기 필요 시 "RETRY_FROM_EDITOR"로 설정하십시오.
+        status는 "PASS" 또는 "FAIL"로 설정합니다.
         
         [반환 형식 - 순수 JSON만]
         {{
-            "status": "PASS", // 또는 "FAIL_WRITER", "FAIL_EDITOR"
-            "score": 85, // 0~100점 품질 점수
-            "warnings": ["경고 사항 1", "경고 사항 2..."], // 없으면 빈 배열
-            "feedback": "재작성/재수정 시 반영할 구체적 지침 (PASS 시 비워둠)"
+            "status": "PASS", // 또는 FAIL
+            "total_score": 92, // 0~100점 전체 품질 평가
+            "metrics": {{
+                "claims_utilization": 95,
+                "media_diversity": 90,
+                "factual_accuracy": 94,
+                "draft_professionalism": 90
+            }},
+            "action": "PROCEED", // 또는 "RETRY_FROM_WRITER", "RETRY_FROM_EDITOR"
+            "feedback": {{
+                "summary": "총평 작성",
+                "rejection_reason": "반려 사유 (통과 시 빈 문자열)",
+                "redo_instruction": "재작성 지시 (통과 시 빈 문자열)"
+            }}
         }}
         """
         
@@ -68,11 +81,29 @@ class JudgeAgent:
                 "type": "OBJECT",
                 "properties": {
                     "status": {"type": "STRING"},
-                    "score": {"type": "INTEGER"},
-                    "warnings": {"type": "ARRAY", "items": {"type": "STRING"}},
-                    "feedback": {"type": "STRING"}
+                    "total_score": {"type": "INTEGER"},
+                    "metrics": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "claims_utilization": {"type": "INTEGER"},
+                            "media_diversity": {"type": "INTEGER"},
+                            "factual_accuracy": {"type": "INTEGER"},
+                            "draft_professionalism": {"type": "INTEGER"}
+                        },
+                        "required": ["claims_utilization", "media_diversity", "factual_accuracy", "draft_professionalism"]
+                    },
+                    "action": {"type": "STRING"},
+                    "feedback": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "summary": {"type": "STRING"},
+                            "rejection_reason": {"type": "STRING"},
+                            "redo_instruction": {"type": "STRING"}
+                        },
+                        "required": ["summary"]
+                    }
                 },
-                "required": ["status", "score", "warnings", "feedback"]
+                "required": ["status", "total_score", "metrics", "action", "feedback"]
             }
             gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
             response = gen_model.generate_content(prompt)
@@ -92,9 +123,18 @@ class JudgeAgent:
                 logger.warning("Judge JSON 파싱 실패 -> 안전망 강제 PASS 처리")
                 return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"], "total_tokens": total_tokens}
                 
-            status = result.get("status", "FAIL_WRITER").upper()
-            feedback = result.get("feedback", "피드백이 제공되지 않았습니다.")
-            score = result.get("score", 0)
+            # 명세서(v2.0)의 action을 기존 시스템의 라우팅 상태(judge_status)로 매핑
+            action = result.get("action", "RETRY_FROM_WRITER").upper()
+            if action in ["PROCEED", "PASS"]:
+                status = "PASS"
+            elif action == "RETRY_FROM_EDITOR":
+                status = "FAIL_EDITOR"
+            else:
+                status = "FAIL_WRITER"
+                
+            feedback_dict = result.get("feedback", {})
+            feedback = feedback_dict.get("redo_instruction") or feedback_dict.get("rejection_reason") or feedback_dict.get("summary", "피드백이 없습니다.")
+            score = result.get("total_score", 0)
             
             msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
             if status == "PASS":
@@ -105,8 +145,9 @@ class JudgeAgent:
                     from app.scroller.repository import ScrollerRepository
                     repo = ScrollerRepository(self.db)
                     
-                    # 1. 초안 저장
-                    repo.update_issue_draft(issue_id, edited_article)
+                    # 1. 초안 저장: 최종 완성된 Dict를 JSON String으로 변환하여 DB에 저장
+                    edited_json_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
+                    repo.update_issue_draft(issue_id, edited_json_str)
                     
                     # 2. 나머지 분석 메타데이터(background, description) 저장
                     repo.update_issue_analysis_results(

@@ -3,6 +3,7 @@ import concurrent.futures
 from typing import Dict, Any, List
 import google.generativeai as genai
 from sqlalchemy.orm import Session
+from langsmith import traceable
 
 from app.agents.state import ComparisonState
 from app.agents.utils import call_llm, update_total_tokens
@@ -55,7 +56,7 @@ class EvidenceAgent:
     def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str, state: ComparisonState) -> tuple[dict | None, dict]:
         
         prompt = f"""
-        당신은 사실 기반 팩트체커입니다. 아래 뉴스 기사 본문에서 핵심 주장을 발췌하여 JSON 주장 카드를 생성하세요.
+        당신은 사실 기반 팩트체커입니다. 아래 뉴스 기사 본문에서 핵심 주장을 발췌하여 원자적(Atomic) 주장 카드를 생성하세요.
         
         [뉴스 원문]
         언론사: {art['press']}
@@ -65,8 +66,8 @@ class EvidenceAgent:
         [지시사항]
         1. "claim": 기사가 전달하려는 가장 핵심적인 주장 1문장.
         2. "evidence": 위 주장을 뒷받침하는 기사 내부의 '정확한 원문 인용구' (작성자가 지어내지 말 것).
-        3. "url": 제공된 기사 URL.
-        4. "press": 제공된 언론사명.
+        3. "url": 제공된 기사 URL ({art['url']}).
+        4. "press": 제공된 언론사명 ({art['press']}).
         
         [반환 형식 - 순수 JSON만]
         {{
@@ -110,6 +111,7 @@ class EvidenceAgent:
             
         return None, usage
 
+    @traceable(name="Agent 1: Evidence (주장 및 근거 추출) 🕵️‍♂️")
     def node_extract_claims(self, state: ComparisonState) -> dict:
         """
         [Node] 병렬 처리를 통해 여러 기사에서 주장 카드(Claim Card)를 동시 추출합니다.

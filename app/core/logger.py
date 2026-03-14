@@ -60,6 +60,7 @@ logger.add(
 def log_llm_event(node_name: str, message: str, details: str = None, token_info: dict = None):
     """
     LLM API 호출 전후의 이벤트 및 노드 활동을 통합하여 기록합니다.
+    (콘솔 창에서 에이전트 간 대화를 알아보기 쉽도록 색상을 적용합니다)
     
     Args:
         node_name (str): 현재 로그를 남기는 노드나 모듈의 이름 (예: 'Gemini', 'Crawler')
@@ -67,22 +68,49 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
         details (str, optional): 프롬프트나 응답 본문 같은 긴 상세 내용
         token_info (dict, optional): {'prompt_tokens': int, 'completion_tokens': int} 형태의 토큰 사용량 정보
     """
-    log_entry = f"[{node_name}] {message}"
+    # 에이전트 식별을 위한 아이콘 및 색상 맵 (Loguru 컬러 태그 활용)
+    AGENT_COLORS = {
+        "EvidenceAgent": "<light-blue>",
+        "IssueAgent": "<light-yellow>",
+        "WriterAgent": "<light-magenta>",
+        "EditorAgent": "<light-cyan>",
+        "JudgeAgent": "<light-red>",
+        "LocalLLM": "<green>",
+        "Gemini": "<blue>",
+        "DraftGen": "<white>"
+    }
+    
+    # 노드 이름에 매칭되는 색상을 찾고 없으면 기본 흰색 사용
+    color_tag = "<white>"
+    for key, color in AGENT_COLORS.items():
+        if key.lower() in node_name.lower():
+            color_tag = color
+            break
+            
+    # 컬러가 적용된 헤더
+    header_title = f"[ {node_name} ]"
+    header = f"{color_tag}╔════════ {header_title:<15} ═══════════════════════════</>"
+    log_entry = f"\n{header}\n{color_tag}║</> {message}"
     
     # 토큰 사용량이 전달된 경우, 요약 및 합계를 계산하여 메시지에 포함합니다.
     if token_info:
         p_tokens = token_info.get('prompt_tokens', 0)
         c_tokens = token_info.get('completion_tokens', 0)
         t_tokens = p_tokens + c_tokens
-        log_entry += f" (Tokens: P={p_tokens}, C={c_tokens}, T={t_tokens})"
+        log_entry += f" {color_tag}(Tokens: P={p_tokens}, C={c_tokens}, T={t_tokens})</>"
     
     # 상세 내용(details)이 있으면 구분선과 함께 로그 엔트리에 추가합니다.
     if details:
-        log_entry += f"\n--- 상세 내용 ---\n{details}\n----------------"
+        details_title = "상세 내용"
+        log_entry += f"\n{color_tag}╠ {details_title:<45} </>\n"
+        # 여러 줄의 details를 보기 좋게 들여쓰기 처리
+        indented_details = "\n".join([f"{color_tag}║</> {line}" for line in details.split("\n")])
+        log_entry += f"{indented_details}"
+        
+    log_entry += f"\n{color_tag}╚════════════════════════════════════════════════════════</>\n"
     
-    # loguru의 기본 INFO 레벨로 기록합니다. 
-    # 만약 특정 작업 세션(job_type)이 활성화되어 있다면 해당 파일에도 함께 기록됩니다.
-    logger.info(log_entry)
+    # opt(colors=True)를 사용하여 loguru의 기본 INFO 레벨에 컬러 태그를 허용하여 출력합니다.
+    logger.opt(colors=True).info(log_entry)
 
 # ==========================================
 # 4. 세션 기반 독립 로깅 제어 (Work/Job 단위 관리)

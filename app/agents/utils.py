@@ -5,6 +5,7 @@ import time
 import functools
 import requests
 import google.generativeai as genai
+from langsmith import traceable
 from app.core.logger import logger, log_llm_event
 
 
@@ -12,9 +13,9 @@ from app.core.logger import logger, log_llm_event
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
 LLM_SERVER_IP = os.getenv("LLM_SERVER_IP", os.getenv("HOST_IP", "127.0.0.1")).strip()
 
-# 포트 설정 (.env 우선, 없으면 기본값)
-PORT_7B_1 = os.getenv("7B_PORT_1", "8000").strip() # 기본 추출용
-PORT_7B_2 = os.getenv("7B_PORT_2", "8001").strip() # 비평 작성 전용 (있을 경우)
+# 포트 설정 (.env 우선, 없으면 7B_PORT 공통 설정 반영, 그마저도 없으면 기본값)
+PORT_7B_1 = os.getenv("7B_PORT_1", os.getenv("7B_PORT", "8000")).strip() # 기본 추출용
+PORT_7B_2 = os.getenv("7B_PORT_2", os.getenv("7B_PORT", "8001")).strip() # 비평 작성 전용 (있을 경우)
 
 # API 엔드포인트 경로 (.env 우선)
 API_PATH = os.getenv("LLM_SERVER_API_URI", "v1/chat/completions").strip()
@@ -39,6 +40,7 @@ def parse_llm_json(text: str) -> dict:
         logger.error(f"JSON 파싱 실패: {e}\n원본 텍스트: {text}")
         return None
 
+@traceable(run_type="llm", name="LocalLLM Call")
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다."""
     url = LOCAL_LLM_SERVERS.get(model_size)
@@ -81,6 +83,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
         logger.error(f"로컬 LLM({model_size}) 호출 실패: {e}")
         return ("{}", {"prompt_tokens": 0, "completion_tokens": 0}) if json_mode else ("", {"prompt_tokens": 0, "completion_tokens": 0})
 
+@traceable(run_type="llm", name="Gemini Call")
 def call_gemini(prompt: str) -> dict:
     """제미나이 API를 호출합니다."""
     try:
@@ -118,6 +121,7 @@ def update_total_tokens(state: dict, new_usage: dict) -> dict:
     
     return total
 
+@traceable(run_type="chain", name="LLM Routing (Text)")
 def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출하여 '순수 텍스트'를 반환합니다. (반환: 텍스트, 토큰정보)"""
     mode = state.get("llm_mode", "gemini_only")
@@ -153,6 +157,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     
     return "", {"prompt_tokens": 0, "completion_tokens": 0}
 
+@traceable(run_type="chain", name="LLM Routing (JSON)")
 def call_llm(prompt: str, model_size: str, state: dict) -> tuple:
     """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
     mode = state.get("llm_mode", "gemini_only")
