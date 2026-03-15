@@ -7,7 +7,7 @@ from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse, Iss
 
 router = APIRouter()
 
-@router.get("/feed",
+@router.get("/daily-issues",
             response_model=IssueFeedResponse,
             summary="이슈 피드 (TOP 10 + 차트아웃 20개)",
             description="""
