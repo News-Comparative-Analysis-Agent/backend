@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from typing import List, Dict
 from datetime import datetime, timezone
 from app.domains.issues.repository import IssueRepository
 from app.domains.issues.schemas import IssueFeedItem, IssueFeedResponse, IssueAnalysisResponse
