@@ -56,9 +56,9 @@ class IssueRepository:
             .all()
         )
 
-    # def get_by_id(self, issue_id: int) -> IssueLabel:
-    #     """ID로 이슈 상세 조회"""
-    #     return self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+    def get_by_id(self, issue_id: int) -> IssueLabel:
+        """ID로 이슈 상세 조회"""
+        return self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
 
     # def get_articles_with_publisher(self, issue_id: int) -> List[Article]:
     #     """특정 이슈에 속한 기사들을 언론사 정보와 함께 조회"""
