@@ -78,11 +78,12 @@ jobs:
           # ENV_FILE 시크릿에 .env 내용 전체를 넣어주세요.
           echo "${{ secrets.ENV_FILE }}" > ~/backend/.env
 
-          # 5. 아까 꺼내놨던 로그 폴더를 원래 위치로 다시 넣기
-          mkdir -p ~/backend/app
-          rm -rf ~/backend/app/logs
-          mv ~/backend_logs_tmp ~/backend/app/logs 2>/dev/null || mkdir -p ~/backend/app/logs
-
+          # 5. 아까 꺼내놨던 로그 폴더를 원래 위치로 다시 밀어넣기 (진짜 폴더이므로 도커가 완벽하게 인식)
+          mkdir -p ~/backend/app/logs
+          mv ~/backend_logs_tmp/* ~/backend/app/logs/ 2>/dev/null || true
+          rm -rf ~/backend_logs_tmp
+          chmod -R 777 ~/backend/app/logs
+          
           # 6. 서버 빌드 및 실행
           cd ~/backend
           docker compose up -d --build
