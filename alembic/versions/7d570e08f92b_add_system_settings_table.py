@@ -24,9 +24,10 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('llm_mode', sa.String(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    if_not_exists=True
     )
-    op.create_index(op.f('ix_system_settings_id'), 'system_settings', ['id'], unique=False)
+    op.create_index(op.f('ix_system_settings_id'), 'system_settings', ['id'], unique=False, if_not_exists=True)
     # ### end Alembic commands ###
 
 

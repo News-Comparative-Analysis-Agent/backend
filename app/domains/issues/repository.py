@@ -68,9 +68,7 @@ class IssueRepository:
     #         .all()
 
     def get_image_urls_by_issue(self, issue_id: int) -> List[str]:
-        """이슈에 속한 기사 중 랜덤으로 하나를 골라 그 기사의 image_urls 반환"""
-        import random
-
+        """이슈에 속한 모든 기사의 image_urls를 합산하여 반환"""
         articles = (
             self.db.query(Article.image_urls)
             .filter(
@@ -79,11 +77,11 @@ class IssueRepository:
             )
             .all()
         )
-        # image_urls가 실제로 존재하는 기사만 필터링
-        candidates = [urls for (urls,) in articles if urls]
-        if not candidates:
-            return []
-        return random.choice(candidates)
+        result = []
+        for (urls,) in articles:
+            if urls:
+                result.extend(urls)
+        return result
 
 
     # def get_claims_by_issue(self, issue_id: int):

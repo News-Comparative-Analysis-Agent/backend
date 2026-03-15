@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.domains.issues.service import IssueService
-from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse, IssueFeedResponse
+from app.domains.issues.schemas import IssueFeedResponse
 
 router = APIRouter()
 
