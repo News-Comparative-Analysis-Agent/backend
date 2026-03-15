@@ -3,48 +3,69 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.domains.issues.service import IssueService
-from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse
+from app.domains.issues.schemas import IssueResponse, IssueAnalysisResponse, IssueFeedResponse
 
 router = APIRouter()
 
-@router.get("/daily-issues", 
-            response_model=List[IssueResponse],
-            summary="실시간 속보 이슈 (최신순)",
-            description="가장 최근에 생성된 이슈 목록을 반환합니다.")
-def get_daily_issues(
-    limit: int = Query(10, description="조회할 이슈 개수"),
-    db: Session = Depends(get_db)
-):
-    """
-    최근 생성된 이슈 목록 조회
-    """
-    service = IssueService(db)
-    return service.get_daily_issues(limit=limit)
+@router.get("/feed",
+            response_model=IssueFeedResponse,
+            summary="이슈 피드 (TOP 10 + 차트아웃 20개)",
+            description="""
+총 30개의 이슈를 두 섹션으로 나눠 반환합니다.
 
-@router.get("/daily-trends", 
-            response_model=List[IssueResponse],
-            summary="주요 핫 트렌드 (인기순)",
-            description="누적 기사 수가 가장 많은 이슈 목록을 반환합니다.")
-def get_daily_trends(
-    limit: int = Query(10, description="조회할 이슈 개수"),
+- **top_issues**: 가장 최근에 생성된 이슈 10개 (최신순, rank 1~10)
+- **chart_out_issues**: 그 다음 20개 이슈 (OUT 뱃지, `peak_rank` 최고 순위, `chart_out_minutes` 밀려난 경과 시간(분))
+""")
+def get_issue_feed(
+    top_count: int = Query(10, description="TOP 이슈 개수"),
+    chart_out_count: int = Query(20, description="차트아웃 이슈 개수"),
     db: Session = Depends(get_db)
 ):
     """
-    일별 트렌드 이슈 목록 조회 (기사 수 기준 내림차순)
+    이슈 피드 조회 (최신 10개 + 차트아웃 20개)
     """
     service = IssueService(db)
-    return service.get_daily_trends(limit=limit)
+    return service.get_issue_feed(top_count=top_count, chart_out_count=chart_out_count)
 
-@router.get("/{issue_id}/analysis",
-            response_model=IssueAnalysisResponse,
-            summary="이슈 상세 분석 (언론사별 요약 및 성향)",
-            description="특정 이슈에 포함된 기사들을 언론사별로 그룹화하여 AI 요약과 정치 성향 등의 상세 분석 정보를 제공합니다.")
-def get_issue_analysis(
-    issue_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    특정 이슈의 언론사별 분석 데이터 조회
-    """
-    service = IssueService(db)
-    return service.get_issue_analysis(issue_id)
+
+# @router.get("/daily-issues", 
+#             response_model=List[IssueResponse],
+#             summary="실시간 속보 이슈 (최신순)",
+#             description="가장 최근에 생성된 이슈 목록을 반환합니다.")
+# def get_daily_issues(
+#     limit: int = Query(10, description="조회할 이슈 개수"),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     최근 생성된 이슈 목록 조회
+#     """
+#     service = IssueService(db)
+#     return service.get_daily_issues(limit=limit)
+
+# @router.get("/daily-trends", 
+#             response_model=List[IssueResponse],
+#             summary="주요 핫 트렌드 (인기순)",
+#             description="누적 기사 수가 가장 많은 이슈 목록을 반환합니다.")
+# def get_daily_trends(
+#     limit: int = Query(10, description="조회할 이슈 개수"),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     일별 트렌드 이슈 목록 조회 (기사 수 기준 내림차순)
+#     """
+#     service = IssueService(db)
+#     return service.get_daily_trends(limit=limit)
+
+# @router.get("/{issue_id}/analysis",
+#             response_model=IssueAnalysisResponse,
+#             summary="이슈 상세 분석 (언론사별 요약 및 성향)",
+#             description="특정 이슈에 포함된 기사들을 언론사별로 그룹화하여 AI 요약과 정치 성향 등의 상세 분석 정보를 제공합니다.")
+# def get_issue_analysis(
+#     issue_id: int,
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     특정 이슈의 언론사별 분석 데이터 조회
+#     """
+#     service = IssueService(db)
+#     return service.get_issue_analysis(issue_id)
