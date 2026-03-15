@@ -142,6 +142,9 @@ class WriterAgent:
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
                 
+                # 생성된 초안을 로그에 출력하도록 추가
+                log_llm_event("agent_writer", "Response received", details=response.text)
+                
                 try:
                     final_data = json.loads(response.text)
                 except:

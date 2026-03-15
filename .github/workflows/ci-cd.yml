@@ -64,20 +64,26 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         command_timeout: 30m
         script: |
-          # 1. 기존 프로젝트 폴더 삭제 (클린 배포)
+          # 0. 영구 보존할 외부 로그 폴더 생성 (프로젝트 폴더 밖)
+          mkdir -p ~/aigent_shared_logs
+
+          # 1. 기존 프로젝트 폴더 정기 삭제 (클린 배포 유지)
           rm -rf ~/backend
 
           # 2. 새로운 코드 다시 복제
           git clone https://${{ secrets.GH_TOKEN }}@github.com/News-Comparative-Analysis-Agent/backend.git
 
-          # 2-1. 로그 폴더 생성 (배포 시 삭제 대응)
-          mkdir -p ~/backend/cron_logs
-
           # 3. GitHub Secrets에서 .env 파일 생성
           # ENV_FILE 시크릿에 .env 내용 전체를 넣어주세요.
           echo "${{ secrets.ENV_FILE }}" > ~/backend/.env
 
-          # 4. 서버 빌드 및 실행
+          # 4. 외부 로그 폴더와 컨테이너 내부를 연결하기 위해 폴더 교체 (심볼릭 링크 연결)
+          # backend 폴더 안에 원래 있던 로그 디렉토리 경로 확보 후 링크
+          mkdir -p ~/backend/app
+          rm -rf ~/backend/app/logs
+          ln -s ~/aigent_shared_logs ~/backend/app/logs
+
+          # 5. 서버 빌드 및 실행
           cd ~/backend
           docker compose up -d --build
           docker image prune -f

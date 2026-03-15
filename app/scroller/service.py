@@ -218,6 +218,15 @@ class ScrollerService:
             finalize_job_log(log_path, "failed")
             return {"status": "error", "message": final_state["error"]}
             
+        # 성공적으로 완료되면 flush된 DB 변경사항을 커밋합니다.
+        try:
+            self.db.commit()
+            session_logger.success(f"💾 비교 분석 결과 DB 커밋 완료 (Issue ID: {issue_id})")
+        except Exception as e:
+            self.db.rollback()
+            session_logger.error(f"❌ DB 커밋 중 오류 발생: {e}")
+            raise e
+
         session_logger.success(f"✅ 비교 분석 완료 (Issue ID: {issue_id})")
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
