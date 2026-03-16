@@ -220,7 +220,21 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             raise ValueError("로컬 LLM 응답 비어있음")
         except Exception as e:
             logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
-            return call_llm_text(prompt, model_size, state)
+            # ⚠️ 주의: 재귀 호출 금지. Gemini를 직접 호출하여 무한재귀 방지
+            try:
+                log_llm_event("GeminiText", "Fallback: Requesting gemini-2.0-flash (Text Mode)", details=prompt)
+                model = genai.GenerativeModel('gemini-2.0-flash')
+                response = model.generate_content(prompt)
+                usage_meta = response.usage_metadata
+                token_info = {
+                    'prompt_tokens': usage_meta.prompt_token_count,
+                    'completion_tokens': usage_meta.candidates_token_count
+                }
+                log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
+                return response.text.strip(), token_info
+            except Exception as gemini_e:
+                logger.error(f"Gemini 폴백도 실패: {gemini_e}")
+                return "", {"prompt_tokens": 0, "completion_tokens": 0}
     
     return "", {"prompt_tokens": 0, "completion_tokens": 0}
 
