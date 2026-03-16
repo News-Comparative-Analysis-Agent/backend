@@ -13,7 +13,8 @@ class IssueRepository:
 
     def get_recent_issues(self, limit: int = 10) -> List[IssueLabel]:
         """오늘 생성된 이슈를 기사 수 기준(인기순)으로 정렬하여 조회"""
-        today = datetime.now().date()
+        kst_now = datetime.utcnow() + timedelta(hours=9)
+        today = kst_now.date()
         return self.db.query(IssueLabel)\
             .filter(func.date(IssueLabel.created_at) == today)\
             .order_by(IssueLabel.total_count.desc())\

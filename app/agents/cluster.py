@@ -48,7 +48,7 @@ class ClusterAgent:
         
         vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
         umap_model = UMAP(n_neighbors=10, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
-        hdbscan_model = HDBSCAN(min_cluster_size=4, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.05)
+        hdbscan_model = HDBSCAN(min_cluster_size=2, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.05)
         
         ClusterAgent._topic_model = BERTopic(
             embedding_model="snunlp/KR-SBERT-V40K-klueNLI-augSTS",
@@ -127,38 +127,6 @@ class ClusterAgent:
             logger.error(f"Issue LLM labeling failed: {e}")
             return titles[0], "에러 발생", "배경 부재", "쟁점 부재"
 
-    def _extract_core_event(self, article: dict, state: ComparisonState) -> Tuple[str, Dict[str, int]]:
-        """단일 기사에서 핵심 사건(Entity + Action)만 20자 이내로 추출"""
-        title = article.get('title', '')
-        content_lead = article.get('content', '')[:150]
-        
-        prompt = f"""
-        당신은 뉴스 데이터 분류기입니다. 중요 배경 지식을 숙지하세요:
-        [현재 시점: 2026년 3월]
-        [현재 대한민국 대통령: 이재명 (더불어민주당 출신)]
-        [과거 대통령: 윤석열, 문재인, 박근혜, 이명박 등]
-        
-        기사에 '이 대통령'이라고 나오면 문맥을 고려하되 기본적으로 '이재명 대통령'을 뜻합니다. 과거의 '이명박 대통령'으로 착각하는 환각(Hallucination)을 일으키지 마세요.
-        
-        다음 기사의 제목과 내용을 읽고, 이 기사가 다루는 '핵심 사건'을 20자 이내의 명사구로 요약하십시오.
-        (예: "의대 증원 반발 전공의 파업", "민주당 특검법 발의", "이재명 대통령 지지율 하락")
-        
-        [제목]: {title}
-        [내용]: {content_lead}
-        
-        오직 요약된 핵심 사건 키워드 딱 1줄만 출력하십시오. 부연 설명 금지.
-        """
-        
-        try:
-            # call_llm_text 사용 (순수 텍스트 결과)
-            core_event, usage = call_llm_text(prompt, "7B_1", state)
-            core_event = core_event.strip().replace('"', '')
-            if len(core_event) > 30: core_event = core_event[:30]
-            return core_event or title, usage
-        except Exception as e:
-            logger.error(f"Core event 추출 실패: {e}")
-            return title, {"prompt_tokens": 0, "completion_tokens": 0}
-
     # ==========================================
     # Graph Nodes
     # ==========================================
@@ -192,16 +160,16 @@ class ClusterAgent:
         articles = state.get("unclustered_articles", [])
         logger.info(f" [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
         
-        if len(articles) < 5:
-            msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다. (최소 5건 필요)"
+        if len(articles) < 2:
+            msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다. (최소 2건 필요)"
             logger.warning(f"[ClusterAgent:Cluster] {msg}")
             return {"clustered_topics": [], "messages": [msg]}
 
         df = pd.DataFrame(articles)
         df_clean = self._remove_duplicates_fast(df)
 
-        if len(df_clean) < 3:
-            msg = "중복 제거 후 남은 기사가 부족(3건 미만)하여 클러스터링을 건너뜁니다."
+        if len(df_clean) < 2:
+            msg = "중복 제거 후 남은 기사가 부족(2건 미만)하여 클러스터링을 건너뜁니다."
             logger.warning(f"[ClusterAgent:Cluster] {msg}")
             return {"clustered_topics": [], "messages": [msg]}
             
@@ -210,26 +178,9 @@ class ClusterAgent:
             from sklearn.cluster import AgglomerativeClustering
             from sklearn.metrics.pairwise import cosine_distances
 
-            logger.info(f" [ClusterAgent] {len(df_clean)}개 기사의 핵심 사건(Core Event) LLM 추출 시작...")
-            
-            # 병렬로 핵심 사건 추출
+            # docs 조립: 제목(Title) + 본문 앞부분(Content[:500]) 활용
             articles_list = df_clean.to_dict('records')
-            core_events = []
-            total_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                results = list(executor.map(lambda x: self._extract_core_event(x, state), articles_list))
-                
-            for event, usage in results:
-                core_events.append(event)
-                total_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
-                total_usage["completion_tokens"] += usage.get("completion_tokens", 0)
-            
-            state["total_tokens"] = update_total_tokens(state, total_usage)
-            df_clean['core_event'] = core_events
-
-            # TF-IDF 임베딩 (핵심 사건 + 제목)
-            docs = [f"{str(event)} {str(title)}" for event, title in zip(df_clean['core_event'], df_clean['title'])]
+            docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
@@ -257,7 +208,7 @@ class ClusterAgent:
                 count = len(topic_articles)
                 unique_press_count = topic_articles['press'].nunique()
                 
-                if count >= 3 and unique_press_count >= 3:
+                if count >= 2 and unique_press_count >= 2:
                     clustered_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),
@@ -322,6 +273,7 @@ class ClusterAgent:
             # 다음 분석 단계를 위해 선택된 타겟의 상세 정보를 상태에 기록
             return {
                 "issue_id": target_issue_id, 
+                "saved_issue_count": len(saved_ids),
                 "description": target_description if 'target_description' in locals() else None,
                 "background": target_background if 'target_background' in locals() else None,
                 "total_tokens": state.get("total_tokens"),

@@ -31,7 +31,8 @@ class ScrollerRepository:
         Returns:
             int: 삭제된 기사의 총 개수
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        kst_now = datetime.utcnow() + timedelta(hours=9)
+        cutoff_date = kst_now - timedelta(days=days)
         # 특정 기간 이전의 기사 조회
         old_articles = self.db.query(Article).filter(Article.published_at < cutoff_date).all()
         old_article_ids = [a.id for a in old_articles]
@@ -189,7 +190,7 @@ class ScrollerRepository:
             background=background,
             core_contentions=core_contentions,
             media_ratio=media_ratio,
-            created_at=datetime.now()
+            created_at=datetime.utcnow() + timedelta(hours=9) # KST 강제 적용
         )
         self.db.add(issue)
         self.db.flush() 
