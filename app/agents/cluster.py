@@ -110,7 +110,7 @@ class ClusterAgent:
             """
             
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
-            parsed, usage = call_llm(prompt, "7B_1", state)
+            parsed, usage = call_llm(prompt, "7B", state)
             
             # 토큰 업데이트
             state["total_tokens"] = update_total_tokens(state, usage)

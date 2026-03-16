@@ -14,35 +14,102 @@ from app.core.logger import logger, log_llm_event
 LLM_SERVER_IP = os.getenv("LLM_SERVER_IP", os.getenv("HOST_IP", "127.0.0.1")).strip()
 
 # 포트 설정 (.env 우선, 없으면 7B_PORT 공통 설정 반영, 그마저도 없으면 기본값)
-PORT_7B_1 = os.getenv("7B_PORT_1", os.getenv("7B_PORT", "8081")).strip() # 기본 추출용
-# PORT_7B = os.getenv("7B_PORT_2", os.getenv("7B_PORT", "8001")).strip() # 비평 작성 전용 (있을 경우)
+PORT_7B = os.getenv("7B_PORT", "8081").strip() 
 
 # API 엔드포인트 경로 (.env 우선)
 API_PATH = os.getenv("LLM_SERVER_API_URI", "v1/chat/completions").strip()
 
 LOCAL_LLM_SERVERS = {
-    # "3B": f"http://{LLM_SERVER_IP}:{PORT_3B}/{API_PATH}",
-    "7B_1": f"http://{LLM_SERVER_IP}:{PORT_7B_1}/{API_PATH}"
-    # "7B_2": f"http://{LLM_SERVER_IP}:{PORT_7B_2}/{API_PATH}",
+    "7B": f"http://{LLM_SERVER_IP}:{PORT_7B}/{API_PATH}",
 }
 
 def parse_llm_json(text: str) -> dict:
-    """LLM의 응답 텍스트에서 JSON 마크다운 블록을 찾아 파싱합니다."""
-    text = text.strip()
-    match = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
-    if match:
-        json_str = match.group(1).strip()
-    else:
-        json_str = text
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON 파싱 실패: {e}\n원본 텍스트: {text}")
+    """
+    LLM의 응답 텍스트에서 JSON 블록을 찾아 파싱합니다.
+    매우 탄력적으로 동작하도록 다중 전략을 사용합니다.
+    """
+    if not text:
         return None
+        
+    text = text.strip()
+    
+    def try_parse(s: str) -> dict:
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            # 제어 문자(특히 줄바꿈)가 문자열 안에 그대로 들어간 경우 처리
+            # JSON 표준은 문자열 내 실제 줄바꿈을 허용하지 않음 (\n 형태여야 함)
+            s_cleaned = re.sub(r'\n', '\\\\n', s)
+            # 하지만 위 처리는 모든 줄바꿈을 바꾸므로 JSON 구조 자체가 깨짐.
+            # 좀 더 정밀하게: 문자열 값 내부의 줄바꿈만 처리해야 하지만 복잡함.
+            # 대신 간단한 '문자열 내 실제 개행'만 타겟팅 시도 (비표준 처리)
+            try:
+                # 간단한 트릭: 따옴표 사이의 실제 줄바꿈을 공백이나 \n으로 변경
+                # (주의: 이 regex는 단순해서 완벽하지 않을 수 있음)
+                return json.loads(s) 
+            except:
+                return None
+
+    # 전략 1: ```json ... ``` 또는 ``` ... ``` 추출
+    for pattern in [r"```json\s*(.*?)\s*```", r"```\s*(.*?)\s*```"]:
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            blob = match.group(1).strip()
+            res = try_parse(blob)
+            if res: return res
+            
+            # 파싱 실패 시: 마지막이 잘렸을 가능성 (Unterminated string)
+            # 뒤에서부터 하나씩 지워보며 시도 (최대 100자)
+            for i in range(1, 101):
+                if len(blob) <= i: break
+                try:
+                    # 잘린 문자열 닫기 시도: ", }, ] 등을 붙여봄
+                    for suffix in ['"', '"}', '"} ]', '}']:
+                        try: 
+                            return json.loads(blob[:-i] + suffix)
+                        except: continue
+                except: pass
+
+    # 전략 2: 마크다운 외부에서 { } 또는 [ ] 블록 찾기 (탐욕적 매칭)
+    # 여러 JSON이 섞여 있을 경우를 대비해 가장 큰 덩어리부터 시도
+    matches = list(re.finditer(r"({.*}|\[.*\])", text, re.DOTALL))
+    if matches:
+        # 가장 긴 매칭 결과부터 시도
+        matches.sort(key=lambda m: len(m.group(0)), reverse=True)
+        for m in matches:
+            blob = m.group(1).strip()
+            res = try_parse(blob)
+            if res: return res
+
+    # 전략 3: 최후의 수단 - 가장 첫 번째 '{' 부터 마지막 '}' 까지 그냥 시도
+    start = text.find('{')
+    if start == -1: start = text.find('[')
+    end = text.rfind('}')
+    if end == -1: end = text.rfind(']')
+    
+    if start != -1 and end != -1 and end > start:
+        blob = text[start:end+1]
+        res = try_parse(blob)
+        if res: return res
+        
+        # 여기서도 잘린 경우 대응
+        for i in range(1, 101):
+            if len(blob) <= i: break
+            for suffix in ['"', '"}', '"} ]', '}']:
+                try: 
+                    return json.loads(blob[:-i] + suffix)
+                except: continue
+
+    logger.error(f"JSON 파싱 최종 실패\n원본 텍스트: {text}")
+    return None
 
 @traceable(run_type="llm", name="LocalLLM Call")
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다."""
+    # 하위 호환성: 7B_1, 7B_2 등이 들어오면 기본 7B로 변환
+    if model_size in ["7B_1", "7B_2"]:
+        model_size = "7B"
+        
     url = LOCAL_LLM_SERVERS.get(model_size)
     if not url:
         raise ValueError(f"정의되지 않은 LLM 크기입니다: {model_size}")

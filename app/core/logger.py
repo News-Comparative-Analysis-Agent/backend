@@ -90,7 +90,9 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
     # 컬러가 적용된 헤더
     header_title = f"[ {node_name} ]"
     header = f"{color_tag}╔════════ {header_title:<15} ═══════════════════════════</>"
-    log_entry = f"\n{header}\n{color_tag}║</> {message}"
+    # Loguru의 colors=True 모드에서 < 문자가 태그로 오해받지 않도록 이스케이프 처리
+    safe_message = message.replace("<", "\<").replace(">", "\>")
+    log_entry = f"\n{header}\n{color_tag}║</> {safe_message}"
     
     # 토큰 사용량이 전달된 경우, 요약 및 합계를 계산하여 메시지에 포함합니다.
     if token_info:
@@ -103,8 +105,9 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
     if details:
         details_title = "상세 내용"
         log_entry += f"\n{color_tag}╠ {details_title:<45} </>\n"
-        # 여러 줄의 details를 보기 좋게 들여쓰기 처리
-        indented_details = "\n".join([f"{color_tag}║</> {line}" for line in details.split("\n")])
+        # 여러 줄의 details를 보기 좋게 들여쓰기 처리 (안의 <, > 도 이스케이프)
+        safe_details = details.replace("<", "\<").replace(">", "\>")
+        indented_details = "\n".join([f"{color_tag}║</> {line}" for line in safe_details.split("\n")])
         log_entry += f"{indented_details}"
         
     log_entry += f"\n{color_tag}╚════════════════════════════════════════════════════════</>\n"

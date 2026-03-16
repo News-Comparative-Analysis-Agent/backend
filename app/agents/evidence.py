@@ -66,13 +66,15 @@ class EvidenceAgent:
         [지시사항]
         1. "claim": 기사가 전달하려는 가장 핵심적인 주장 1문장.
         2. "evidence": 위 주장을 뒷받침하는 기사 내부의 '정확한 원문 인용구' (작성자가 지어내지 말 것).
-        3. "url": 제공된 기사 URL ({art['url']}).
-        4. "press": 제공된 언론사명 ({art['press']}).
+        3. "summary": 해당 기사 전체 내용을 1~2문장으로 간결하게 요약한 문장.
+        4. "url": 제공된 기사 URL ({art['url']}).
+        5. "press": 제공된 언론사명 ({art['press']}).
         
         [반환 형식 - 순수 JSON만]
         {{
             "claim": "핵심 주장 1문장",
             "evidence": "원문 인용(근거)",
+            "summary": "기사 전체 요약 1~2문장",
             "url": "{art['url']}",
             "press": "{art['press']}"
         }}
@@ -86,35 +88,33 @@ class EvidenceAgent:
                     "properties": {
                         "claim": {"type": "STRING"},
                         "evidence": {"type": "STRING"},
+                        "summary": {"type": "STRING"},
                         "url": {"type": "STRING"},
                         "press": {"type": "STRING"}
                     },
-                    "required": ["claim", "evidence", "url", "press"]
+                    "required": ["claim", "evidence", "summary", "url", "press"]
                 }
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
-                # Gemini 2.0 모델은 Structured Outputs를 통해 완벽한 JSON을 보장하므로 정규식 파서 불필요
                 card_data = json.loads(response.text)
-                # Gemini API는 토큰 정보를 직접 반환하지 않으므로 추정치 또는 0으로 설정
-                usage["prompt_tokens"] = len(prompt) // 4 # Rough estimate
-                usage["completion_tokens"] = len(response.text) // 4 # Rough estimate
+                usage["prompt_tokens"] = len(prompt) // 4
+                usage["completion_tokens"] = len(response.text) // 4
             else:
-                # call_llm은 (data, usage)를 반환함
-                card_data, usage = call_llm(prompt, "7B_1", state)
+                card_data, usage = call_llm(prompt, "7B", state)
             
             if card_data:
-                # 내부 식별용 매핑 (리스트 취합 후 메인 스레드에서 일괄 저장 용도)
+                # 내부 식별용 매핑
                 card_data['article_id'] = art['article_id'] 
                 return card_data, usage
         except Exception as e:
-            logger.error(f"주장 추출 실패 ({art['press']}): {e}")
+            logger.error(f"주장 및 요약 추출 실패 ({art['press']}): {e}")
             
         return None, usage
 
     @traceable(name="Agent 1: Evidence (주장 및 근거 추출) 🕵️‍♂️")
     def node_extract_claims(self, state: ComparisonState) -> dict:
         """
-        [Node] 병렬 처리를 통해 여러 기사에서 주장 카드(Claim Card)를 동시 추출합니다.
+        [Node] 병렬 처리를 통해 여러 기사에서 주장 카드(Claim Card)와 기사 요약을 동시 추출합니다.
         """
         articles = state.get("articles", [])
         issue_id = state.get("issue_id")
@@ -123,11 +123,9 @@ class EvidenceAgent:
         if not articles:
             return {"claim_cards": [], "messages": ["로드된 기사가 없습니다."]}
             
-        # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
-        # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
         workers = 5 if llm_mode == "gemini_only" else 2
         
-        msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 추출 시작 (Mode: {llm_mode}, Workers: {workers})"
+        msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 추출 및 요약 시작 (Mode: {llm_mode})"
         logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")
         log_llm_event("agent_evidence", msg_start)
         
@@ -139,30 +137,32 @@ class EvidenceAgent:
             for future in concurrent.futures.as_completed(futures):
                 card_data, usage = future.result()
                 
-                # 토큰 합산
                 node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
 
                 if card_data:
                     claim_cards.append(card_data)
                     
-        # 스레드가 모두 종료된 후 메인 스레드에서 일괄 데이터베이스 저장 (Thread-Safety 보장)
+        # DB 저장 및 기사 요약 업데이트
         saved_claims_count = 0
         try:
             for card in claim_cards:
                 try:
-                    # 딕셔너리에서 원본 press 정보를 가져오고, 없으면 fallback
-                    target_press = card.get('press', '알수없음')
+                    # 1. 주장 카드 저장
                     self.article_service.save_article_claim(
                         issue_id=issue_id,
                         article_id=card['article_id'],
-                        press=target_press,
+                        press=card.get('press', '알수없음'),
                         claim=card.get('claim', ''),
                         evidence=card.get('evidence', '')
                     )
+                    # 2. 개별 기사용 요약문 업데이트 (신규 추가)
+                    if card.get('summary'):
+                        self.repo.update_article_summary(card['article_id'], card['summary'])
+                        
                     saved_claims_count += 1
                 except Exception as e:
-                    logger.error(f"Claim 일괄 저장 중 DB 에러: {e}")
+                    logger.error(f"Claim/Summary 저장 중 DB 에러: {e}")
                 
             # 7. 기사 카드 로깅 강화
             if claim_cards:

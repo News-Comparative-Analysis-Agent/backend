@@ -157,7 +157,7 @@ class WriterAgent:
                 }
             else:
                 from app.agents.utils import call_llm
-                final_data, usage = call_llm(prompt, "7B_1", state)
+                final_data, usage = call_llm(prompt, "7B", state)
                 
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
