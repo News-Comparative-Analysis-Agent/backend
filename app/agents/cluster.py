@@ -80,8 +80,9 @@ class ClusterAgent:
                 
         return df.drop(index=list(duplicates)).copy()
 
-    def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, str]:
-        """이슈 그룹에 대해 제목과 배경 등을 생성"""
+    def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, str, dict]:
+        """이슈 그룹에 대해 제목과 배경 등을 생성. (title, desc, background, core, usage) 5-tuple 반환"""
+        empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
             prompt = f"""
             당신은 뉴스 요약 및 이슈 추출가입니다. 중요 배경 지식을 먼저 숙지하세요:
@@ -111,21 +112,20 @@ class ClusterAgent:
             
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
             parsed, usage = call_llm(prompt, "7B_1", state)
-            
-            # 토큰 업데이트
-            state["total_tokens"] = update_total_tokens(state, usage)
+            # ✅ state 직접 변이 제거 — usage만 반환하여 호출부에서 누적 처리
             
             if parsed:
                 return (
                     parsed.get("title", titles[0]), 
                     parsed.get("description", "이슈 요약 부재"),
                     parsed.get("background", "배경 정보 부재"),
-                    parsed.get("core_contentions", "주요 쟁점 부재")
+                    parsed.get("core_contentions", "주요 쟁점 부재"),
+                    usage
                 )
-            return titles[0], "요약 생성 실패", "배경 부재", "쟁점 부재"
+            return titles[0], "요약 생성 실패", "배경 부재", "쟁점 부재", empty_usage
         except Exception as e:
             logger.error(f"Issue LLM labeling failed: {e}")
-            return titles[0], "에러 발생", "배경 부재", "쟁점 부재"
+            return titles[0], "에러 발생", "배경 부재", "쟁점 부재", empty_usage
 
     # ==========================================
     # Graph Nodes
@@ -244,11 +244,16 @@ class ClusterAgent:
         saved_ids = []
         max_count = 0
         target_issue_id = None
+        # 노드 내 토큰 누적용 로컬 변수 (state 직접 변이 방지)
+        node_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
         try:
             for t in topics:
                 time.sleep(0.5)
-                ai_label, desc, bg, core = self._generate_issue_details_with_llm(t["titles"], state)
+                # ✅ 5-tuple로 usage까지 받아서 로컬에서 누적
+                ai_label, desc, bg, core, usage = self._generate_issue_details_with_llm(t["titles"], state)
+                node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
                 
                 issue = self.repo.save_issue_and_relations(
                     ai_label=ai_label,
@@ -270,13 +275,14 @@ class ClusterAgent:
             msg = f"이슈 {len(saved_ids)}개 저장 완료. 다음 분석 이슈 ID: {target_issue_id}"
             logger.info(f"[ClusterAgent:Save] {msg}")
             
-            # 다음 분석 단계를 위해 선택된 타겟의 상세 정보를 상태에 기록
+            # ✅ 토큰을 return dict에 포함하여 LangGraph 리듀서를 통해 정상 업데이트
+            total_tokens = update_total_tokens(state, node_usage)
             return {
                 "issue_id": target_issue_id, 
                 "saved_issue_count": len(saved_ids),
                 "description": target_description if 'target_description' in locals() else None,
                 "background": target_background if 'target_background' in locals() else None,
-                "total_tokens": state.get("total_tokens"),
+                "total_tokens": total_tokens,
                 "messages": [msg]
             }
         except Exception as e:

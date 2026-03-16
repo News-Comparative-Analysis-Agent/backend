@@ -29,9 +29,13 @@ class JudgeAgent:
         
         msg_start = f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})"
         logger.info(f"⚖️ [JudgeAgent] {msg_start}")
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 기사길이={len(edited_article)}, 쟁점수={len(structured_issues)}, 주장카드수={len(claim_cards)}")
         
-        if not edited_article or "오류가 발생" in edited_article:
+        # edited_article이 dict일 경우 len()이 key 개수를 반환하므로 문자열로 변환
+        article_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
+        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 기사길이={len(article_str)}, 쟁점수={len(structured_issues)}, 주장카드수={len(claim_cards)}")
+        
+        # 타입에 상관없이 오류 여부를 문자열로 판단
+        if not edited_article or "오류가 발생" in article_str:
             msg = "초안이 없어 검증 불가"
             logger.warning(f"⚖️ [JudgeAgent] {msg}")
             return {"judge_status": "FAIL_WRITER", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
