@@ -314,7 +314,7 @@ class ScoutAgent:
                     title=art['title'],
                     url=art['link'],
                     image_urls=image_list,
-                    published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(),
+                    published_at=art.get('pub_date') if art.get('pub_date') else (datetime.utcnow() + timedelta(hours=9)),
                     content=art['content'],
                     reporter=art.get('reporter')
                 )

@@ -1,8 +1,11 @@
 import sys
 import os
 
-# 현재 경로를 sys.path에 추가하여 app 모듈을 불러올 수 있도록 설정
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 현재 파일(test.py)의 위치에서 3단계 위로 올라가면 backend 폴더입니다.
+# app 폴더가 들어있는 backend 경로를 sys.path에 추가해야 'from app...'이 작동합니다.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
+sys.path.append(backend_dir)
 
 from app.core.database import SessionLocal
 from app.domains.articles.models import Article, ArticleBody, ArticleClaim
