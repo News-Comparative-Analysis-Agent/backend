@@ -54,23 +54,26 @@ class JudgeAgent:
         4. draft_professionalism (기사 전문성): 문장이 지나치게 반복되지 않고 신문 기사다운 톤을 갖췄는가? (톤불량 시 RETRY_FROM_EDITOR)
         
         모든 기준을 완벽히 통과하면 action을 "PROCEED", 내용 보강 필요 시 "RETRY_FROM_WRITER", 단순 문장 다듬기 필요 시 "RETRY_FROM_EDITOR"로 설정하십시오.
-        status는 "PASS" 또는 "FAIL"로 설정합니다.
+        [출력 규칙]
+        1. status는 "PASS" 또는 "FAIL"로만 설정합니다. (action이 PROCEED면 PASS)
+        2. 통과(PASS)인 경우, feedback의 rejection_reason과 redo_instruction은 반드시 "" (빈 문자열)로 비워두십시오. 길게 쓰지 마십시오.
+        3. 반환값은 순수 JSON 형식이어야 하며 주석이나 마크다운 백틱을 포함하지 마십시오.
         
-        [반환 형식 - 순수 JSON만]
+        [반환 형식 예시 (엄격히 지킬 것)]
         {{
-            "status": "PASS", // 또는 FAIL
-            "total_score": 92, // 0~100점 전체 품질 평가
+            "status": "PASS",
+            "total_score": 92,
             "metrics": {{
                 "claims_utilization": 95,
                 "media_diversity": 90,
                 "factual_accuracy": 94,
                 "draft_professionalism": 90
             }},
-            "action": "PROCEED", // 또는 "RETRY_FROM_WRITER", "RETRY_FROM_EDITOR"
+            "action": "PROCEED",
             "feedback": {{
-                "summary": "총평 작성",
-                "rejection_reason": "반려 사유 (통과 시 빈 문자열)",
-                "redo_instruction": "재작성 지시 (통과 시 빈 문자열)"
+                "summary": "종합 평가 한 줄",
+                "rejection_reason": "",
+                "redo_instruction": ""
             }}
         }}
         """

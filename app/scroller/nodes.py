@@ -47,10 +47,10 @@ DAYS_TO_CRAWL = 4
 # 온프레미스 LLM 서버 설정 (OpenAI 호환 API 구조)
 LOCAL_LLM_SERVERS = {
     # 기사 요약 및 정치 성향 판단 모델 
-    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_1')}/{env.get('LLM_SERVER_API_URI')}",
-
+    # 램 16GB에 두개를 올리기엔 용량부족으로 인해 7B 하나만 우선 사용
+    "7B_1":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_1')}/{env.get('LLM_SERVER_API_URI')}"
     # 비평기사 작성 모델
-    "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_2')}/{env.get('LLM_SERVER_API_URI')}",
+    # "7B_2":   f"http://{env.get('LLM_SERVER_IP')}:{env.get('PORT_7B_2')}/{env.get('LLM_SERVER_API_URI')}",
 }
 
 class ScrollerNodes:
@@ -364,7 +364,7 @@ class ScrollerNodes:
                 response = gen_model.generate_content(prompt)
                 final_text = response.text
             else:
-                final_text = self._call_local_llm("7B_2", prompt)
+                final_text = self._call_local_llm("7B_1", prompt)
                 
             log_llm_event("agent_analyzer", "비평 보고서 생성 완료")
             return {"final_analysis": final_text, "messages": ["비교 비평 보고서 생성 완료"]}

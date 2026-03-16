@@ -6,6 +6,7 @@ from app.domains.articles.models import Article, ArticleBody
 from app.domains.publishers.models import Publisher
 from app.domains.issues.models import IssueLabel
 from app.domains.system.models import SystemSettings
+from app.core.logger import logger
 
 class ScrollerRepository:
     """
@@ -259,7 +260,9 @@ class ScrollerRepository:
         if issue:
             issue.pre_generated_draft = draft_text
             self.db.flush()
+            logger.info(f"✅ [ScrollerRepository] 이슈 ID {issue_id}에 초안 저장 완료 (길이: {len(draft_text)}). flush() 호출됨.")
             return True
+        logger.error(f"❌ [ScrollerRepository] 이슈 ID {issue_id}를 찾을 수 없어 초안을 저장하지 못했습니다.")
         return False
 
     def update_issue_analysis_results(self, issue_id: int, 

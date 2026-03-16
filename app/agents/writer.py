@@ -142,6 +142,9 @@ class WriterAgent:
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
                 
+                # 생성된 초안을 로그에 출력하도록 추가
+                log_llm_event("agent_writer", "Response received", details=response.text)
+                
                 try:
                     final_data = json.loads(response.text)
                 except:
@@ -154,7 +157,7 @@ class WriterAgent:
                 }
             else:
                 from app.agents.utils import call_llm
-                final_data, usage = call_llm(prompt, "7B_2", state)
+                final_data, usage = call_llm(prompt, "7B_1", state)
                 
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
