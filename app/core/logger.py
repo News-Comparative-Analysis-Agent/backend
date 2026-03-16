@@ -54,6 +54,12 @@ logger.add(
     enqueue=True
 )
 
+def _escape_log_message(msg: str) -> str:
+    """Loguru의 opt(colors=True)에서 < 문자를 태그로 오해하지 않도록 이스케이프 처리합니다."""
+    if not msg:
+        return msg
+    return msg.replace("<", "\\<")
+
 # ==========================================
 # 3. LLM 통신 및 작업 로그 헬퍼
 # ==========================================
@@ -90,7 +96,10 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
     # 컬러가 적용된 헤더
     header_title = f"[ {node_name} ]"
     header = f"{color_tag}╔════════ {header_title:<15} ═══════════════════════════</>"
-    log_entry = f"\n{header}\n{color_tag}║</> {message}"
+    
+    # 메시지 및 상세 내용 이스케이프 처리
+    escaped_message = _escape_log_message(message)
+    log_entry = f"\n{header}\n{color_tag}║</> {escaped_message}"
     
     # 토큰 사용량이 전달된 경우, 요약 및 합계를 계산하여 메시지에 포함합니다.
     if token_info:
@@ -104,7 +113,8 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
         details_title = "상세 내용"
         log_entry += f"\n{color_tag}╠ {details_title:<45} </>\n"
         # 여러 줄의 details를 보기 좋게 들여쓰기 처리
-        indented_details = "\n".join([f"{color_tag}║</> {line}" for line in details.split("\n")])
+        escaped_details = _escape_log_message(details)
+        indented_details = "\n".join([f"{color_tag}║</> {line}" for line in escaped_details.split("\n")])
         log_entry += f"{indented_details}"
         
     log_entry += f"\n{color_tag}╚════════════════════════════════════════════════════════</>\n"
