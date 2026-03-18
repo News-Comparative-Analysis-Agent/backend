@@ -34,8 +34,6 @@ class ImageItem(BaseModel):
 # ==========================================
 # Final Review (최종 검토) 관련 Schema
 # ==========================================
-class FinalReviewRequest(BaseModel):
-    issue_id: int
 
 class GuidelineCheck(BaseModel):
     label: str

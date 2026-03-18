@@ -123,7 +123,9 @@ class EvidenceAgent:
         if not articles:
             return {"claim_cards": [], "messages": ["로드된 기사가 없습니다."]}
             
-        workers = 5 if llm_mode == "gemini_only" else 2
+        # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
+        # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
+        workers = 5 if llm_mode == "gemini_only" else 3 # TODO 몇개까지 버티는지 테스트 진행예정
         
         msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 추출 및 요약 시작 (Mode: {llm_mode})"
         logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")

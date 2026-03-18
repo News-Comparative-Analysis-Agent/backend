@@ -4,7 +4,11 @@ import time
 from typing import List, Optional
 from difflib import SequenceMatcher
 
+<<<<<<< HEAD
 from google import genai
+=======
+import google.generativeai as genai
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,6 +24,7 @@ from app.domains.drafts.schemas import (
 )
 from app.core.logger import logger
 
+<<<<<<< HEAD
 # Gemini 초기 설정 (신규 SDK 방식)
 _draft_genai_client = None
 
@@ -30,6 +35,15 @@ def get_draft_genai_client():
         if api_key:
             _draft_genai_client = genai.Client(api_key=api_key)
     return _draft_genai_client
+=======
+# Gemini 초기 설정
+google_api_key = os.getenv("GOOGLE_API_KEY")
+if google_api_key:
+    genai.configure(api_key=google_api_key)
+    model = genai.GenerativeModel('gemini-2.0-flash')
+else:
+    model = None
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
 
 # 관점 분석용 매핑 단어 딕셔너리
 PUBLISHER_STANCE = {
@@ -70,6 +84,7 @@ class DraftService:
                     time.sleep(0.05) # 약간의 딜레이로 스트리밍 느낌
                 return
 
+<<<<<<< HEAD
             client = get_draft_genai_client()
             if not client:
                 yield f"data: {json.dumps({'text': 'Gemini Client not initialized'}, ensure_ascii=False)}\n\n"
@@ -80,6 +95,10 @@ class DraftService:
                 contents=prompt,
                 config={'stream': True}
             ):
+=======
+            response = model.generate_content(prompt, stream=True)
+            for chunk in response:
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
                 if chunk.text:
                     text_chunk = chunk.text
                     data = json.dumps({"text": text_chunk}, ensure_ascii=False)
@@ -148,8 +167,12 @@ class DraftService:
     # 2. AI 챗봇 (초안 첨삭) 로직
     # ==========================================
     def chat_with_ai(self, request: ChatRequest) -> ChatResponse:
+<<<<<<< HEAD
         client = get_draft_genai_client()
         if not client:
+=======
+        if not model:
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
             raise HTTPException(status_code=500, detail="Google Gemini API Key is not configured.")
 
         try:
@@ -175,10 +198,16 @@ class DraftService:
                 last_user_input = request.messages[-1].content
                 full_prompt = context_message + f"[사용자 질문]\n{last_user_input}"
                 
+<<<<<<< HEAD
                 response = client.models.generate_content(
                     model='gemini-2.0-flash',
                     contents=full_prompt,
                     config={"response_mime_type": "application/json"}
+=======
+                response = model.generate_content(
+                    full_prompt,
+                    generation_config={"response_mime_type": "application/json"}
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
                 )
                 
                 try:
@@ -279,6 +308,7 @@ class DraftService:
         - 분량은 100자 내외.
         """
         try:
+<<<<<<< HEAD
             client = get_draft_genai_client()
             if not client:
                 return "Gemini Client not initialized"
@@ -286,6 +316,9 @@ class DraftService:
                 model='gemini-2.0-flash',
                 contents=prompt
             )
+=======
+            response = model.generate_content(prompt)
+>>>>>>> 4cd55e36ddc4677d4e4797c7fa8d71b29783b9a2
             return response.text.strip()
         except Exception as e:
             return f"분석 중 오류 발생: {str(e)}"
