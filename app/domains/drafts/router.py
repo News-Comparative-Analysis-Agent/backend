@@ -6,7 +6,8 @@ from app.core.database import get_db
 from app.domains.drafts.schemas import (
     StreamDraftRequest, ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
-    PerspectivesResponse, SaveDraftRequest
+    PerspectivesResponse, SaveDraftRequest,
+    FinalReviewRequest, FinalReviewResponse
 )
 from app.domains.drafts.service import DraftService
 
@@ -77,3 +78,16 @@ async def save_draft_to_workspace_api(
     
     # SaveDraftResponse 스키마 리턴 대신 임시 딕셔너리 또는 스키마 매핑
     return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "draft_id": new_draft_id}
+
+# 7. 최종 품질 검토 API
+@router.post("/final-review", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")
+async def final_review_api(request: FinalReviewRequest, db: Session = Depends(get_db)):
+    """
+    사용자가 수정한 최종 기사(user_content)를 AI가 검토하여 품질 리포트를 반환합니다. (LangGraph 기반)
+    
+    - **reliability**: 원본 기사 대비 유사도 점수 + 소스 기사 3건
+    - **guideline_checks**: 차별 표현, 자극적 형용사, 낙인화 표현, 미확인 사실 등 4가지 가이드라인 검증
+    - **ai_opinion**: AI 에이전트의 최종 종합 의견
+    """
+    service = DraftService(db)
+    return await service.run_final_review(request)

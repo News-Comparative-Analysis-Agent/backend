@@ -186,3 +186,32 @@ def create_comparison_graph(db: Session):
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)
 
+
+@log_execution_time("review_pipeline")
+def create_review_graph(db: Session):
+    """
+    최종 품질 검토 파이프라인 그래프 (LangGraph) 생성
+    [Chain: Fetch -> Reliability -> Analysis]
+    """
+    from app.agents.state import ReviewState
+    from app.agents.review import ReviewAgent
+    
+    agent = ReviewAgent(db)
+    
+    # 1. 상태(State) 정의와 함께 그래프 초기화
+    workflow = StateGraph(ReviewState)
+    
+    # 노드 등록
+    workflow.add_node("fetch", agent.node_fetch_articles)
+    workflow.add_node("reliability", agent.node_calculate_reliability)
+    workflow.add_node("analyze", agent.node_analyze_and_opine)
+    
+    # 순차적 엣지 정의
+    workflow.add_edge(START, "fetch")
+    workflow.add_edge("fetch", "reliability")
+    workflow.add_edge("reliability", "analyze")
+    workflow.add_edge("analyze", END)
+    
+    # 체크포인터 없이 컴파일 (실시간 요청-응답형)
+    return workflow.compile()
+

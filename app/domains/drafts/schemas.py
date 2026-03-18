@@ -32,6 +32,33 @@ class ImageItem(BaseModel):
     published_at: str
 
 # ==========================================
+# Final Review (최종 검토) 관련 Schema
+# ==========================================
+class FinalReviewRequest(BaseModel):
+    issue_id: int
+
+class GuidelineCheck(BaseModel):
+    label: str
+    passed: bool
+    detail: str
+
+class ArticleSourceItem(BaseModel):
+    title: str
+    publisher: str
+    url: str
+    published_at: str
+
+class ReliabilityAnalysis(BaseModel):
+    score: int
+    risk_level: str
+    sources: List[ArticleSourceItem]
+
+class FinalReviewResponse(BaseModel):
+    reliability: ReliabilityAnalysis
+    guideline_checks: List[GuidelineCheck]
+    ai_opinion: str
+
+# ==========================================
 # Similarity (표절 검사) 관련 Schema
 # ==========================================
 class SimilarityRequest(BaseModel):

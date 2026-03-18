@@ -14,7 +14,9 @@ from app.domains.drafts.schemas import (
     ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
-    SaveDraftRequest
+    SaveDraftRequest,
+    FinalReviewRequest, FinalReviewResponse,
+    GuidelineCheck, ArticleSourceItem, ReliabilityAnalysis
 )
 from app.core.logger import logger
 
@@ -367,3 +369,60 @@ class DraftService:
         self.repo.db.refresh(new_draft)
         
         return new_draft.id
+
+    # ==========================================
+    # 7. 최종 품질 검토 로직 (Final Review) - LangGraph 적용
+    # ==========================================
+    async def run_final_review(self, request: FinalReviewRequest) -> FinalReviewResponse:
+        """
+        사용자 수정본을 기반으로 최종 품질 검토 리포트를 생성합니다. (LangGraph Flow)
+        """
+        from app.scroller.graph import create_review_graph
+        from app.scroller.repository import ScrollerRepository
+        
+        issue_id = request.issue_id
+
+        # 1. 시스템 설정에서 LLM 모드 가져오기
+        scroller_repo = ScrollerRepository(self.repo.db)
+        settings = scroller_repo.get_system_settings()
+        llm_mode = settings.llm_mode if settings else "gemini_only"
+
+        # 2. 그래프 생성 및 실행
+        app = create_review_graph(self.repo.db)
+        
+        initial_state = {
+            "issue_id": issue_id,
+            "llm_mode": llm_mode,
+            "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0},
+            "messages": []
+        }
+
+        try:
+            # LangGraph 실행
+            final_state = await app.ainvoke(initial_state)
+
+            if "error" in final_state and final_state["error"]:
+                raise HTTPException(status_code=500, detail=final_state["error"])
+
+            # 3. 결과 리포트 조립
+            reliability = ReliabilityAnalysis(
+                score=final_state.get("reliability_score", 0),
+                risk_level=final_state.get("risk_level", "안전"),
+                sources=[
+                    ArticleSourceItem(**src) for src in final_state.get("top_sources", [])
+                ]
+            )
+
+            guideline_checks = [
+                GuidelineCheck(**check) for check in final_state.get("guideline_checks", [])
+            ]
+
+            return FinalReviewResponse(
+                reliability=reliability,
+                guideline_checks=guideline_checks,
+                ai_opinion=final_state.get("ai_opinion", "의견을 생성할 수 없습니다.")
+            )
+
+        except Exception as e:
+            logger.error(f"❌ [FinalReview Graph] 실행 중 오류: {e}")
+            raise HTTPException(status_code=500, detail=f"품질 검토 중 오류가 발생했습니다: {str(e)}")
