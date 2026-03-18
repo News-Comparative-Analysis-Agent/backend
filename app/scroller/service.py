@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from collections import Counter
-from google import genai
+import google.generativeai as genai
 from sqlalchemy.orm import Session
 
 from app.scroller.repository import ScrollerRepository

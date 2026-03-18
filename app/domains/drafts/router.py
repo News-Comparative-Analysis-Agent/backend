@@ -7,7 +7,7 @@ from app.domains.drafts.schemas import (
     StreamDraftRequest, ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
     PerspectivesResponse, SaveDraftRequest,
-    FinalReviewRequest, FinalReviewResponse
+    FinalReviewResponse
 )
 from app.domains.drafts.service import DraftService
 

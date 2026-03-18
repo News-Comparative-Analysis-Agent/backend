@@ -15,7 +15,7 @@ from app.domains.drafts.schemas import (
     SimilarityRequest, SimilarityResponse,
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
     SaveDraftRequest,
-    FinalReviewRequest, FinalReviewResponse,
+    FinalReviewResponse,
     GuidelineCheck, ArticleSourceItem, ReliabilityAnalysis
 )
 from app.core.logger import logger
@@ -373,14 +373,12 @@ class DraftService:
     # ==========================================
     # 7. 최종 품질 검토 로직 (Final Review) - LangGraph 적용
     # ==========================================
-    async def run_final_review(self, request: FinalReviewRequest) -> FinalReviewResponse:
+    async def run_final_review(self, issue_id: int) -> FinalReviewResponse:
         """
         사용자 수정본을 기반으로 최종 품질 검토 리포트를 생성합니다. (LangGraph Flow)
         """
         from app.scroller.graph import create_review_graph
         from app.scroller.repository import ScrollerRepository
-        
-        issue_id = request.issue_id
 
         # 1. 시스템 설정에서 LLM 모드 가져오기
         scroller_repo = ScrollerRepository(self.repo.db)
