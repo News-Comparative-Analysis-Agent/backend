@@ -362,10 +362,6 @@ class DraftService:
         from app.scroller.repository import ScrollerRepository
         
         issue_id = request.issue_id
-        user_content = request.user_content.strip()
-
-        if not user_content:
-            raise HTTPException(status_code=400, detail="user_content가 비어 있습니다.")
 
         # 1. 시스템 설정에서 LLM 모드 가져오기
         scroller_repo = ScrollerRepository(self.repo.db)
@@ -377,7 +373,6 @@ class DraftService:
         
         initial_state = {
             "issue_id": issue_id,
-            "user_content": user_content,
             "llm_mode": llm_mode,
             "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0},
             "messages": []

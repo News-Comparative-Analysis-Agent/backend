@@ -50,8 +50,9 @@ class ReviewAgent:
             return {
                 "issue_name": issue.name,
                 "issue_description": issue.description or "",
+                "user_content": issue.pre_generated_draft or "", # DB에서 초안 가져오기
                 "articles_meta": articles_meta,
-                "messages": [f"기사 {len(articles_meta)}건 로드 완료"]
+                "messages": [f"기사 {len(articles_meta)}건 및 DB 초안 로드 완료"]
             }
 
         except Exception as e:
