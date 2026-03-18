@@ -13,15 +13,11 @@ from app.core.database import SessionLocal
 from app.domains.issues.models import IssueLabel
 # SQLAlchemy 관계 매핑시 참조할 Article 모델 또한 명시적으로 import 해줍니다.
 from app.domains.articles.models import Article 
-import google.generativeai as genai
-from app.core.logger import logger, log_llm_event
+from google import genai
 
-# Gemini API 설정 (langgraph에서는 node를 통해 호출하지만, 여기서는 독립 스크립트로 직접 호출)
+# Gemini API 설정
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-else:
-    logger.error("❌ GOOGLE_API_KEY가 설정되지 않았습니다.")
+client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
 
 def generate_draft_for_issue(issue: IssueLabel) -> str:
     """
@@ -44,9 +40,16 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
 길이는 약 600~800자 내외로 작성해주세요.
 """
     try:
+        from app.core.logger import log_llm_event
         log_llm_event("DraftGen", f"Generating draft for issue: {issue.name}", details=prompt)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
+        
+        if not client:
+            return "Gemini Client not initialized"
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
         log_llm_event("DraftGen", f"Response received for issue: {issue.name}", details=response.text)
         return response.text.strip()
     except Exception as e:

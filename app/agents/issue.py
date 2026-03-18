@@ -87,10 +87,10 @@ class IssueAgent:
                 from app.agents.utils import call_gemini
                 structured_data, usage = call_gemini(prompt)
             else:
-                structured_data, usage = call_llm(prompt, "7B_1", state)
+                structured_data, usage = call_llm(prompt, "7B", state)
             
             # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage)
+            total_tokens = update_total_tokens(state, usage, "IssueAgent")
             
             if not structured_data:
                 structured_data = []

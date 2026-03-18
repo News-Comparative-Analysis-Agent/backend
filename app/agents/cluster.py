@@ -158,6 +158,7 @@ class ClusterAgent:
         """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
         log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
         articles = state.get("unclustered_articles", [])
+        logger.info(f" [ClusterAgent:Cluster] 현재 State 키 목록: {list(state.keys())}")
         logger.info(f" [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
         
         if len(articles) < 2:
@@ -264,24 +265,16 @@ class ClusterAgent:
                     core_contentions=core
                 )
                 saved_ids.append(issue.id)
-                # 가장 기사가 많은 이슈를 다음 분석 타겟으로 선정
-                if t["count"] > max_count:
-                    max_count = t["count"]
-                    target_issue_id = issue.id
-                    target_description = desc
-                    target_background = bg
             
             self.db.commit()
-            msg = f"이슈 {len(saved_ids)}개 저장 완료. 다음 분석 이슈 ID: {target_issue_id}"
+            msg = f"이슈 {len(saved_ids)}개 저장 완료 및 모든 이슈 분석 대기 중."
             logger.info(f"[ClusterAgent:Save] {msg}")
             
             # ✅ 토큰을 return dict에 포함하여 LangGraph 리듀서를 통해 정상 업데이트
-            total_tokens = update_total_tokens(state, node_usage)
+            total_tokens = update_total_tokens(state, node_usage, "ClusterAgent")
             return {
-                "issue_id": target_issue_id, 
+                "all_issue_ids": saved_ids, 
                 "saved_issue_count": len(saved_ids),
-                "description": target_description if 'target_description' in locals() else None,
-                "background": target_background if 'target_background' in locals() else None,
                 "total_tokens": total_tokens,
                 "messages": [msg]
             }

@@ -157,10 +157,10 @@ class WriterAgent:
                 }
             else:
                 from app.agents.utils import call_llm
-                final_data, usage = call_llm(prompt, "7B_1", state)
+                final_data, usage = call_llm(prompt, "7B", state)
                 
             # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage)
+            total_tokens = update_total_tokens(state, usage, "WriterAgent")
 
             msg = "비평 보고서 개요(Outline JSON) 생성 완료"
             log_llm_event("agent_writer", msg)

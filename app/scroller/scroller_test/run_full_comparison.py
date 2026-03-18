@@ -69,17 +69,12 @@ def run_full_pipeline():
         if final_state.get("error"):
             logger.error(f"❌ 중단 원인: {final_state['error']}")
         else:
-            final_issue_id = final_state.get("issue_id")
-            final_article = final_state.get("edited_article", "")
-            
-            if final_article and "오류가 발생" not in final_article:
-                logger.success(f"✅ 최종 비평 기사 생성 성공! (이슈 ID: {final_issue_id})")
-                print("\n" + "="*50)
-                print("--- FINAL ARTICLE ---")
-                print(final_article)
-                print("="*50 + "\n")
+            issue_ids = final_state.get("all_issue_ids", [])
+            if issue_ids:
+                logger.success(f"✅ 총 {len(issue_ids)}개 이슈의 병렬 분석 및 기사 생성이 성공적으로 완료되었습니다! (Issue IDs: {issue_ids})")
+                logger.info("생성된 초안 및 분석 결과는 DB의 IssueLabel 테이블에서 확인할 수 있습니다.")
             else:
-                logger.warning("⚠️  분석까지 진행되었으나 최종 기사 생성에는 실패했거나 분석 대상 이슈를 찾지 못했습니다.")
+                logger.warning("⚠️ 파이프라인이 정상 종료되었으나, 분석 대상 이슈를 찾지 못했거나 처리되지 않았습니다.")
 
     except Exception as e:
         logger.critical(f"💥 파이프라인 실행 중 치명적 오류 발생: {e}")

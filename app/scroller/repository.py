@@ -265,6 +265,17 @@ class ScrollerRepository:
         logger.error(f"❌ [ScrollerRepository] 이슈 ID {issue_id}를 찾을 수 없어 초안을 저장하지 못했습니다.")
         return False
 
+    def update_article_summary(self, article_id: int, summary: str):
+        """
+        개별 기사의 AI 요약 필드를 업데이트합니다.
+        """
+        article = self.db.query(Article).filter(Article.id == article_id).first()
+        if article:
+            article.summary = summary
+            self.db.flush()
+            return True
+        return False
+
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
                                      background: str = None):
