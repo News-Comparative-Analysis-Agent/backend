@@ -90,7 +90,7 @@ class IssueAgent:
                 structured_data, usage = call_llm(prompt, "7B", state)
             
             # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage)
+            total_tokens = update_total_tokens(state, usage, "IssueAgent")
             
             if not structured_data:
                 structured_data = []

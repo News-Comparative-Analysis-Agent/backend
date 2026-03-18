@@ -181,6 +181,6 @@ class EvidenceAgent:
             logger.error(f"🔍 [EvidenceAgent:Extract] {msg}")
         
         # 전체 상태 업데이트
-        total_tokens = update_total_tokens(state, node_usage)
+        total_tokens = update_total_tokens(state, node_usage, "EvidenceAgent")
         
         return {"claim_cards": claim_cards, "messages": [msg], "total_tokens": total_tokens}

@@ -24,45 +24,63 @@ class ClusterState(TypedDict):
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                 # 에러 발생 시 에러 메시지 저장
 
+def merge_tokens(left: Dict[str, int], right: Dict[str, int]) -> Dict[str, int]:
+    """병럴 브랜치의 토큰 사용량을 합산하기 위한 리듀서"""
+    if not left: return right
+    if not right: return left
+    return {
+        "prompt_tokens": left.get("prompt_tokens", 0) + right.get("prompt_tokens", 0),
+        "completion_tokens": left.get("completion_tokens", 0) + right.get("completion_tokens", 0)
+    }
+
+class OverallState(TypedDict):
+    """
+    통합 파이프라인 최상위 전역 상태 (Map-Reduce의 Reduce 단계용)
+    - Subgraph에서 병렬로 상태가 반환될 때 Concurrent Update 에러를 막기 위해
+      단일 값들은 operator.replace 등을 사용하여 덮어쓰도록 처리합니다.
+    """
+    llm_mode: str
+    issue_id: int                             # (Optional)
+    all_issue_ids: List[int]
+    
+    # 공통 데이터
+    raw_articles: List[Dict[str, Any]]
+    unclustered_articles: List[Dict[str, Any]]
+    clustered_topics: List[Dict[str, Any]]
+    
+    # 집계 데이터 (Reducer 적용)
+    total_tokens: Annotated[Dict[str, int], merge_tokens]
+    messages: Annotated[List[str], operator.add]
+    error: str
+
 class ComparisonState(TypedDict):
     """
-    5단계 멀티 에이전트 하이브리드 파이프라인 전역 상태 데이터 
-    (Evidence ➡️ Issue ➡️ Writer ➡️ Editor ➡️ Judge)
+    개별 이슈 분석 브랜치 전용 상태 (Isolated State)
     """
-    llm_mode: str                             # "gemini_only", "local_priority", "local_only"
-    issue_id: int                             # 분석 대상 이슈 ID
+    llm_mode: str
+    issue_id: int
     
-    # 통합 파이프라인 중간 단계 데이터
-    raw_articles: List[Dict[str, Any]]        # 크롤링된 기사 리스트
-    unclustered_articles: List[Dict[str, Any]] # 이슈 미배정 기사 리스트
-    clustered_topics: List[Dict[str, Any]]     # 군집화된 토픽 상세 리스트
+    # 브랜치 내부 데이터 (Conflict 방지를 위해 OverallState와 겹치지 않게 관리하거나 Reducer 미지정)
+    raw_articles: List[Dict[str, Any]]
+    unclustered_articles: List[Dict[str, Any]]
+    clustered_topics: List[Dict[str, Any]]
     
-    articles: List[Dict[str, Any]]            # 최종 분석 대상 이슈에 속한 기사 리스트
+    articles: List[Dict[str, Any]]
+    claim_cards: List[Dict[str, Any]]
+    structured_issues: List[Dict[str, Any]]
+    draft_article: Dict[str, Any]
+    edited_article: Dict[str, Any]
+    edit_log: str
     
-    # 1. Evidence Agent 출력
-    claim_cards: List[Dict[str, Any]]         # 매체별 주장 카드 (주장 1문장, 원문 인용 근거, 기사 URL/매체)
-    
-    # 2. Issue Agent 출력
-    structured_issues: List[Dict[str, Any]]   # 구조화된 쟁점 리스트 (쟁점 제목, 매체별 차이, 근거 claim_id)
-    
-    # 3. Writer Agent 출력
-    draft_article: Dict[str, Any]             # 비평 기사 초안 (JSON Outline)
-    
-    # 4. Editor Agent 출력
-    edited_article: Dict[str, Any]            # 수정/톤 정제된 비평 기사 (JSON)
-    edit_log: str                             # 에디터 수정 로그
-    
-    # 5. Judge Agent 출력 및 라우팅 상태
-    judge_status: str                         # "PASS", "FAIL_WRITER", "FAIL_EDITOR"
-    judge_feedback: str                       # 재판관의 피드백 코멘트
-    retry_count: int                          # 현재 루프 재시도 횟수
-    
-    messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
-    error: str                                 # 에러 발생 시 에러 메시지 저장
+    judge_status: str
+    judge_feedback: str
+    retry_count: int
     
     # 이슈 메타데이터
-    description: str                           # 이슈 요약 설명
-    background: str                            # 이슈 배경 정보
-    
-    # 토큰 사용량 추적
-    total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}
+    description: str
+    background: str
+
+    # 브랜치 토큰/메시지 (상위로 머지됨)
+    total_tokens: Annotated[Dict[str, int], merge_tokens]
+    messages: Annotated[List[str], operator.add]
+    error: str

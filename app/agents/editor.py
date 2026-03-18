@@ -143,7 +143,7 @@ class EditorAgent:
                 final_data, usage = call_llm(prompt, "7B", state)
             
             # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage)
+            total_tokens = update_total_tokens(state, usage, "EditorAgent")
 
             if isinstance(final_data, dict):
                 edit_log = final_data.get("edit_log", "에디팅 로그 누락")

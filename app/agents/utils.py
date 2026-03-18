@@ -4,7 +4,7 @@ import re
 import time
 import functools
 import requests
-import google.generativeai as genai
+from google import genai
 from langsmith import traceable
 from app.core.logger import logger, log_llm_event
 
@@ -23,85 +23,85 @@ LOCAL_LLM_SERVERS = {
     "7B": f"http://{LLM_SERVER_IP}:{PORT_7B}/{API_PATH}",
 }
 
-def parse_llm_json(text: str) -> dict:
+def parse_llm_json(text: str) -> any:
     """
     LLM의 응답 텍스트에서 JSON 블록을 찾아 파싱합니다.
-    매우 탄력적으로 동작하도록 다중 전략을 사용합니다.
+    다중 시작점 탐색 및 부분 복구(force-close)를 통해 매우 높은 복구율을 가집니다.
     """
-    if not text:
-        return None
-        
-    text = text.strip()
+    if not text: return None
     
-    def try_parse(s: str) -> dict:
+    def force_close_json(s: str) -> any:
+        s = s.strip()
+        # 끝부분에서부터 잘린 지점을 찾아 닫는 괄호들을 조합하여 시도
+        # 최대 1000자까지 뒤로 가며 시도 (이전 300자에서 확장)
+        for i in range(len(s), max(0, len(s)-1000), -1):
+            sub = s[:i]
+            # 다양한 닫는 패턴 시도
+            for suffix in ['"', '"}', '"]', '}', ']', '"}]', '"}]}', '"}]} ]']:
+                try:
+                    return json.loads(sub + suffix)
+                except:
+                    continue
+        return None
+
+    def try_parse(s: str) -> any:
         try:
             return json.loads(s)
         except json.JSONDecodeError:
-            # 제어 문자(특히 줄바꿈)가 문자열 안에 그대로 들어간 경우 처리
-            # JSON 표준은 문자열 내 실제 줄바꿈을 허용하지 않음 (\n 형태여야 함)
-            s_cleaned = re.sub(r'\n', '\\\\n', s)
-            # 하지만 위 처리는 모든 줄바꿈을 바꾸므로 JSON 구조 자체가 깨짐.
-            # 좀 더 정밀하게: 문자열 값 내부의 줄바꿈만 처리해야 하지만 복잡함.
-            # 대신 간단한 '문자열 내 실제 개행'만 타겟팅 시도 (비표준 처리)
-            try:
-                # 간단한 트릭: 따옴표 사이의 실제 줄바꿈을 공백이나 \n으로 변경
-                # (주의: 이 regex는 단순해서 완벽하지 않을 수 있음)
-                return json.loads(s) 
-            except:
-                return None
+            return force_close_json(s)
 
-    # 전략 1: ```json ... ``` 또는 ``` ... ``` 추출
+    # 1. 마크다운 코드 블록 우선 처리
     for pattern in [r"```json\s*(.*?)\s*```", r"```\s*(.*?)\s*```"]:
         match = re.search(pattern, text, re.DOTALL)
         if match:
             blob = match.group(1).strip()
             res = try_parse(blob)
             if res: return res
-            
-            # 파싱 실패 시: 마지막이 잘렸을 가능성 (Unterminated string)
-            # 뒤에서부터 하나씩 지워보며 시도 (최대 100자)
-            for i in range(1, 101):
-                if len(blob) <= i: break
-                try:
-                    # 잘린 문자열 닫기 시도: ", }, ] 등을 붙여봄
-                    for suffix in ['"', '"}', '"} ]', '}']:
-                        try: 
-                            return json.loads(blob[:-i] + suffix)
-                        except: continue
-                except: pass
 
-    # 전략 2: 마크다운 외부에서 { } 또는 [ ] 블록 찾기 (탐욕적 매칭)
-    # 여러 JSON이 섞여 있을 경우를 대비해 가장 큰 덩어리부터 시도
-    matches = list(re.finditer(r"({.*}|\[.*\])", text, re.DOTALL))
-    if matches:
-        # 가장 긴 매칭 결과부터 시도
-        matches.sort(key=lambda m: len(m.group(0)), reverse=True)
-        for m in matches:
-            blob = m.group(1).strip()
-            res = try_parse(blob)
-            if res: return res
-
-    # 전략 3: 최후의 수단 - 가장 첫 번째 '{' 부터 마지막 '}' 까지 그냥 시도
-    start = text.find('{')
-    if start == -1: start = text.find('[')
-    end = text.rfind('}')
-    if end == -1: end = text.rfind(']')
-    
-    if start != -1 and end != -1 and end > start:
-        blob = text[start:end+1]
-        res = try_parse(blob)
-        if res: return res
+    # 2. 다중 시작점 탐색 및 스키마 점수화 (Phase 2)
+    results = []
+    # 모든 { 또는 [ 위치를 찾음
+    for m in re.finditer(r"\{|\[", text):
+        start_idx = m.start()
+        blob = text[start_idx:].strip()
         
-        # 여기서도 잘린 경우 대응
-        for i in range(1, 101):
-            if len(blob) <= i: break
-            for suffix in ['"', '"}', '"} ]', '}']:
-                try: 
-                    return json.loads(blob[:-i] + suffix)
-                except: continue
+        # 기호에 맞는 닫는 문자 탐색
+        end_char = '}' if text[start_idx] == '{' else ']'
+        for end_m in re.finditer(re.escape(end_char), blob):
+            end_idx = end_m.start() + 1
+            sub_blob = blob[:end_idx]
+            res = try_parse(sub_blob)
+            if res: results.append(res)
+        
+        # 전체 덩어리(잘린 경우 대비) 시도
+        res = try_parse(blob)
+        if res: results.append(res)
 
-    logger.error(f"JSON 파싱 최종 실패\n원본 텍스트: {text}")
-    return None
+    if not results:
+        logger.error(f"JSON 파싱 최종 실패\n원본 텍스트: {text[:500]}...")
+        return None
+
+    # 3. 결과 채점 (가장 신뢰도 높은 객체 선택)
+    def score_object(obj):
+        if obj is None: return -1
+        score = 0
+        # 리스트인 경우 내부 요소 확인
+        if isinstance(obj, list):
+            score += len(obj) * 2
+            if len(obj) > 0 and isinstance(obj[0], dict):
+                first = obj[0]
+                if 'contention_title' in first: score += 50
+                if 'press' in first: score += 10
+        # 딕셔너리인 경우 키 확인
+        elif isinstance(obj, dict):
+            score += len(obj.keys())
+            if 'claim' in obj: score += 20
+            if 'title' in obj: score += 10
+            if 'contention_title' in obj: score += 50
+        return score
+
+    results.sort(key=score_object, reverse=True)
+    return results[0]
 
 @traceable(run_type="llm", name="LocalLLM Call")
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str:
@@ -116,14 +116,15 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
 
     payload = {
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1
+        "temperature": 0.1,
+        "max_tokens": 2048
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     
     try:
         log_llm_event("LocalLLM", f"Requesting {model_size}", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
         res.raise_for_status()
         
         response_data = res.json()
@@ -150,20 +151,34 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
         logger.error(f"로컬 LLM({model_size}) 호출 실패: {e}")
         return ("{}", {"prompt_tokens": 0, "completion_tokens": 0}) if json_mode else ("", {"prompt_tokens": 0, "completion_tokens": 0})
 
+# Gemini 클라이언트 초기화 코드 (지연 로딩)
+_gemini_client = None
+
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            logger.warning("GOOGLE_API_KEY가 설정되지 않았습니다.")
+        _gemini_client = genai.Client(api_key=api_key)
+    return _gemini_client
+
 @traceable(run_type="llm", name="Gemini Call")
 def call_gemini(prompt: str) -> dict:
     """제미나이 API를 호출합니다."""
     try:
         log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
+        client = get_gemini_client()
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
         
         usage = response.usage_metadata
         token_info = {
             'prompt_tokens': usage.prompt_token_count,
             'completion_tokens': usage.candidates_token_count
         }
-        
         
         log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
         return parse_llm_json(response.text), token_info
@@ -172,7 +187,7 @@ def call_gemini(prompt: str) -> dict:
         logger.error(f"Gemini 호출 실패: {e}")
         return None, {"prompt_tokens": 0, "completion_tokens": 0}
 
-def update_total_tokens(state: dict, new_usage: dict) -> dict:
+def update_total_tokens(state: dict, new_usage: dict, agent_name: str = "Unknown") -> dict:
     """기존 상태의 total_tokens에 새로운 토큰 사용량을 합산하여 반환합니다."""
     total = state.get("total_tokens")
     if not total:
@@ -184,7 +199,7 @@ def update_total_tokens(state: dict, new_usage: dict) -> dict:
     # 노드별 토큰 로그 출력
     p = new_usage.get("prompt_tokens", 0)
     c = new_usage.get("completion_tokens", 0)
-    logger.info(f"📊 [Token Usage] Node Increment: Prompt={p}, Completion={c} | Total: Prompt={total['prompt_tokens']}, Completion={total['completion_tokens']}")
+    logger.info(f"📊 [{agent_name}] Token Usage: Prompt={p}, Completion={c} | Total: Prompt={total['prompt_tokens']}, Completion={total['completion_tokens']}")
     
     return total
 
@@ -199,8 +214,11 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     if mode == "gemini_only":
         try:
             log_llm_event("GeminiText", "Requesting gemini-2.0-flash (Text Mode)", details=prompt)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            response = model.generate_content(prompt)
+            client = get_gemini_client()
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
             
             usage = response.usage_metadata
             token_info = {
@@ -220,11 +238,13 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             raise ValueError("로컬 LLM 응답 비어있음")
         except Exception as e:
             logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
-            # ⚠️ 주의: 재귀 호출 금지. Gemini를 직접 호출하여 무한재귀 방지
             try:
                 log_llm_event("GeminiText", "Fallback: Requesting gemini-2.0-flash (Text Mode)", details=prompt)
-                model = genai.GenerativeModel('gemini-2.0-flash')
-                response = model.generate_content(prompt)
+                client = get_gemini_client()
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt
+                )
                 usage_meta = response.usage_metadata
                 token_info = {
                     'prompt_tokens': usage_meta.prompt_token_count,
