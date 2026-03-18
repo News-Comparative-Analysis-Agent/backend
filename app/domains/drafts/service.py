@@ -354,15 +354,13 @@ class DraftService:
     # ==========================================
     # 7. 최종 품질 검토 로직 (Final Review) - LangGraph 적용
     # ==========================================
-    async def run_final_review(self, request: FinalReviewRequest) -> FinalReviewResponse:
+    async def run_final_review(self, issue_id: int) -> FinalReviewResponse:
         """
         사용자 수정본을 기반으로 최종 품질 검토 리포트를 생성합니다. (LangGraph Flow)
         """
         from app.scroller.graph import create_review_graph
         from app.scroller.repository import ScrollerRepository
         
-        issue_id = request.issue_id
-
         # 1. 시스템 설정에서 LLM 모드 가져오기
         scroller_repo = ScrollerRepository(self.repo.db)
         settings = scroller_repo.get_system_settings()
@@ -406,4 +404,4 @@ class DraftService:
 
         except Exception as e:
             logger.error(f"❌ [FinalReview Graph] 실행 중 오류: {e}")
-            raise HTTPException(status_code=500, detail=f"품질 검토 중 오류가 발생했습니다: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"품질 검토 중 오류가 발생했습니다: {str(e)}")
