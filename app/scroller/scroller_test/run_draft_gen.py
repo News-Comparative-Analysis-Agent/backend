@@ -10,6 +10,7 @@ sys.path.append(BASE_DIR)
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 from app.core.database import SessionLocal
+from app.core.logger import logger, log_llm_event
 from app.domains.issues.models import IssueLabel
 # SQLAlchemy 관계 매핑시 참조할 Article 모델 또한 명시적으로 import 해줍니다.
 from app.domains.articles.models import Article 
@@ -40,7 +41,6 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
 길이는 약 600~800자 내외로 작성해주세요.
 """
     try:
-        from app.core.logger import log_llm_event
         log_llm_event("DraftGen", f"Generating draft for issue: {issue.name}", details=prompt)
         
         if not client:
