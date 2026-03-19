@@ -4,8 +4,7 @@ from app.core.database import get_db
 from app.scroller.schemas import SearchRequest, SearchResponse
 from app.scroller.schemas import (
     CrawlRequest, ClusterRequest, CrawlResponse, ClusterResponse, 
-    ResetResponse, LLMModeUpdateRequest, SettingsResponse,
-    LogListResponse, LogDetailResponse, LogFileItem
+    ResetResponse, LLMModeUpdateRequest, SettingsResponse
 )
 from app.scroller.service import ScrollerService
 from app.scroller.service import NLPSearchService

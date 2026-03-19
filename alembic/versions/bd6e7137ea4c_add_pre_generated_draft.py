@@ -60,7 +60,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id')
         )
         op.create_index(op.f('ix_social_accounts_id'), 'social_accounts', ['id'], unique=False)
-    op.add_column('issue_labels', sa.Column('pre_generated_draft', sa.Text(), nullable=True))
+    # 'issue_labels' 테이블에 'pre_generated_draft' 컬럼이 이미 있는지 확인
+    columns = [c['name'] for c in inspector.get_columns('issue_labels')]
+    if 'pre_generated_draft' not in columns:
+        op.add_column('issue_labels', sa.Column('pre_generated_draft', sa.Text(), nullable=True))
     op.drop_column('users', 'provider_id')
     op.drop_column('users', 'provider')
     # ### end Alembic commands ###
