@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from datetime import datetime, timezone
 from app.domains.issues.repository import IssueRepository
-from app.domains.issues.schemas import IssueFeedItem, IssueFeedResponse, IssueAnalysisResponse
+from app.domains.issues.schemas import IssueFeedItem, IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse, ClaimCardResponse
 from collections import defaultdict
 
 class IssueService:
@@ -81,6 +81,40 @@ class IssueService:
             background=issue.background,
             core_contentions=issue.core_contentions,
             media_ratio=issue.media_ratio,
+            created_at=issue.created_at,
+            claim_cards=claim_cards
+        )
+
+    def get_issue_draft(self, issue_id: int) -> IssueDraftResponse:
+        """
+        특정 이슈에 대한 고도화된 분석 데이터(메타데이터 + 주장 카드) 제공
+        """
+        # 1. 이슈 기본 정보 및 분석 메타데이터 조회
+        issue = self.repo.get_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
+    
+        # 2. 관련 주장 카드 데이터 조회
+        claims = self.repo.get_claims_by_issue(issue_id)
+    
+        from app.domains.issues.schemas import ClaimCardResponse
+        claim_cards = [
+            ClaimCardResponse(
+                id=c.id,
+                press=c.press,
+                claim=c.claim,
+                evidence=c.evidence,
+                url=c.article.url if c.article else None
+            ) for c in claims
+        ]
+    
+        return IssueDraftResponse(
+            id=issue.id,
+            name=issue.name,
+            description=issue.description,
+            background=issue.background,
+            core_contentions=issue.core_contentions,
+            media_ratio=issue.media_ratio,
             pre_generated_draft=issue.pre_generated_draft,
             created_at=issue.created_at,
             claim_cards=claim_cards
@@ -127,8 +161,7 @@ class IssueService:
                     description=issue.description,
                     article_count=issue.total_count,
                     rank=rank_in_feed,
-                    pre_generated_draft=issue.pre_generated_draft,
-                    created_at=issue.created_at,
+                    created_at=created_at,
                     is_chart_out=False,
                     image_urls=image_urls,
                 ))
@@ -149,8 +182,7 @@ class IssueService:
                     description=issue.description,
                     article_count=issue.total_count,
                     rank=rank_in_feed,
-                    pre_generated_draft=issue.pre_generated_draft,
-                    created_at=issue.created_at,
+                    created_at=created_at,
                     is_chart_out=True,
                     peak_rank=peak_rank,
                     chart_out_minutes=max(0, diff_minutes),
