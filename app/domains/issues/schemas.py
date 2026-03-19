@@ -19,6 +19,7 @@ class ClaimCardResponse(BaseModel):
     """주장 카드 응답 스키마"""
     id: int
     press: str
+    title: str
     claim: str
     evidence: Optional[str] = None
     url: Optional[str] = None

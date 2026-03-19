@@ -10,47 +10,7 @@ class IssueService:
     def __init__(self, db: Session):
         self.db = db
         self.repo = IssueRepository(db)
-
-    # def get_daily_issues(self, limit: int = 10) -> List[IssueResponse]:
-    #     """
-    #     실시간 이슈 목록 조회
-    #     """
-    #     issues = self.repo.get_recent_issues(limit=limit)
         
-    #     result = []
-    #     for idx, issue in enumerate(issues):
-    #         result.append(IssueResponse(
-    #             id=issue.id,
-    #             name=issue.name,
-    #             description=issue.description,
-    #             article_count=issue.total_count,
-    #             rank=idx + 1,
-    #             pre_generated_draft=issue.pre_generated_draft,
-    #             created_at=issue.created_at
-    #         ))
-            
-    #     return result
-
-    # def get_daily_trends(self, limit: int = 10) -> List[IssueResponse]:
-    #     """
-    #     트렌드 이슈 목록 조회
-    #     """
-    #     issues = self.repo.get_top_issues(limit=limit)
-    #
-    #     result = []
-    #     for idx, issue in enumerate(issues):
-    #         result.append(IssueResponse(
-    #             id=issue.id,
-    #             name=issue.name,
-    #             description=issue.description,
-    #             article_count=issue.total_count,
-    #             rank=idx + 1,
-    #             pre_generated_draft=issue.pre_generated_draft,
-    #             created_at=issue.created_at
-    #         ))
-    #
-    #     return result
-
     def get_issue_analysis(self, issue_id: int) -> IssueAnalysisResponse:
         """
         특정 이슈에 대한 고도화된 분석 데이터(메타데이터 + 주장 카드) 제공
@@ -68,6 +28,7 @@ class IssueService:
             ClaimCardResponse(
                 id=c.id,
                 press=c.press,
+                title=c.article.title if c.article else "",
                 claim=c.claim,
                 evidence=c.evidence,
                 url=c.article.url if c.article else None
@@ -102,6 +63,7 @@ class IssueService:
             ClaimCardResponse(
                 id=c.id,
                 press=c.press,
+                title=c.article.title if c.article else "",
                 claim=c.claim,
                 evidence=c.evidence,
                 url=c.article.url if c.article else None
