@@ -1,4 +1,5 @@
 import json
+import os
 import google.generativeai as genai
 from app.agents.state import ComparisonState
 from app.agents.utils import parse_llm_json, update_total_tokens
@@ -8,11 +9,8 @@ from langsmith import traceable
 class JudgeAgent:
     """
     Agent 5) Judge Agent (품질 검증 + 재생성 판단)
-    • 입력: 최종 JSON 문서 + 쟁점 + 주장카드
-    • 출력(JSON): 점수/검증지표/행동지침 포함된 v2.0 평가 데이터
-      o metrics: claims_utilization, media_diversity 등
-      o action: "PROCEED", "RETRY_FROM_WRITER", "RETRY_FROM_EDITOR"
-      o feedback: summary, rejection_reason (FAIL 시)
+    • 입력: 최종 JSON 문서 + 원본 데이터(media_views, 이슈 메타데이터)
+    • 출력(JSON): 점수/검증지표/행동지침 포함된 평가 데이터
     """
     def __init__(self, db=None):
         self.db = db
@@ -20,101 +18,105 @@ class JudgeAgent:
     @traceable(name="Agent 5: Judge (최종 검수) ⚖️")
     def node_evaluate_draft(self, state: ComparisonState) -> dict:
         """
-        [Node] 데스크를 통과한 최종 기사(edited_article)를 가장 엄격하게 검증합니다.
+        [Node] 데스크를 통과한 최종 기사(edited_article)를 원본 데이터(media_views 등)와 대조 검증합니다.
         """
         edited_article = state.get("edited_article", "")
-        structured_issues = state.get("structured_issues", [])
-        claim_cards = state.get("claim_cards", [])
+        media_views = state.get("media_views", []) or []
+        
+        # 이슈 메타데이터 (맥락 파악용)
+        issue_context = {
+            "title": state.get("title", ""),
+            "description": state.get("description", ""),
+            "background": state.get("background", ""),
+            "core_contentions": state.get("core_contentions", ""),
+            "conflict_summary": state.get("conflict_summary", "")
+        }
+        
         retry_count = state.get("retry_count", 0)
         
         msg_start = f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})"
         logger.info(f"⚖️ [JudgeAgent] {msg_start}")
+
+        # 상세 입력 데이터 로깅 (사용자 요청: 인풋으로 받은값도 로그로 기록)
+        log_llm_event("agent_judge", "품질 검토 입력 데이터 상세", details={
+            "issue_context": issue_context,
+            "media_views": media_views,
+            "edited_article": edited_article
+        })
         
-        # edited_article이 dict일 경우 len()이 key 개수를 반환하므로 문자열로 변환
+        # 입력 데이터 요약 로깅
         article_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 기사길이={len(article_str)}, 쟁점수={len(structured_issues)}, 주장카드수={len(claim_cards)}")
+        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 최종기사길이={len(article_str)}, 근거수={len(media_views)}")
         
-        # 타입에 상관없이 오류 여부를 문자열로 판단
         if not edited_article or "오류가 발생" in article_str:
-            msg = "초안이 없어 검증 불가"
+            msg = "최종 결과물이 없어 검증 불가"
             logger.warning(f"⚖️ [JudgeAgent] {msg}")
             return {"judge_status": "FAIL_WRITER", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
             
-        issues_json = json.dumps(structured_issues, ensure_ascii=False)
+        source_data_json = json.dumps({
+            "issue_context": issue_context,
+            "media_views": media_views
+        }, ensure_ascii=False, indent=2)
         
         prompt = f"""
-        당신은 편집국장(Judge)입니다. 기자(Writer)와 데스크(Editor)를 거쳐 완성된 '최종 JSON 비평 기사'를 엄격히 검증하십시오.
+        당신은 편집국장(Judge)입니다. 최종 완성된 비평 기사가 원본 데이터(Evidence/Issue 분석 결과)의 내용을 정확하고 충실히 반영했는지 검증하십시오.
         
-        [검증 대상 최종 기사 (JSON)]
+        [검증 대상: 최종 기사]
         {json.dumps(edited_article, ensure_ascii=False, indent=2) if isinstance(edited_article, dict) else edited_article}
         
-        [원본 쟁점 데이터]
-        {issues_json}
+        [원본 데이터 (Source Truth)]
+        {source_data_json}
         
         [검증 항목]
-        1. claims_utilization (주장 활용): 원본 쟁점 데이터에 있는 핵심 주장이 누락 없이 초안에 반영되었는가? (주요 주장 누락 시 RETRY_FROM_WRITER)
-        2. media_diversity (매체 다양성): 제공된 쟁점 데이터 내의 다양한 출처 매체들이 편중되지 않고 골고루 기사에 인용되었는가? (원문에 매체가 적다면 있는 것만 잘 쓰여도 통과)
-        3. factual_accuracy (사실 정확성): 지어낸 허위 사실 없이 원본 인용구가 맥락에 맞게 쓰였는가? (조작 정황 시 RETRY_FROM_WRITER)
-        4. draft_professionalism (기사 전문성): 문장이 지나치게 반복되지 않고 논리적인 신문 기사 톤을 갖췄는가? (단순 톤/문맥 불량 시 RETRY_FROM_EDITOR)
+        1. factual_consistency: 원본 데이터에 명시된 사실관계(언론사별 주장, 인용구 등)가 왜곡되거나 자의적으로 해석되지 않았는가?
+        2. claims_coverage: 원본 데이터의 핵심 쟁점과 근거 자료들이 누락 없이 기사에 충분히 반영되었는가?
+        3. logical_cohesion: 기사가 전체적인 맥락(issue_context)에 맞게 논리적 완결성을 갖추고 있는가?
+        4. professional_tone: 신뢰할 수 있는 비평 기사로서의 전문적이고 객관적인 어조를 유지하고 있는가?
         
-        모든 기준을 통과하면 action을 "PROCEED", 내용의 근본적 수정/보강이 필요하면 "RETRY_FROM_WRITER", 단순 문장 교정이 필요하면 "RETRY_FROM_EDITOR"로 설정하십시오.
-        total_score는 100점 만점으로 각 지표의 평균을 내어 정수형으로 기입하십시오 (70점 이상이면 PROCEED).
-
-        [출력 규칙]
-        1. status는 "PASS" 또는 "FAIL"로만 설정합니다. (action이 PROCEED면 PASS)
-        2. 통과(PASS)인 경우, feedback의 summary에는 사족 없이 "통과"라고만 적거나 아주 짧은 1문장만 적으십시오. (절대 주석이나 변명을 덧붙이지 마십시오.)
-        3. 실패(FAIL)인 경우에만 rejection_reason과 redo_instruction에 왜 실패했는지, 무엇을 고쳐야 하는지 상세히 적으십시오. 통과 시에는 "해당 없음"이라고 짧게 적으십시오.
+        [의사 결정 지침]
+        - 모든 기준 통과 시 action: "PROCEED"
+        - 팩트 오류나 핵심 근거 누락 등 중대한 결함 시 action: "RETRY_FROM_WRITER"
+        - 문장력, 톤, 맥락 개선이 필요한 경우 action: "RETRY_FROM_EDITOR"
         
-        [반환 형식 예시]
-        {{
-            "status": "PASS",
-            "total_score": 92,
-            "metrics": {{
-                "claims_utilization": 95,
-                "media_diversity": 90,
-                "factual_accuracy": 94,
-                "draft_professionalism": 90
-            }},
-            "action": "PROCEED",
-            "feedback": {{
-                "summary": "종합 평가 한 줄",
-                "rejection_reason": "해당 없음",
-                "redo_instruction": "해당 없음"
-            }}
-        }}
+        total_score는 100점 만점으로 평가하십시오 (70점 이상이면 PROCEED).
         """
         
         try:
-            # Judge는 환각 및 로직 검증의 핵심 장치이므로 가장 똑똑한 Gemini 사용 강제
+            genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+            
             response_schema = {
-                "type": "OBJECT",
+                "type": "object",
                 "properties": {
-                    "status": {"type": "STRING"},
-                    "total_score": {"type": "INTEGER"},
+                    "status": {"type": "string"},
+                    "total_score": {"type": "integer"},
                     "metrics": {
-                        "type": "OBJECT",
+                        "type": "object",
                         "properties": {
-                            "claims_utilization": {"type": "INTEGER"},
-                            "media_diversity": {"type": "INTEGER"},
-                            "factual_accuracy": {"type": "INTEGER"},
-                            "draft_professionalism": {"type": "INTEGER"}
+                            "factual_consistency": {"type": "integer"},
+                            "claims_coverage": {"type": "integer"},
+                            "logical_cohesion": {"type": "integer"},
+                            "professional_tone": {"type": "integer"}
                         },
-                        "required": ["claims_utilization", "media_diversity", "factual_accuracy", "draft_professionalism"]
+                        "required": ["factual_consistency", "claims_coverage", "logical_cohesion", "professional_tone"]
                     },
-                    "action": {"type": "STRING"},
+                    "action": {"type": "string"},
                     "feedback": {
-                        "type": "OBJECT",
+                        "type": "object",
                         "properties": {
-                            "summary": {"type": "STRING"},
-                            "rejection_reason": {"type": "STRING"},
-                            "redo_instruction": {"type": "STRING"}
+                            "summary": {"type": "string"},
+                            "rejection_reason": {"type": "string"},
+                            "redo_instruction": {"type": "string"}
                         },
                         "required": ["summary", "rejection_reason", "redo_instruction"]
                     }
                 },
                 "required": ["status", "total_score", "metrics", "action", "feedback"]
             }
-            gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
+            
+            gen_model = genai.GenerativeModel(
+                'gemini-2.0-flash', 
+                generation_config={"response_mime_type": "application/json", "response_schema": response_schema}
+            )
             response = gen_model.generate_content(prompt)
             result = parse_llm_json(response.text)
             
@@ -132,7 +134,7 @@ class JudgeAgent:
                 logger.warning("Judge JSON 파싱 실패 -> 안전망 강제 PASS 처리")
                 return {"judge_status": "PASS", "judge_feedback": "", "messages": ["파싱 실패로 강제 패스"], "total_tokens": total_tokens}
                 
-            # 명세서(v2.0)의 action을 기존 시스템의 라우팅 상태(judge_status)로 매핑
+            # action을 judge_status로 매핑
             action = result.get("action", "RETRY_FROM_WRITER").upper()
             if action in ["PROCEED", "PASS"]:
                 status = "PASS"
@@ -146,7 +148,7 @@ class JudgeAgent:
             reason = feedback_dict.get("rejection_reason", "")
             instruction = feedback_dict.get("redo_instruction", "")
             
-            # 피드백 문자열 조합 (해당 없음인 경우 제외)
+            # 피드백 문자열 조합
             feedback_parts = []
             if summary and "해당 없음" not in summary: feedback_parts.append(summary)
             if reason and "해당 없음" not in reason: feedback_parts.append(f"이유: {reason}")
@@ -158,9 +160,10 @@ class JudgeAgent:
                 
             score = result.get("total_score", 0)
             
-            msg = f"검수 완료: {status} (점수: {score}, 피드백: {feedback})"
+            msg = f"검수 완료: {status} (점수: {score})"
+            log_llm_event("agent_judge", msg, details=result)
             
-            # 🚨 최대 재시도 도달 시 강제 통과 처리 (Best Effort 저장)
+            # 🚨 최대 재시도 도달 시 강제 통과 처리
             if retry_count >= 2 and status != "PASS":
                 logger.warning(f"⚖️ [JudgeAgent] 최대 재시도(3회) 도달. 현재 상태({status})를 무시하고 강제 PASS 처리하여 초안을 저장합니다.")
                 status = "PASS"
@@ -168,24 +171,26 @@ class JudgeAgent:
                 
             if status == "PASS":
                 logger.success(f"⚖️ [JudgeAgent] {msg}")
-                # 최종 통과 시 DB에 모든 분석 결과 저장 (웹 서비스 조회용)
+                # 최종 통과 시 DB에 모든 분석 결과 저장
                 issue_id = state.get("issue_id")
                 if issue_id and self.db:
                     from app.scroller.repository import ScrollerRepository
                     repo = ScrollerRepository(self.db)
                     
-                    # 1. 초안 저장: 최종 완성된 Dict를 JSON String으로 변환하여 DB에 저장
+                    # 초안 저장
                     edited_json_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
                     repo.update_issue_draft(issue_id, edited_json_str)
                     
-                    # 2. 나머지 분석 메타데이터(background, description) 저장
+                    # 나머지 분석 메타데이터 저장
                     repo.update_issue_analysis_results(
                         issue_id=issue_id,
                         description=state.get("description"),
                         background=state.get("background"),
+                        core_contentions=state.get("core_contentions"),
+                        conflict_summary=state.get("conflict_summary")
                     )
-                    self.db.commit() # 지연된 저장소 작업 영구 반영
-                    logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과(초안, 배경, 요약)가 DB(IssueLabel)에 저장되었습니다. (Issue ID: {issue_id})")
+                    self.db.commit()
+                    logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과가 DB에 저장되었습니다. (Issue ID: {issue_id})")
             else:
                 logger.warning(f"⚖️ [JudgeAgent] {msg}")
                 
@@ -201,7 +206,6 @@ class JudgeAgent:
             msg = f"Judge 평가 시스템 치명적 에러: {e}"
             logger.error(msg)
             log_llm_event("agent_judge", msg)
-            # 🔥 시스템 에러 발생 시 절대 PASS 시키지 않고 FAIL_WRITER로 돌려보내 안전장치 가동
             return {
                 "judge_status": "FAIL_WRITER", 
                 "judge_feedback": f"시스템 오류 발생으로 인한 자동 반려: {e}", 

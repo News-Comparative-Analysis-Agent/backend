@@ -54,10 +54,17 @@ logger.add(
     enqueue=True
 )
 
-def _escape_log_message(msg: str) -> str:
-    """Loguru의 opt(colors=True)에서 < 문자를 태그로 오해하지 않도록 이스케이프 처리합니다."""
-    if not msg:
-        return msg
+def _escape_log_message(msg) -> str:
+    """Loguru의 opt(colors=True)에서 < 문자를 태그로 오해하지 않도록 이스케이프 처리합니다.
+    문자열이 아닐 경우 문자열로 변환합니다."""
+    if msg is None:
+        return ""
+    if not isinstance(msg, str):
+        import json
+        try:
+            msg = json.dumps(msg, ensure_ascii=False, indent=2)
+        except:
+            msg = str(msg)
     return msg.replace("<", "\\<")
 
 # ==========================================
@@ -99,7 +106,9 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
     
     # 메시지 및 상세 내용 이스케이프 처리
     escaped_message = _escape_log_message(message)
-    log_entry = f"\n{header}\n{color_tag}║</> {escaped_message}"
+    # 메시지가 여러 줄인 경우 각 줄마다 '║' 접두사 추가
+    indented_message = "\n".join([f"{color_tag}║</> {line}" for line in escaped_message.split("\n")])
+    log_entry = f"{header}\n{indented_message}"
     
     # 토큰 사용량이 전달된 경우, 요약 및 합계를 계산하여 메시지에 포함합니다.
     if token_info:
@@ -117,7 +126,7 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
         indented_details = "\n".join([f"{color_tag}║</> {line}" for line in escaped_details.split("\n")])
         log_entry += f"{indented_details}"
         
-    log_entry += f"\n{color_tag}╚════════════════════════════════════════════════════════</>\n"
+    log_entry += f"\n{color_tag}╚════════════════════════════════════════════════════════</>"
     
     # opt(colors=True)를 사용하여 loguru의 기본 INFO 레벨에 컬러 태그를 허용하여 출력합니다.
     logger.opt(colors=True).info(log_entry)

@@ -59,29 +59,40 @@ class ComparisonState(TypedDict):
     """
     llm_mode: str
     issue_id: int
-    
-    # 브랜치 내부 데이터 (Conflict 방지를 위해 OverallState와 겹치지 않게 관리하거나 Reducer 미지정)
-    raw_articles: List[Dict[str, Any]]
-    unclustered_articles: List[Dict[str, Any]]
-    clustered_topics: List[Dict[str, Any]]
-    
+
+    # EvidenceAgent가 LLM 호출을 위해 사용하는 원문 기사 목록
     articles: List[Dict[str, Any]]
-    claim_cards: List[Dict[str, Any]]
-    structured_issues: List[Dict[str, Any]]
+
+    # EvidenceAgent가 IssueAgent로 전달하는 media 근거 묶음
+    # (내부에서 narrative/conflict_summary 같은 서술형 값은 생성되지 않음)
+    issue_payload_items: List[Dict[str, Any]]
+
+    # IssueAgent가 생성하는 서술형 값(정확한 factual 입력은 evidence 기반으로 고정)
+    conflict_summary: str
+    media_narratives: List[Dict[str, Any]]  # [{press: str, url: str, narrative: str}, ...]
+
+    # IssueAgent가 LLM 출력(서술형)과 evidence factual input을 서버측에서 조립해 넘기는 최종 media 뷰
+    # (claim/evidence/url은 LLM이 아닌 조립 코드가 채웁니다)
+    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url, narrative}, ...]
+
+    # 최종 이슈 프레임(최상단 메타)
+    title: str
+    description: str
+    background: str
+    core_contentions: str
+
+    # Writer/Editor 체인에서 전달되는 초안/최종 결과
     draft_article: Dict[str, Any]
     edited_article: Dict[str, Any]
-    edit_log: str
-    
+
+    # Judge 재시도 라우팅에 필요한 값
     judge_status: str
     judge_feedback: str
     retry_count: int
-    
-    # 이슈 메타데이터
-    description: str                           # 이슈 요약 설명
-    background: str                            # 이슈 배경 정보
-    
-    # 토큰 사용량 추적
-    total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}
+
+    # LangGraph 로그/누적 토큰
+    messages: Annotated[List[str], operator.add]
+    total_tokens: Dict[str, int]  # {"prompt_tokens": 0, "completion_tokens": 0}
 
 class ReviewState(TypedDict):
     """
@@ -90,11 +101,14 @@ class ReviewState(TypedDict):
     """
     llm_mode: str                              # "gemini_only", "local_priority", "local_only"
     issue_id: int                              # 검토 대상 이슈 ID
-    user_content: str                          # 사용자가 수정한 최종 기사 텍스트
+    pre_generated_draft: str                   # DB에서 가져온 최종 기사 초안 텍스트
 
     # 이슈 메타데이터
     issue_name: str                            # 이슈명
-    issue_description: str                     # 이슈 배경 설명
+    issue_description: str                     # 이슈 요약 설명
+    issue_background: str                      # 이슈 배경 상세
+    core_contentions: str                      # 핵심 쟁점
+    conflict_summary: str                      # 갈등 요약
 
     # 이슈에 속한 기사 목록 (제목, URL, 언론사만 사용)
     articles_meta: List[Dict[str, Any]]        # [{"title": str, "url": str, "publisher": str, "published_at": str}]
@@ -115,4 +129,3 @@ class ReviewState(TypedDict):
     
     # 토큰 사용량 추적
     total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}
-

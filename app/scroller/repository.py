@@ -278,7 +278,9 @@ class ScrollerRepository:
 
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
-                                     background: str = None):
+                                     background: str = None,
+                                     core_contentions: str = None,
+                                     conflict_summary: str = None):
         """
         이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다.
         """
@@ -288,6 +290,10 @@ class ScrollerRepository:
                 issue.description = description
             if background is not None:
                 issue.background = background
+            if core_contentions is not None:
+                issue.core_contentions = core_contentions
+            if conflict_summary is not None:
+                issue.conflict_summary = conflict_summary
             self.db.flush()
             return True
         return False
