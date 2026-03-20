@@ -54,8 +54,8 @@ class IssueFeedItem(BaseModel):
     pre_generated_draft: Optional[str] = None
     created_at: datetime
 
-    # 1순위 이슈 전용: 기사 이미지 URL 목록
-    image_urls: List[str] = []           # 소속 기사들의 이미지 URL (1위 이슈만 채워짐)
+    # 기사 대표 이미지 URL 목록
+    image_urls: List[str] = []           # 소속 기사들의 이미지 URL
 
     # 차트아웃 이슈 전용 필드
     is_chart_out: bool = False            # OUT 뱃지 표시 여부

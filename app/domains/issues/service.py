@@ -108,6 +108,10 @@ class IssueService:
         top_issues: List[IssueFeedItem] = []
         chart_out_issues: List[IssueFeedItem] = []
 
+        # 전체 이슈의 이미지 URL을 일괄 조회
+        issue_ids = [issue.id for issue in issues]
+        image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
+
         for idx, issue in enumerate(issues):
             rank_in_feed = idx + 1  # 전체 리스트 내 순위 (1~30)
 
@@ -115,12 +119,11 @@ class IssueService:
             if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
                 created_at = created_at.replace(tzinfo=None)
 
+            # 모든 이슈에 이미지 URL 추가 (기본값 빈 리스트)
+            image_urls = image_urls_map.get(issue.id, [])
+
             if idx < top_count:
                 # ─── TOP 10: 현재 차트에 있는 이슈 ───
-                # 1순위 이슈에만 기사 이미지 URL을 첨부
-                image_urls = (
-                    self.repo.get_image_urls_by_issue(issue.id) if idx == 0 else []
-                )
                 top_issues.append(IssueFeedItem(
                     id=issue.id,
                     name=issue.name,
@@ -154,6 +157,7 @@ class IssueService:
                     is_chart_out=True,
                     peak_rank=peak_rank,
                     chart_out_minutes=max(0, diff_minutes),
+                    image_urls=image_urls,
                 ))
 
         return IssueFeedResponse(

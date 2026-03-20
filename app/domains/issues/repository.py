@@ -83,6 +83,26 @@ class IssueRepository:
                 result.extend(urls)
         return result
 
+    def get_image_urls_by_issue_ids(self, issue_ids: List[int]) -> dict:
+        """여러 이슈에 속한 기사들의 image_urls를 합산하여 딕셔너리로 반환 (이슈ID -> 이미지 URL 리스트)"""
+        if not issue_ids:
+            return {}
+        
+        articles = (
+            self.db.query(Article.issue_label_id, Article.image_urls)
+            .filter(
+                Article.issue_label_id.in_(issue_ids),
+                Article.image_urls.isnot(None),
+            )
+            .all()
+        )
+        
+        from collections import defaultdict
+        result = defaultdict(list)
+        for issue_id, urls in articles:
+            if urls:
+                result[issue_id].extend(urls)
+        return dict(result)
 
     def get_claims_by_issue(self, issue_id: int):
         """특정 이슈에 속한 모든 주장 카드 조회"""
