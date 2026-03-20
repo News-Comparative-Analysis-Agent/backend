@@ -158,3 +158,59 @@ class IssueService:
             top_issues=top_issues,
             chart_out_issues=chart_out_issues,
         )
+
+    def get_issue_timeline(self, issue_id: int):
+        """특정 이슈와 타이틀이 유사한 이슈들을 찾고 그 중 과거의 이슈들을 타임라인으로 반환합니다."""
+        target_issue = self.repo.get_by_id(issue_id)
+        if not target_issue:
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
+
+        # 최근 이슈 N개 조회 (성능을 위해 제한)
+        recent_issues = self.repo.get_recent_issues_for_timeline(limit=400)
+
+        import difflib
+        
+        # 유사도 필터링
+        similar_issues = []
+        for issue in recent_issues:
+            # 타임라인에는 과거부터 현재까지 발생한 이슈가 포함됩니다.
+            # difflib.SequenceMatcher 로 글자 기반 유사도 측정 (한국어 텍스트에 효과적임)
+            ratio = difflib.SequenceMatcher(None, target_issue.name, issue.name).ratio()
+            
+            # 1. 대상 이슈 이름에 부분 문자열이 완전히 포함
+            # 2. 혹은 글자 유사도가 55% 이상인 경우 타임라인으로 간주
+            if (target_issue.name in issue.name or 
+                issue.name in target_issue.name or 
+                ratio >= 0.55):
+                similar_issues.append(issue)
+
+        # 시간순(과거->최신) 정렬
+        similar_issues.sort(key=lambda x: x.created_at)
+
+        # 이미지 URL 일괄 조회
+        issue_ids = [iss.id for iss in similar_issues]
+        image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
+        
+        from app.domains.issues.schemas import IssueTimelineItem, IssueTimelineResponse
+        
+        timeline_items = []
+        for issue in similar_issues:
+            created_at = issue.created_at
+            if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
+                created_at = created_at.replace(tzinfo=None)
+                
+            image_urls = image_urls_map.get(issue.id, [])
+            
+            timeline_items.append(IssueTimelineItem(
+                id=issue.id,
+                name=issue.name,
+                article_count=issue.total_count,
+                created_at=created_at,
+                image_urls=image_urls,
+            ))
+
+        return IssueTimelineResponse(
+            target_issue_id=target_issue.id,
+            target_issue_name=target_issue.name,
+            timeline=timeline_items
+        )

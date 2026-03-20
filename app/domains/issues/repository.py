@@ -11,6 +11,15 @@ class IssueRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def get_recent_issues_for_timeline(self, limit: int = 500) -> List[IssueLabel]:
+        """최근 이슈들을 가져와서 타임라인/유사도 분석의 후보군으로 사용"""
+        return (
+            self.db.query(IssueLabel)
+            .order_by(IssueLabel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     # def get_recent_issues(self, limit: int = 10) -> List[IssueLabel]:
     #     """오늘 생성된 이슈를 기사 수 기준(인기순)으로 정렬하여 조회"""
     #     today = datetime.now().date()
