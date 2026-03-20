@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.domains.issues.service import IssueService
-from app.domains.issues.schemas import IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse
+from app.domains.issues.schemas import IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse, IssueTimelineResponse
 
 router = APIRouter()
 
@@ -54,6 +54,20 @@ def get_issue_draft(
     """
     service = IssueService(db)
     return service.get_issue_draft(issue_id)
+
+@router.get("/{issue_id}/timeline",
+            response_model=IssueTimelineResponse,
+            summary="특정 이슈의 과거/최신 타임라인 조회",
+            description="특정 이슈와 관련된(이름이 유사한) 이슈들을 시간순으로 정렬하여 타임라인 형태로 제공합니다.")
+def get_issue_timeline(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 이슈의 시간순 타임라인 조회
+    """
+    service = IssueService(db)
+    return service.get_issue_timeline(issue_id)
 
 # @router.get("/daily-issues", 
 #             response_model=List[IssueResponse],

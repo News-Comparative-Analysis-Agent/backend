@@ -11,6 +11,15 @@ class IssueRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def get_recent_issues_for_timeline(self, limit: int = 500) -> List[IssueLabel]:
+        """최근 이슈들을 가져와서 타임라인/유사도 분석의 후보군으로 사용"""
+        return (
+            self.db.query(IssueLabel)
+            .order_by(IssueLabel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     # def get_recent_issues(self, limit: int = 10) -> List[IssueLabel]:
     #     """오늘 생성된 이슈를 기사 수 기준(인기순)으로 정렬하여 조회"""
     #     today = datetime.now().date()
@@ -83,6 +92,26 @@ class IssueRepository:
                 result.extend(urls)
         return result
 
+    def get_image_urls_by_issue_ids(self, issue_ids: List[int]) -> dict:
+        """여러 이슈에 속한 기사들의 image_urls를 합산하여 딕셔너리로 반환 (이슈ID -> 이미지 URL 리스트)"""
+        if not issue_ids:
+            return {}
+        
+        articles = (
+            self.db.query(Article.issue_label_id, Article.image_urls)
+            .filter(
+                Article.issue_label_id.in_(issue_ids),
+                Article.image_urls.isnot(None),
+            )
+            .all()
+        )
+        
+        from collections import defaultdict
+        result = defaultdict(list)
+        for issue_id, urls in articles:
+            if urls:
+                result[issue_id].extend(urls)
+        return dict(result)
 
     def get_claims_by_issue(self, issue_id: int):
         """특정 이슈에 속한 모든 주장 카드 조회"""
