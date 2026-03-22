@@ -13,8 +13,8 @@ class EditorAgent:
     • 출력: 최종 JSON 문서 (에디팅 로그 포함)
     • 제한: 새 사실 추가 금지(근거 밖 생성 금지)
     """
-    def __init__(self):
-        pass
+    def __init__(self, db=None):
+        self.db = db
 
     @traceable(name="Agent 4: Editor (비평 기사 최종 교정) 🎨")
     def node_edit_draft(self, state: ComparisonState) -> dict:

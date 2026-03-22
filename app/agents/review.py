@@ -10,7 +10,6 @@ class ReviewAgent:
     Agent) Review Agent (최종 품질 검토)
     • 입력: issue_id + pre_generated_draft (사용자 수정본 또는 DB 저장본)
     • 출력:
-      - 신뢰도 분석: 소스 기사 목록
       - 가이드라인 검증: 차별 표현/자극적 형용사/낙인화/미확인 사실 + 핵심 쟁점 반영 여부
       - AI 종합 의견: 편집장 관점의 종합 평가
     """
@@ -73,31 +72,6 @@ class ReviewAgent:
             logger.error(f"🔍 [ReviewAgent] {msg}")
             return {"error": msg, "messages": [msg]}
 
-    # -----------------------------------------------------------
-    # Node 2: 신뢰도 분석 (소스 기사 추출)
-    # -----------------------------------------------------------
-    def node_calculate_reliability(self, state: ReviewState) -> dict:
-        """
-        [Node 2] 이슈에 속한 모든 기사 정보를 소스로 반환합니다.
-        """
-        articles_meta = state.get("articles_meta", [])
-        logger.info(f"📊 [ReviewAgent] Node2: 소스 기사 추출 시작 (총 {len(articles_meta)}건)")
-
-        top_sources = articles_meta
-        
-        # 유사도 점수는 더 이상 계산하지 않으므로 기본값(0) 처리
-        reliability_score = 0
-        risk_level = "안전"
-
-        logger.info(f"📊 [ReviewAgent] Node2: 소스 기사 {len(top_sources)}건 추출 완료")
-        return {
-            "reliability_score": reliability_score,
-            "risk_level": risk_level,
-            "top_sources": top_sources,
-            "messages": [f"전체 소스 기사 {len(top_sources)}건 추출 완료"]
-        }
-
-
 
     # -----------------------------------------------------------
     # Node 3: 가이드라인 검증 + AI 종합 의견 (Gemini/Local LLM)
@@ -117,40 +91,41 @@ class ReviewAgent:
         logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 및 종합 의견 생성 시작")
 
         prompt = f"""
-당신은 언론 윤리 전문가이자 노련한 편집장입니다.
-제시된 이슈의 분석 데이터(배경, 핵심 쟁점, 갈등 요약)를 바탕으로 기자가 작성한 최종 기사를 엄격히 검토하십시오.
+            당신은 언론 윤리 전문가이자 노련한 편집장입니다.
+            제시된 이슈의 분석 데이터(배경, 핵심 쟁점, 갈등 요약)를 바탕으로 기자가 작성한 최종 기사를 엄격히 검토하십시오.
 
-[검토 대상 기사]
-{pre_generated_draft}
+            [검토 대상 기사]
+            {pre_generated_draft}
 
-[이슈 분석 데이터]
-이슈명: {issue_name}
-배경: {issue_background}
-핵심 쟁점: {core_contentions}
-갈등 요약: {conflict_summary}
+            [이슈 분석 데이터]
+            이슈명: {issue_name}
+            배경: {issue_background}
+            핵심 쟁점: {core_contentions}
+            갈등 요약: {conflict_summary}
 
-[검토 가이드라인]
-1. 혐오 표현 및 차별적 서술: 특정 인종·성별·종교·지역 비하 표현이 있는가?
-2. 자극적인 형용사 사용: '충격', '폭탄', '경악' 등 선정적 낚시성 표현이 있는가?
-3. 특정 집단 비하 또는 낙인화: 특정 정치/사회집단을 일방적으로 낙인 찍는가?
-4. 미확인 사실 및 추측성 서술: 근거 없는 추측을 사실처럼 단정하는가?
-5. 분석 내용 반영: 제공된 '핵심 쟁점'과 '갈등 요약'의 본질이 기사에 충실히 반영되었는가?
+            [검토 가이드라인]
+            1. 혐오 표현 및 차별적 서술: 특정 인종·성별·종교·지역 비하 표현이 있는가?
+            2. 자극적인 형용사 사용: 선정적인 표현이 있는가?
+            3. 특정 집단 비하 또는 낙인화: 특정 정치/사회집단을 일방적으로 낙인 찍는가?
+            4. 미확인 사실 및 추측성 서술: 근거 없는 추측을 사실처럼 단정하는가?
+            5. 분석 내용 반영: 제공된 '핵심 쟁점'과 '갈등 요약'의 본질이 기사에 충실히 반영되었는가?
 
-[종합 의견]
-기사의 완성도, 균형성, 언론 윤리 준수 여부 및 분석 데이터와의 일치성을 종합하여 2~3문장으로 작성하십시오.
+            [최종 종합 의견]
+            - 기사의 완성도, 균형성, 언론 윤리 준수 여부 및 분석 데이터와의 일치성을 종합하여 1문장으로 작성하십시오.
+            - 'ai_opinion' 필드에 반드시 포함되어야 합니다.
 
-[출력 형식 - 반드시 순수 JSON만 반환]
-{{
-  "guideline_checks": [
-    {{"label": "혐오 표현 및 차별적 서술", "passed": true, "detail": ""}},
-    {{"label": "자극적인 형용사 사용", "passed": true, "detail": ""}},
-    {{"label": "특정 집단 비하 또는 낙인화 표현", "passed": true, "detail": ""}},
-    {{"label": "미확인 사실 및 추측성 서술", "passed": true, "detail": ""}},
-    {{"label": "핵심 분석 내용 반영", "passed": true, "detail": "핵심 쟁점인 ~ 부분이 명확히 기술됨"}}
-  ],
-  "ai_opinion": "종합 평가 내용"
-}}
-"""
+            [출력 형식 - 반드시 순수 JSON만 반환]
+            {{
+                "guideline_checks": [
+                    {{"label": "혐오 표현 및 차별적 서술", "passed": true, "detail": ""}},
+                    {{"label": "자극적인 형용사 사용", "passed": true, "detail": ""}},
+                    {{"label": "특정 집단 비하 또는 낙인화 표현", "passed": true, "detail": ""}},
+                    {{"label": "미확인 사실 및 추측성 서술", "passed": true, "detail": ""}},
+                    {{"label": "핵심 분석 내용 반영", "passed": true, "detail": "핵심 쟁점 반영 정도 기술"}}
+                ],
+                "ai_opinion": "종합 평가 내용"
+            }}
+        """
 
         response_schema = {
             "type": "OBJECT",
@@ -179,10 +154,39 @@ class ReviewAgent:
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
 
-            if not result:
-                raise ValueError("LLM 응답 결과가 비어있습니다.")
+            # 결과 보정 로직 (Post-processing)
+            final_checks = []
+            final_opinion = ""
 
-            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료")
+            if isinstance(result, list):
+                final_checks = result
+                failed_items = [c.get("label") for c in result if isinstance(c, dict) and not c.get("passed", True)]
+                final_opinion = "전체적으로 가이드라인을 준수하고 있습니다." if not failed_items else f"{', '.join(failed_items)} 항목에 대한 개선이 권장됩니다."
+            elif isinstance(result, dict):
+                final_checks = result.get("guideline_checks", [])
+                final_opinion = result.get("ai_opinion", "")
+
+            # 통과(passed: True) 항목에 대해 빈 detail 채우기 (사용자 요청 반영)
+            default_details = {
+                "혐오 표현 및 차별적 서술": "혐오 표현 및 차별적 서술이 없습니다.",
+                "자극적인 형용사 사용": "자극적인 형용사 사용이 발견되지 않았습니다.",
+                "특정 집단 비하 또는 낙인화 표현": "특정 집단에 대한 비하 또는 낙인화 표현이 없습니다.",
+                "미확인 사실 및 추측성 서술": "미확인 사실이나 추측성 서술이 발견되지 않았습니다.",
+                "핵심 분석 내용 반영": "핵심 분석 내용이 기사에 충실히 반영되었습니다."
+            }
+
+            for check in final_checks:
+                if isinstance(check, dict) and check.get("passed") is True:
+                    if not check.get("detail"):
+                        label = check.get("label", "")
+                        check["detail"] = default_details.get(label, "가이드라인을 준수하고 있습니다.")
+
+            # 최종 결과 조립
+            result = {
+                "guideline_checks": final_checks,
+                "ai_opinion": final_opinion if final_opinion else "검토가 완료되었습니다."
+            }
+            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 (의견: {result['ai_opinion'][:20]}...)")
 
         except Exception as e:
             msg = f"LLM 분석 오류: {e}"

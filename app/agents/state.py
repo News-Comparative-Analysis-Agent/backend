@@ -121,11 +121,6 @@ class ReviewState(TypedDict):
     # 이슈에 속한 기사 목록 (제목, URL, 언론사만 사용)
     articles_meta: List[Dict[str, Any]]        # [{"title": str, "url": str, "publisher": str, "published_at": str}]
 
-    # 신뢰도 분석 결과
-    reliability_score: int                     # 0~100 (유사도 위험도, 높을수록 위험)
-    risk_level: str                            # "안전" | "주의" | "위험"
-    top_sources: List[Dict[str, Any]]          # 유사 기사 소스 최대 3건
-
     # 가이드라인 검증 결과 (Gemini)
     guideline_checks: List[Dict[str, Any]]     # [{"label": str, "passed": bool, "detail": str}]
 

@@ -3,18 +3,6 @@ from typing import List, Optional
 from pydantic import BaseModel, computed_field
 from app.domains.publishers.schemas import PublisherAnalysis
 
-# class IssueResponse(BaseModel):
-#     id: int
-#     name: str # 이슈명
-#     description: Optional[str] = None # 이슈 배경
-#     article_count: int # 관련 기사 수
-#     rank: Optional[int] = None # 순위
-#     pre_generated_draft: Optional[str] = None # 미리 생성된 초안
-#     created_at: datetime
-#
-#     class Config:
-#         from_attributes = True
-
 class ClaimCardResponse(BaseModel):
     """주장 카드 응답 스키마"""
     id: int
