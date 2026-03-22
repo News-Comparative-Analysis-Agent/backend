@@ -13,6 +13,8 @@ services:
       # 컨테이너 내부에서는 'localhost' 대신 서비스 이름 'db_server'를 씁니다.
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_server:5432/${POSTGRES_DB}
       - TZ=Asia/Seoul
+    env_file:
+      - .env
     depends_on:
       - db_server
     restart: always

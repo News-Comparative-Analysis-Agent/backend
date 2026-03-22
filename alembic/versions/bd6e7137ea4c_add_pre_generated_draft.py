@@ -60,12 +60,18 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id')
         )
         op.create_index(op.f('ix_social_accounts_id'), 'social_accounts', ['id'], unique=False)
+
     # 'issue_labels' 테이블에 'pre_generated_draft' 컬럼이 이미 있는지 확인
     columns = [c['name'] for c in inspector.get_columns('issue_labels')]
     if 'pre_generated_draft' not in columns:
         op.add_column('issue_labels', sa.Column('pre_generated_draft', sa.Text(), nullable=True))
-    op.drop_column('users', 'provider_id')
-    op.drop_column('users', 'provider')
+    
+    # 'users' 테이블 컬럼 확인 후 안전하게 삭제
+    user_columns = [c['name'] for c in inspector.get_columns('users')]
+    if 'provider_id' in user_columns:
+        op.drop_column('users', 'provider_id')
+    if 'provider' in user_columns:
+        op.drop_column('users', 'provider')
     # ### end Alembic commands ###
 
 
@@ -76,7 +82,8 @@ def downgrade() -> None:
     op.drop_column('issue_labels', 'pre_generated_draft')
     op.drop_index(op.f('ix_social_accounts_id'), table_name='social_accounts')
     op.drop_table('social_accounts')
-    op.drop_index(op.f('ix_system_settings_id'), table_name='system_settings')
+    ix_system_settings_id = op.f('ix_system_settings_id')
+    op.drop_index(ix_system_settings_id, table_name='system_settings')
     op.drop_table('system_settings')
     op.drop_index(op.f('ix_execution_logs_status'), table_name='execution_logs')
     op.drop_index(op.f('ix_execution_logs_job_type'), table_name='execution_logs')

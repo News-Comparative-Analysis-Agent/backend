@@ -17,58 +17,69 @@ class WriterAgent:
     def __init__(self):
         pass
 
-    @traceable(name="Agent 3: Writer (초안 구조 생성) ✍️")
+    @traceable(name="Agent 3: Writer (비평 기사 본문 작성) ✍️")
     def node_write_draft(self, state: ComparisonState) -> dict:
         """
-        [Node] 구조화된 쟁점과 근거 데이터를 바탕으로 기사 초안을 작성합니다.
+        [Node] 구조화된 쟁점과 근거 데이터를 바탕으로 최종 비평 기사 본문을 작성합니다.
         Judge의 피드백이 있다면 이를 반영하여 다시 작성합니다.
         """
-        structured_issues = state.get("structured_issues", [])
+        issue_id = state.get("issue_id")
+        title = state.get("title", "")
+        description = state.get("description", "")
+        background = state.get("background", "")
+        conflict_summary = state.get("conflict_summary", "")
+        media_views = state.get("media_views", [])
+        
         judge_feedback = state.get("judge_feedback", "")
         judge_status = state.get("judge_status", "")
         retry_count = state.get("retry_count", 0)
         
-        log_llm_event("agent_writer", f"Agent 3 (Writer): 비평 초안 작성 시작 (Retry: {retry_count})")
+        log_llm_event("agent_writer", f"Agent 3 (Writer): 비평 기사 본문 작성 시작 (Retry: {retry_count})")
         
-        if not structured_issues:
-            return {"draft_article": "구조화된 쟁점 데이터가 없어 작성을 진행할 수 없습니다.", "messages": ["쟁점 부재로 Writer 중단"]}
-            
-        issues_json = json.dumps(structured_issues, ensure_ascii=False, indent=2)
+        if not title and not media_views:
+            return {"draft_article": "입력 데이터가 부족하여 작성을 진행할 수 없습니다.", "messages": ["데이터 부재로 Writer 중단"]}
+
+        # LLM에게 전달할 컨텍스트 조립
+        context = {
+            "title": title,
+            "description": description,
+            "background": background,
+            "conflict_summary": conflict_summary,
+            "media_views": media_views
+        }
+        context_json = json.dumps(context, ensure_ascii=False, indent=2)
         
         prompt = f"""
-        당신은 수석 논설위원입니다. 다음은 여러 언론사들의 관점 차이를 정리한 '핵심 쟁점(Issue)' 데이터입니다.
-        이를 바탕으로 저성능 LLM의 환각을 방지하기 위한 '데이터 기반 기사 개요(Outline)'를 작성하세요.
-        
-        [쟁점 데이터 목록]
-        {issues_json}
-        
-        [필수 사항]
-        본문을 서술하지 마시고, 제공된 JSON 스키마에 맞추어 항목별 핵심을 요약(정리)하십시오.
-        새로운 주장을 지어내지 말고 쟁점 데이터 안에 있는 팩트와 출처(claim, evidence, url)만 재배치하십시오.
-        
-        [출력 JSON 구조]
+        당신은 수석 논설위원입니다. 
+        제공된 언론사별 시각 차이 및 갈등 데이터를 바탕으로, 독자들에게 깊이 있는 통찰을 줄 수 있는 '최종 비평 기사 본문(article_body)'을 작성하세요.
+
+        [분석 데이터]
+        {context_json}
+
+        [작성 지침]
+        1. 단순한 사실 나열이 아닌, 언론사들이 왜 서로 다른 목소리를 내는지, 그 이면에 깔린 핵심 쟁점을 날카롭게 분석하십시오.
+        2. 'article_body'는 쟁점의 발단, 전개, 갈등의 핵심, 그리고 사회적 함의를 포함하여 1000자 내외의 완성된 기사 형태로 작성하십시오.
+        3. 기존 데이터(title, description, background, conflict_summary 등)는 분석을 위해 활용하되, 필요하다면 더 정교하게 리라이팅하여 최종 JSON에 포함하십시오.
+        4. 새로운 사실을 날조하지 마십시오.
+
+        [출력 JSON 스키마]
         {{
-          "title": "전체 기사 제목",
-          "introduction": {{
-            "context": "이슈 맥락",
-            "background": "사건 배경"
-          }},
-          "contentions": [
+          "issue_id": {issue_id},
+          "title": "15자 이내의 함축적인 기사 제목",
+          "description": "이슈의 배경과 핵심 내용 (3~4문장 요약)",
+          "background": "이슈 발생의 결정적 발단 (1~2문장)",
+          "core_contentions": "주요 쟁점 사항 (1문장 요약)",
+          "conflict_summary": "언론사별 시각 차이 핵심 요약",
+          "media_views": [
             {{
-              "contention_title": "쟁점 제목",
-              "conflict_summary": "이 쟁점에서의 갈등 요약",
-              "media_views": [
-                {{
-                  "press": "매체명",
-                  "claim": "원문 주장",
-                  "evidence": "인용구",
-                  "url": "기사 URL",
-                  "argument_summary": "해당 매체의 관점 요약"
-                }}
-              ]
+              "press": "언론사명",
+              "claim": "핵심 주장",
+              "evidence": "원문 인용구",
+              "url": "기사 URL",
+              "narrative": "매체별 서술형 분석"
             }}
           ],
-          "summary": "전체 결론 요약"
+          "article_body": "작성된 최종 비평 기사 본문 내용"
         }}
         """
         
@@ -77,73 +88,47 @@ class WriterAgent:
             previous_draft = state.get("draft_article", "")
             prompt += f"""
             
-            [🚨 이전 초안 검토 피드백 반영 필수 🚨]
-            편집장(Judge)으로부터 다음과 같은 피드백이 도착했습니다. 
-            아래 당신이 작성했던 [이전 초안]을 확인하고, 피드백 내용에 맞추어 초안을 전면 수정하십시오.
-            
-            [피드백 내용]
+            [🚨 편집장 피드백 반영 사항 🚨]
             {judge_feedback}
             
-            [당신이 작성했던 이전 JSON 초안]
+            [당신이 작성했던 이전 초안]
             {json.dumps(previous_draft, ensure_ascii=False) if isinstance(previous_draft, dict) else previous_draft}
             """
-            log_llm_event("agent_writer", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
+            log_llm_event("writer_agent", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
             
         try:
-            # call_llm은 (data, usage)를 반환함. Writer는 텍스트 생성이므로 data가 문자열로 반환될 수 있음.
-            # 하지만 utils.call_llm은 내부적으로 parse_llm_json을 호출하므로, 
-            # 텍스트 생성의 경우 JSON이 아니라면 call_local_llm을 직접 쓰거나 utils를 보강해야 함.
-            # 여기서는 텍스트 생성을 위해 call_llm이 아닌 직접 호출 방식을 유지하되 토큰만 추합.
-            
             llm_mode = state.get("llm_mode", "gemini_only")
             if llm_mode == "gemini_only":
                 import google.generativeai as genai
                 response_schema = {
                     "type": "OBJECT",
                     "properties": {
+                        "issue_id": {"type": "INTEGER"},
                         "title": {"type": "STRING"},
-                        "introduction": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "context": {"type": "STRING"},
-                                "background": {"type": "STRING"}
-                            },
-                            "required": ["context", "background"]
-                        },
-                        "contentions": {
+                        "description": {"type": "STRING"},
+                        "background": {"type": "STRING"},
+                        "core_contentions": {"type": "STRING"},
+                        "conflict_summary": {"type": "STRING"},
+                        "media_views": {
                             "type": "ARRAY",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "contention_title": {"type": "STRING"},
-                                    "conflict_summary": {"type": "STRING"},
-                                    "media_views": {
-                                        "type": "ARRAY",
-                                        "items": {
-                                            "type": "OBJECT",
-                                            "properties": {
-                                                "press": {"type": "STRING"},
-                                                "claim": {"type": "STRING"},
-                                                "evidence": {"type": "STRING"},
-                                                "url": {"type": "STRING"},
-                                                "argument_summary": {"type": "STRING"}
-                                            },
-                                            "required": ["press", "claim", "evidence", "url", "argument_summary"]
-                                        }
-                                    }
+                                    "press": {"type": "STRING"},
+                                    "claim": {"type": "STRING"},
+                                    "evidence": {"type": "STRING"},
+                                    "url": {"type": "STRING"},
+                                    "narrative": {"type": "STRING"}
                                 },
-                                "required": ["contention_title", "conflict_summary", "media_views"]
+                                "required": ["press", "claim", "evidence", "url", "narrative"]
                             }
                         },
-                        "summary": {"type": "STRING"}
+                        "article_body": {"type": "STRING"}
                     },
-                    "required": ["title", "introduction", "contentions", "summary"]
+                    "required": ["issue_id", "title", "description", "background", "core_contentions", "conflict_summary", "media_views", "article_body"]
                 }
                 gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
                 response = gen_model.generate_content(prompt)
-                
-                # 생성된 초안을 로그에 출력하도록 추가
-                log_llm_event("agent_writer", "Response received", details=response.text)
                 
                 try:
                     final_data = json.loads(response.text)
@@ -163,9 +148,7 @@ class WriterAgent:
             total_tokens = update_total_tokens(state, usage, "WriterAgent")
 
             msg = "비평 보고서 개요(Outline JSON) 생성 완료"
-            log_llm_event("agent_writer", msg)
-            if isinstance(final_data, dict):
-                logger.info(f"✍️ [WriterAgent] 생성된 초안 제목: {final_data.get('title', '제목 없음')}")
+            log_llm_event("agent_writer", msg, details=json.dumps(final_data, ensure_ascii=False, indent=2))
             return {"draft_article": final_data, "messages": [msg], "total_tokens": total_tokens}
             
         except Exception as e:

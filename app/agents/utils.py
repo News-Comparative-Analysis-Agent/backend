@@ -104,7 +104,7 @@ def parse_llm_json(text: str) -> any:
     return results[0]
 
 @traceable(run_type="llm", name="LocalLLM Call")
-def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str:
+def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다."""
     # 하위 호환성: 7B_1, 7B_2 등이 들어오면 기본 7B로 변환
     if model_size in ["7B_1", "7B_2"]:
@@ -119,7 +119,8 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
         "temperature": 0.1,
         "max_tokens": 2048
     }
-    if json_mode:
+    # schema가 있으면 json_mode 강제 활성화
+    if json_mode or schema:
         payload["response_format"] = {"type": "json_object"}
     
     try:
@@ -130,10 +131,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False) -> str
         response_data = res.json()
         content = response_data['choices'][0]['message']['content']
         
-        token_info_dict = None
-        if 'usage' in response_data:
-            token_info_dict = response_data['usage']
-            
+        token_info_dict = response_data.get('usage')
         log_llm_event("LocalLLM", "Response received", details=content, token_info=token_info_dict)
         
         usage = {
@@ -164,15 +162,24 @@ def get_gemini_client():
     return _gemini_client
 
 @traceable(run_type="llm", name="Gemini Call")
-def call_gemini(prompt: str) -> dict:
+def call_gemini(prompt: str, schema: dict = None) -> dict:
     """제미나이 API를 호출합니다."""
     try:
         log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
         client = get_gemini_client()
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
-        )
+        
+        generate_kwargs = {
+            "model": 'gemini-2.0-flash',
+            "contents": prompt
+        }
+        
+        if schema:
+            generate_kwargs["config"] = {
+                "response_mime_type": "application/json",
+                "response_schema": schema
+            }
+
+        response = client.models.generate_content(**generate_kwargs)
         
         usage = response.usage_metadata
         token_info = {
@@ -259,28 +266,28 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     return "", {"prompt_tokens": 0, "completion_tokens": 0}
 
 @traceable(run_type="chain", name="LLM Routing (JSON)")
-def call_llm(prompt: str, model_size: str, state: dict) -> tuple:
+def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> tuple:
     """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
     mode = state.get("llm_mode", "gemini_only")
     
     if mode == "local_only":
-        content, usage = call_local_llm(model_size, prompt)
+        content, usage = call_local_llm(model_size, prompt, schema=schema)
         return parse_llm_json(content), usage
         
     if mode == "gemini_only":
-        return call_gemini(prompt)
+        return call_gemini(prompt, schema=schema)
         
     if mode == "local_priority":
         try:
-            content, usage = call_local_llm(model_size, prompt)
+            content, usage = call_local_llm(model_size, prompt, schema=schema)
             parsed = parse_llm_json(content)
             if parsed: return parsed, usage
             raise ValueError("로컬 LLM 응답 파싱 실패")
         except Exception as e:
             logger.warning(f"로컬 LLM 실패로 인해 제미나이로 폴백합니다: {e}")
-            return call_gemini(prompt)
+            return call_gemini(prompt, schema=schema)
     
-    return call_gemini(prompt)
+    return call_gemini(prompt, schema=schema)
 
 
 

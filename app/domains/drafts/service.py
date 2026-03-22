@@ -16,7 +16,7 @@ from app.domains.drafts.schemas import (
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
     SaveDraftRequest,
     FinalReviewResponse,
-    GuidelineCheck, ArticleSourceItem, ReliabilityAnalysis
+    GuidelineCheck, ArticleSourceItem
 )
 from app.core.logger import logger
 
@@ -221,46 +221,6 @@ class DraftService:
         return images
 
     # ==========================================
-    # 4. 표절/유사도 검사 로직
-    # ==========================================
-    def _calculate_similarity(self, text1: str, text2: str) -> float:
-        if not text1 or not text2:
-            return 0.0
-        return SequenceMatcher(None, text1, text2).quick_ratio()
-
-    def check_similarity(self, request: SimilarityRequest) -> SimilarityResponse:
-        if not request.draft_text.strip():
-            return SimilarityResponse(score=0, message="작성된 내용이 없습니다.", status="safe")
-
-        articles = self.repo.get_articles_by_issue(request.issue_id)
-        if not articles:
-            return SimilarityResponse(score=0, message="비교할 관련 기사가 없습니다.", status="safe")
-
-        max_score = 0.0
-        for article in articles:
-            sim_summary = self._calculate_similarity(request.draft_text, article.summary or "")
-            sim_title = self._calculate_similarity(request.draft_text, article.title or "")
-            max_score = max(max_score, sim_summary, sim_title)
-
-        score_percent = int(max_score * 100)
-        
-        if score_percent < 30:
-            status = "safe"
-            message = "작성 중인 내용의 유사도가 안전 범위에 있습니다."
-        elif score_percent < 60:
-            status = "warning"
-            message = "일부 내용이 기존 기사와 유사합니다. 인용 표시를 고려하세요."
-        else:
-            status = "critical"
-            message = "기존 기사와 매우 유사합니다. 표절 가능성이 높습니다."
-
-        return SimilarityResponse(
-            score=score_percent,
-            message=message,
-            status=status
-        )
-
-    # ==========================================
     # 5. 3가지 진영 관점 분석 로직
     # ==========================================
     async def _summarize_perspective(self, publisher_name: str, articles_text: str) -> str:
@@ -403,20 +363,29 @@ class DraftService:
                 raise HTTPException(status_code=500, detail=final_state["error"])
 
             # 3. 결과 리포트 조립
-            reliability = ReliabilityAnalysis(
-                score=final_state.get("reliability_score", 0),
-                risk_level=final_state.get("risk_level", "안전"),
-                sources=[
-                    ArticleSourceItem(**src) for src in final_state.get("top_sources", [])
-                ]
-            )
+            sources = [
+                ArticleSourceItem(**src) for src in final_state.get("articles_meta", [])
+            ]
 
             guideline_checks = [
                 GuidelineCheck(**check) for check in final_state.get("guideline_checks", [])
             ]
 
+            # 4. 이슈 기본 정보 조회
+            issue = self.repo.get_issue_by_id(issue_id)
+            if not issue:
+                raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+
             return FinalReviewResponse(
-                reliability=reliability,
+                id=issue.id,
+                name=issue.name,
+                description=issue.description,
+                background=issue.background,
+                core_contentions=issue.core_contentions,
+                created_at=issue.created_at,
+                updated_at=getattr(issue, "updated_at", issue.created_at), # 신규 필드 (없으면 created_at)
+                pre_generated_draft=issue.pre_generated_draft,
+                sources=sources,
                 guideline_checks=guideline_checks,
                 ai_opinion=final_state.get("ai_opinion", "의견을 생성할 수 없습니다.")
             )

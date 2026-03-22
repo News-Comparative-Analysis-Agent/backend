@@ -71,7 +71,8 @@ def create_analysis_subgraph():
         return WriterAgent().node_write_draft(state)
         
     def editor_wrapper(state):
-        return EditorAgent().node_edit_draft(state)
+        with SessionLocal() as db:
+            return EditorAgent(db).node_edit_draft(state)
         
     def judge_wrapper(state):
         with SessionLocal() as db:
@@ -191,7 +192,7 @@ def create_comparison_graph(db: Session):
 def create_review_graph(db: Session):
     """
     최종 품질 검토 파이프라인 그래프 (LangGraph) 생성
-    [Chain: Fetch -> Reliability -> Analysis]
+    [Chain: Fetch -> Analysis]
     """
     from app.agents.state import ReviewState
     from app.agents.review import ReviewAgent
@@ -203,13 +204,11 @@ def create_review_graph(db: Session):
     
     # 노드 등록
     workflow.add_node("fetch", agent.node_fetch_articles)
-    workflow.add_node("reliability", agent.node_calculate_reliability)
     workflow.add_node("analyze", agent.node_analyze_and_opine)
     
     # 순차적 엣지 정의
     workflow.add_edge(START, "fetch")
-    workflow.add_edge("fetch", "reliability")
-    workflow.add_edge("reliability", "analyze")
+    workflow.add_edge("fetch", "analyze")
     workflow.add_edge("analyze", END)
     
     # 체크포인터 없이 컴파일 (실시간 요청-응답형)
