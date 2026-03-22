@@ -3,18 +3,6 @@ from typing import List, Optional
 from pydantic import BaseModel, computed_field
 from app.domains.publishers.schemas import PublisherAnalysis
 
-# class IssueResponse(BaseModel):
-#     id: int
-#     name: str # 이슈명
-#     description: Optional[str] = None # 이슈 배경
-#     article_count: int # 관련 기사 수
-#     rank: Optional[int] = None # 순위
-#     pre_generated_draft: Optional[str] = None # 미리 생성된 초안
-#     created_at: datetime
-#
-#     class Config:
-#         from_attributes = True
-
 class ClaimCardResponse(BaseModel):
     """주장 카드 응답 스키마"""
     id: int
@@ -69,8 +57,8 @@ class IssueFeedItem(BaseModel):
     rank: Optional[int] = None           # 현재(또는 최고) 순위
     created_at: datetime
 
-    # 1순위 이슈 전용: 기사 이미지 URL 목록
-    image_urls: List[str] = []           # 소속 기사들의 이미지 URL (1위 이슈만 채워짐)
+    # 기사 대표 이미지 URL 목록
+    image_urls: List[str] = []           # 소속 기사들의 이미지 URL
 
     # 차트아웃 이슈 전용 필드
     is_chart_out: bool = False            # OUT 뱃지 표시 여부
@@ -85,6 +73,30 @@ class IssueFeedResponse(BaseModel):
     """30개 이슈를 두 섹션으로 나눈 피드 응답"""
     top_issues: List[IssueFeedItem]       # 최신 생성 순 10개
     chart_out_issues: List[IssueFeedItem] # 차트아웃 20개
+
+    class Config:
+        from_attributes = True
+
+
+class IssueTimelineItem(BaseModel):
+    """타임라인 내 개별 이슈 아이템"""
+    id: int
+    name: str # 이슈명
+    article_count: int # 관련 기사 수
+    created_at: datetime
+    
+    # 기사 대표 이미지 URL 목록
+    image_urls: List[str] = []
+    
+    class Config:
+        from_attributes = True
+
+
+class IssueTimelineResponse(BaseModel):
+    """특정 이슈에 대한 타임라인 (유사한 이슈 모음)"""
+    target_issue_id: int
+    target_issue_name: str
+    timeline: List[IssueTimelineItem]
 
     class Config:
         from_attributes = True

@@ -80,7 +80,7 @@ async def save_draft_to_workspace_api(
     return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "draft_id": new_draft_id}
 
 # 7. 최종 품질 검토 API
-@router.post("/final-review/{issue_id}", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")
+@router.get("/final-review/{issue_id}", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")
 async def final_review_api(issue_id: int, db: Session = Depends(get_db)):
     """
     사용자가 수정한 최종 기사(user_content)를 AI가 검토하여 품질 리포트를 반환합니다. (LangGraph 기반)

@@ -21,6 +21,8 @@ class ClusterState(TypedDict):
     unclustered_articles: List[Dict[str, Any]] # 이슈가 배정되지 않은 기사 리스트
     clustered_topics: List[Dict[str, Any]]     # BERTopic으로 군집화되고 AI로 분석된 토픽 리스트
     saved_issue_count: int                     # DB에 저장된 이슈 라벨 수
+    total_tokens: Dict[str, int]               # 토큰 사용량 추적 추가
+    all_issue_ids: List[int]                   # 생성된 이슈 ID 목록 추가
     messages: Annotated[List[str], operator.add] # 로그 메시지 수집용
     error: str                                 # 에러 발생 시 에러 메시지 저장
 
@@ -61,6 +63,10 @@ class ComparisonState(TypedDict):
     issue_id: int
 
     # EvidenceAgent가 LLM 호출을 위해 사용하는 원문 기사 목록
+    raw_articles: List[Dict[str, Any]]        # 원본 기사 보존용 추가
+    unclustered_articles: List[Dict[str, Any]] # 미분류 기사 목록 추가
+    clustered_topics: List[Dict[str, Any]]     # 군집화된 토픽 목록 추가
+    all_issue_ids: List[int]                   # 전체 이슈 ID 목록 추가
     articles: List[Dict[str, Any]]
 
     # EvidenceAgent가 IssueAgent로 전달하는 media 근거 묶음
@@ -73,6 +79,8 @@ class ComparisonState(TypedDict):
 
     # IssueAgent가 LLM 출력(서술형)과 evidence factual input을 서버측에서 조립해 넘기는 최종 media 뷰
     # (claim/evidence/url은 LLM이 아닌 조립 코드가 채웁니다)
+    claim_cards: List[Dict[str, Any]]          # 이전 버전 호환용 추가
+    structured_issues: List[Dict[str, Any]]    # 이전 버전 호환용 추가
     media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url, narrative}, ...]
 
     # 최종 이슈 프레임(최상단 메타)
@@ -112,11 +120,6 @@ class ReviewState(TypedDict):
 
     # 이슈에 속한 기사 목록 (제목, URL, 언론사만 사용)
     articles_meta: List[Dict[str, Any]]        # [{"title": str, "url": str, "publisher": str, "published_at": str}]
-
-    # 신뢰도 분석 결과
-    reliability_score: int                     # 0~100 (유사도 위험도, 높을수록 위험)
-    risk_level: str                            # "안전" | "주의" | "위험"
-    top_sources: List[Dict[str, Any]]          # 유사 기사 소스 최대 3건
 
     # 가이드라인 검증 결과 (Gemini)
     guideline_checks: List[Dict[str, Any]]     # [{"label": str, "passed": bool, "detail": str}]

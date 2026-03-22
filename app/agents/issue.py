@@ -159,7 +159,6 @@ class IssueAgent:
                 "conflict_summary": conflict_summary,
                 "media_narratives": media_narratives
             }
-            logger.success(f"🧩 [IssueAgent] {msg}")
             log_llm_event("agent_issue", msg, details=json.dumps(details, ensure_ascii=False, indent=2))
 
             # 서버측 조립: factual(claim/evidence/url)은 input(media_items) 그대로 쓰고,
