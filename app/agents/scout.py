@@ -108,7 +108,7 @@ class ScoutAgent:
             image_urls.append(img_tag['content'])
 
         if content_area:
-            # 본문에 있는 이미지들도 추출
+            # 본문에 있는 이미지들도 추출(이미지 저장소를 위해)
             for img in content_area.select('img'):
                 src = img.get('data-src') or img.get('src')
                 if src and src not in image_urls and not src.startswith('data:'):
