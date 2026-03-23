@@ -153,6 +153,12 @@ class DraftService:
             raise HTTPException(status_code=500, detail="Google Gemini API Key is not configured.")
 
         try:
+            pre_generated_context = ""
+            if request.issue_id:
+                issue = self.repo.get_issue_by_id(request.issue_id)
+                if issue and issue.pre_generated_draft:
+                    pre_generated_context = f"\n\n[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]\n{issue.pre_generated_draft}\n"
+
             system_prompt = """
 당신은 기사 작성을 돕는 스마트 AI 어시스턴트입니다.
 사용자는 현재 뉴스 기사 초안을 작성하고 있는 기자 또는 작가입니다.
@@ -160,7 +166,8 @@ class DraftService:
 [역할]
 1. 사용자의 질문에 친절하고 전문적으로 답변하세요.
 2. 'draft_content'가 제공되면, 문맥을 파악하여 피드백을 제공하세요.
-3. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 수정이 필요한 질문을 하면, **초안 전체를 수정한 결과**를 제공해야 합니다.
+3. 제공된 '[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]'이 있다면, 해당 내용을 바탕으로 더 일관성 있고 맥락에 맞는 답변을 제공하세요.
+4. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 수정이 필요한 질문을 하면, **초안 전체를 수정한 결과**를 제공해야 합니다.
 
 [출력 형식]
 반드시 다음 JSON 형식으로만 응답하세요. 마크다운 코드 블록(` ```json `)을 포함하지 마세요.
@@ -169,7 +176,7 @@ class DraftService:
     "modified_content": "수정된 전체 초안 내용 (수정 사항이 없으면 null)"
 }
             """
-            context_message = f"{system_prompt}\n\n[현재 작성 중인 초안]\n{request.draft_content}\n\n"
+            context_message = f"{system_prompt}{pre_generated_context}\n\n[현재 작성 중인 초안]\n{request.draft_content}\n\n"
             
             if request.messages:
                 last_user_input = request.messages[-1].content
@@ -198,7 +205,11 @@ class DraftService:
     # ==========================================
     # 3. 이미지 추출 로직
     # ==========================================
-    def get_issue_images(self, issue_id: int) -> List[ImageItem]:
+    async def get_issue_images(self, issue_id: int) -> List[ImageItem]:
+        import asyncio
+        import aiohttp
+        from bs4 import BeautifulSoup
+
         articles = self.repo.get_articles_by_issue_with_publisher(issue_id)
         if not articles:
             return []
@@ -206,6 +217,7 @@ class DraftService:
         images = []
         seen_urls = set()
 
+        # 1. DB에 이미 저장된 이미지들을 1차로 로드
         for art in articles:
             if art.image_urls:
                 for url in art.image_urls:
@@ -218,6 +230,38 @@ class DraftService:
                             publisher=pub_name,
                             published_at=art.published_at.strftime("%Y-%m-%d") if art.published_at else ""
                         ))
+                        
+        # 2. 충분한 이미지가 없거나 과거 데이터 보정 위해, 비동기 온더플라이 스크래핑 시도
+        async def fetch_article_images_dynamically(session, art):
+            try:
+                headers = {"User-Agent": "Mozilla/5.0"}
+                async with session.get(art.url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        soup = BeautifulSoup(html, 'html.parser')
+                        content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
+                        
+                        if content_area:
+                            pub_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없음"
+                            for img in content_area.select('img'):
+                                src = img.get('data-src') or img.get('src')
+                                if src and src not in seen_urls and not src.startswith('data:'):
+                                    seen_urls.add(src)
+                                    images.append(ImageItem(
+                                        url=src,
+                                        title=art.title,
+                                        publisher=pub_name,
+                                        published_at=art.published_at.strftime("%Y-%m-%d") if art.published_at else ""
+                                    ))
+            except Exception as e:
+                logger.warning(f"추가 이미지 동적 스크래핑 실패 ({art.url}): {e}")
+
+        # 제한적인 기사 수에 대해서 동시 스크래핑 진행 (모든 기사는 너무 오래 걸리므로 limit 10)
+        async with aiohttp.ClientSession() as session:
+            tasks = [fetch_article_images_dynamically(session, art) for art in articles[:10]]
+            if tasks:
+                await asyncio.gather(*tasks)
+
         return images
 
     # ==========================================
