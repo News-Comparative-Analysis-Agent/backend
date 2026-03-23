@@ -167,16 +167,16 @@ class DraftService:
 1. 사용자의 질문에 친절하고 전문적으로 답변하세요.
 2. 'draft_content'가 제공되면, 문맥을 파악하여 피드백을 제공하세요.
 3. 제공된 '[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]'이 있다면, 해당 내용을 바탕으로 더 일관성 있고 맥락에 맞는 답변을 제공하세요.
-4. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 수정이 필요한 질문을 하면, **초안 전체를 수정한 결과**를 제공해야 합니다.
+4. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 조언을 구하면, 당신은 **반드시 `modified_content` 필드에 처음부터 끝까지 수정 및 완성된 기사 전체 내용(Full Text)을 작성해야 합니다.** 다시 말해, `response` 필드에는 간단한 안내 멘트만 적고 실제 수정본은 모두 `modified_content`에 넣으세요!
 
 [출력 형식]
 반드시 다음 JSON 형식으로만 응답하세요. 마크다운 코드 블록(` ```json `)을 포함하지 마세요.
 {
-    "response": "사용자에게 할 말 (한국어)",
-    "modified_content": "수정된 전체 초안 내용 (수정 사항이 없으면 null)"
+    "response": "수정 방향이나 안내 멘트 등 사용자에게 할 말 (한국어)",
+    "modified_content": "수정된 전체 기사 초안 텍스트 (수정 요청일 경우 필수 작성, 질문만 있으면 null)"
 }
             """
-            context_message = f"{system_prompt}{pre_generated_context}\n\n[현재 작성 중인 초안]\n{request.draft_content}\n\n"
+            context_message = f"{system_prompt}{pre_generated_context}\n\n[현재 작성 중인 초안 (draft_content)]\n{request.draft_content}\n\n"
             
             if request.messages:
                 last_user_input = request.messages[-1].content
