@@ -100,7 +100,20 @@ class ScoutAgent:
         # 🔥 본문 파싱 셀렉터 강화 (포토뉴스 등 방어)
         content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
         content = ""
+        image_urls = []
+        
+        # 메인 썸네일 추가
+        img_tag = soup.select_one('meta[property="og:image"]')
+        if img_tag and img_tag.get('content'):
+            image_urls.append(img_tag['content'])
+
         if content_area:
+            # 본문에 있는 이미지들도 추출(이미지 저장소를 위해)
+            for img in content_area.select('img'):
+                src = img.get('data-src') or img.get('src')
+                if src and src not in image_urls and not src.startswith('data:'):
+                    image_urls.append(src)
+            
             for tag in content_area.select('.img_desc, .end_photo_org, .media_end_summary, .byline_s'):
                 tag.extract()
             content = content_area.get_text(strip=True)
@@ -108,9 +121,7 @@ class ScoutAgent:
         if len(content) < 50: # 너무 짧은 기사(사진만 있는 경우 등) 방어
             return None
             
-        # 이미지 및 날짜
-        img_tag = soup.select_one('meta[property="og:image"]')
-        image_url = img_tag['content'] if img_tag else ""
+        # 날짜
         date_tag = soup.select_one('.media_end_head_info_datestamp span')
         pub_date = date_tag['data-date-time'] if date_tag else ""
         
@@ -124,7 +135,7 @@ class ScoutAgent:
             "press": press_name,
             "title": title,
             "content": content,
-            "image_url": image_url,
+            "image_urls": image_urls,
             "pub_date": pub_date,
             "reporter": reporter,
             "link": link
@@ -308,7 +319,11 @@ class ScoutAgent:
                 publisher = self.repo.get_or_create_publisher(art['press'])
                 
                 # 3. 기사 및 본문 저장
-                image_list = [art.get('image_url')] if art.get('image_url') else []
+                image_list = art.get('image_urls', [])
+                # 만약 기존 캐시나 오류로 단일 문자열이 넘어올 경우 방어 로직
+                if not image_list and art.get('image_url'):
+                    image_list = [art.get('image_url')]
+
                 new_art = self.repo.save_article_with_body(
                     publisher_id=publisher.id,
                     title=art['title'],
