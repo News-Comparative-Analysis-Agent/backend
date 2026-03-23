@@ -182,10 +182,18 @@ class DraftService:
                 last_user_input = request.messages[-1].content
                 full_prompt = context_message + f"[사용자 질문]\n{last_user_input}"
                 
+                from pydantic import BaseModel, Field
+                class ChatAIOutputSchema(BaseModel):
+                    response: str = Field(description="수정 방향이나 피드백, 안내 멘트 등 사용자에게 전달할 대화 내용")
+                    modified_content: Optional[str] = Field(description="사용자가 글 내용 수정을 요구한 경우, 수정이 완료된 기사 초안 전체 텍스트. 전체 길이가 보존되어야 합니다. 수정을 원하지 않고 단순 질문만 한 경우에는 null")
+
                 response = client.models.generate_content(
                     model='gemini-2.0-flash',
                     contents=full_prompt,
-                    config={"response_mime_type": "application/json"}
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_schema": ChatAIOutputSchema
+                    }
                 )
                 
                 try:
