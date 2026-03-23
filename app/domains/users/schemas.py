@@ -42,7 +42,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
-class DraftSummaryInMyPage(BaseModel):
+class MyPageDraftSummary(BaseModel):
     """마이페이지용 초안 요약 정보 (이슈 기준)"""
     issue_id: int
     title: str
@@ -54,4 +54,4 @@ class DraftSummaryInMyPage(BaseModel):
 class MyPageResponse(BaseModel):
     """마이페이지 조회를 위한 유저 정보 + 초안 목록 (Response DTO)"""
     user: UserResponse
-    drafts: List[DraftSummaryInMyPage] = []
+    drafts: List[MyPageDraftSummary] = []

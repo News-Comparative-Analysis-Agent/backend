@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from app.core.database import get_db
 from app.domains.users.models import User
 from app.domains.users.service import UserService
-from app.domains.users.schemas import TokenResponse, MyPageResponse, DraftSummaryInMyPage
+from app.domains.users.schemas import TokenResponse, MyPageResponse, MyPageDraftSummary
 from app.core.security import create_access_token, get_current_user
 from app.domains.issues.models import IssueLabel
 
@@ -75,7 +75,7 @@ async def get_my_page(
         # DB에서 해당 이슈들 조회
         issues = db.query(IssueLabel).filter(IssueLabel.id.in_(user.draft_issue_ids)).all()
         for issue in issues:
-            drafts.append(DraftSummaryInMyPage(
+            drafts.append(MyPageDraftSummary(
                 issue_id=issue.id,
                 title=issue.name,
                 updated_at=getattr(issue, "created_at", datetime.now()) 
