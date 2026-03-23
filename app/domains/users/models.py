@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import ARRAY
 from app.core.database import Base
 
 class User(Base):
@@ -12,6 +13,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False, index=True) # 사용자 이메일 (고유값)
     nickname = Column(String) # 사용자 닉네임
+    
+    # 초안 작업한 이슈 ID 목록 (PostgreSQL ARRAY 타입)
+    draft_issue_ids = Column(ARRAY(Integer), default=[])
     
     created_at = Column(DateTime, default=func.now()) # 가입 일시
 

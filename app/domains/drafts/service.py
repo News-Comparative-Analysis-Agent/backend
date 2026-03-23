@@ -88,14 +88,15 @@ class DraftService:
             error_msg = json.dumps({"text": f"\n\n[Error] 생성 중 오류 발생: {str(e)}"}, ensure_ascii=False)
             yield f"data: {error_msg}\n\n"
 
-    def generate_draft_stream(self, issue_id: int):
+    def generate_draft_stream(self, issue_id: int, user_id: Optional[int] = None):
+        from app.domains.users.models import User
         context_text = ""
         pre_generated_draft = None
         
         if issue_id:
             issue = self.repo.get_issue_by_id(issue_id)
             if issue:
-                # 미리 생성된 초안이 있는지 확인
+                # IssueLabel의 pre_generated_draft를 최신 초안으로 사용
                 if issue.pre_generated_draft:
                     pre_generated_draft = issue.pre_generated_draft
                 
@@ -307,28 +308,87 @@ class DraftService:
     # 6. 작업실 저장 (초안 복사) 로직
     # ==========================================
     def save_issue_draft_to_workspace(self, user_id: int, request: SaveDraftRequest) -> int:
-        from app.domains.drafts.models import Draft
+        """
+        초안 저장 로직 (리팩토링 버전)
+        - User의 draft_issue_ids에 추가함.
+        - 초안 본문은 이미 IssueLabel.pre_generated_draft에 존재함.
+        """
+        from app.domains.users.models import User
         
         issue = self.repo.get_issue_by_id(request.issue_id)
         if not issue:
             raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
-        if not issue.pre_generated_draft:
-            raise HTTPException(status_code=400, detail="해당 이슈에 미리 생성된 초안이 없습니다.")
+        
+        user = self.repo.db.query(User).get(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
             
-        # 새로운 Draft 생성 후 내 작업실로 복사
-        new_draft = Draft(
-            user_id=user_id,
-            title=f"[{issue.name}] 비평 기사 초안",
-            content=issue.pre_generated_draft,
-            status="draft"
-        )
+        # user.draft_issue_ids 목록에 이슈 ID 추가 (중복 방지)
+        if user.draft_issue_ids is None:
+            user.draft_issue_ids = []
+            
+        if request.issue_id not in user.draft_issue_ids:
+            new_list = list(user.draft_issue_ids)
+            new_list.append(request.issue_id)
+            user.draft_issue_ids = new_list
+            self.repo.db.add(user)
+            self.repo.db.commit()
+            
+        return request.issue_id
+
+    def update_issue_draft(self, issue_id: int, content: str, user_id: int) -> int:
+        """
+        이슈의 초안 내용을 업데이트합니다 (공유 저장소 방식).
+        """
+        from app.domains.users.models import User
         
-        # 실제로는 repo에 save 메서드를 추가해야 하지만 직접 add
-        self.repo.db.add(new_draft)
+        issue = self.repo.get_issue_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+            
+        # 1. 초안 내용 업데이트 (공유 저장소)
+        issue.pre_generated_draft = content
+        
+        # 2. 유저의 작업 이력에 추가 (작업실 목록 노출용)
+        user = self.repo.db.query(User).get(user_id)
+        if user:
+            if user.draft_issue_ids is None:
+                user.draft_issue_ids = []
+            if issue_id not in user.draft_issue_ids:
+                new_list = list(user.draft_issue_ids)
+                new_list.append(issue_id)
+                user.draft_issue_ids = new_list
+                self.repo.db.add(user)
+        
         self.repo.db.commit()
-        self.repo.db.refresh(new_draft)
+        return issue_id
+
+    def update_issue_draft(self, issue_id: int, content: str, user_id: int) -> int:
+        """
+        이슈의 초안 내용을 업데이트합니다.
+        """
+        from app.domains.users.models import User
         
-        return new_draft.id
+        issue = self.repo.get_issue_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+            
+        # 1. 초안 내용 업데이트 (공유 저장소)
+        issue.pre_generated_draft = content
+        
+        # 2. 유저의 작업 이력에 추가
+        user = self.repo.db.query(User).get(user_id)
+        if user:
+            if user.draft_issue_ids is None:
+                user.draft_issue_ids = []
+            if issue_id not in user.draft_issue_ids:
+                new_list = list(user.draft_issue_ids)
+                new_list.append(issue_id)
+                user.draft_issue_ids = new_list
+                self.repo.db.add(user)
+        
+        self.repo.db.commit()
+        return issue_id
 
     # ==========================================
     # 7. 최종 품질 검토 로직 (Final Review) - LangGraph 적용

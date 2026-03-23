@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 from app.core.database import get_db
 from app.domains.users.models import User
 from app.domains.users.service import UserService
-from app.domains.users.schemas import TokenResponse
-from app.core.security import create_access_token
+from app.domains.users.schemas import TokenResponse, MyPageResponse, DraftSummaryInMyPage
+from app.core.security import create_access_token, get_current_user
+from app.domains.issues.models import IssueLabel
 
 
 router = APIRouter()
@@ -59,6 +60,31 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/me", response_model=MyPageResponse, summary="내 정보 및 초안 목록 & 스크랩한 기사들 조회 (마이페이지)")
+async def get_my_page(
+    user: User = Depends(get_current_user)
+):
+    """
+    현재 로그인한 사용자의 프로필 정보와 작성 중인 초안 목록을 반환합니다.
+    """
+    from datetime import datetime
+    # draft_issue_ids가 있다면 해당 이슈 정보들을 가져오기
+    drafts = []
+    if user.draft_issue_ids:
+        # DB에서 해당 이슈들 조회
+        issues = db.query(IssueLabel).filter(IssueLabel.id.in_(user.draft_issue_ids)).all()
+        for issue in issues:
+            drafts.append(DraftSummaryInMyPage(
+                issue_id=issue.id,
+                title=issue.name,
+                updated_at=getattr(issue, "created_at", datetime.now()) 
+            ))
+
+    return MyPageResponse(
+        user=user,
+        drafts=drafts
+    )
 
 @router.get("/login/google", response_model=TokenResponse)
 async def google_login(id_token: str, db: Session = Depends(get_db)):

@@ -7,20 +7,14 @@ from app.domains.drafts.schemas import (
     StreamDraftRequest, ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
     PerspectivesResponse, SaveDraftRequest,
-    FinalReviewResponse
+    FinalReviewResponse, DraftUpdate
 )
 from app.domains.drafts.service import DraftService
+from app.domains.users.models import User
+from app.core.security import get_current_user
 
 router = APIRouter()
 
-# 1. 자동 초안 스트리밍 생성 API
-@router.post("/ai_draft/stream", summary="비평 기사 자동 생성 (스트리밍)")
-async def generate_draft_stream_api(request: StreamDraftRequest, db: Session = Depends(get_db)):
-    """
-    특정 이슈(issue_id)와 관련된 기사들을 바탕으로, 비평 기사 초안을 스트리밍 방식으로 생성합니다.
-    """
-    service = DraftService(db)
-    return service.generate_draft_stream(request.issue_id)
 
 # 2. AI 챗봇 대화 및 수정 API
 @router.post("/chat", response_model=ChatResponse, summary="초안 첨삭 및 작성 보조 챗봇")
@@ -60,24 +54,31 @@ async def analyze_perspectives_api(issue_id: int, db: Session = Depends(get_db))
     service = DraftService(db)
     return await service.analyze_perspectives(issue_id)
 
-# 6. 초안 작업실 가져오기 API
 @router.post("/workspace/from-issue", summary="시스템 초안을 내 작업실로 가져오기")
 async def save_draft_to_workspace_api(
     request: SaveDraftRequest, 
-    db: Session = Depends(get_db)
-    # user: User = Depends(get_current_user) # 추후 사용자 인증 활성화 시 주석 해제하여 사용
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
 ):
     """
     이슈의 pre_generated_draft를 읽어서 현재 로그인한 유저의 Draft 테이블로 복사(저장)합니다.
-    (현재 인증이 임시 비활성화 상태라 임의의 user_id 1번을 사용합니다 - 추후 get_current_user 연동)
     """
     service = DraftService(db)
-    user_id = 1 # FIXME: 추후 인증 미들웨어가 활성화되면 user.id 로 변경
+    new_draft_id = service.save_issue_draft_to_workspace(user_id=user.id, request=request)
     
-    new_draft_id = service.save_issue_draft_to_workspace(user_id=user_id, request=request)
-    
-    # SaveDraftResponse 스키마 리턴 대신 임시 딕셔너리 또는 스키마 매핑
-    return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "draft_id": new_draft_id}
+    return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "issue_id": new_draft_id}
+
+@router.put("/issue/{issue_id}", summary="초안 수정 및 임시 저장 (이슈 기준)")
+async def update_draft_api(
+    issue_id: int,
+    request: DraftUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """이슈 ID를 기준으로 초안 본문 내용을 업데이트합니다."""
+    service = DraftService(db)
+    updated_id = service.update_issue_draft(issue_id, request.content, user.id)
+    return {"message": "초안이 성공적으로 수정되었습니다.", "issue_id": updated_id}
 
 # 7. 최종 품질 검토 API
 @router.get("/final-review/{issue_id}", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")
