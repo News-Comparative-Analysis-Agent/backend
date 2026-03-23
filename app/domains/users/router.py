@@ -63,6 +63,7 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=MyPageResponse, summary="내 정보 및 초안 목록 & 스크랩한 기사들 조회 (마이페이지)")
 async def get_my_page(
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
     """
