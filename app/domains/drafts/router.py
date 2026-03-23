@@ -37,9 +37,10 @@ async def chat_with_ai_api(request: ChatRequest, db: Session = Depends(get_db)):
 async def get_issue_images_api(issue_id: int, db: Session = Depends(get_db)):
     """
     특정 이슈 ID에 묶인 기사들에 포함된 대표 이미지 URL들을 중복 없이 반환합니다.
+    (기존 DB 항목 외에, 각 기사 페이지에서 동적으로 이미지를 추가 추출합니다)
     """
     service = DraftService(db)
-    return service.get_issue_images(issue_id)
+    return await service.get_issue_images(issue_id)
 
 # 4. 표절 유사도 검사 API
 @router.post("/similarity", response_model=SimilarityResponse, summary="기사 유사도 검사")

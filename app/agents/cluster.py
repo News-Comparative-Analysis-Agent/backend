@@ -13,7 +13,7 @@ from umap import UMAP
 from bertopic import BERTopic
 
 from app.scroller.repository import ScrollerRepository
-from app.agents.state import ComparisonState
+
 from app.core.logger import logger, log_llm_event
 from app.agents.utils import parse_llm_json, call_llm, call_llm_text, update_total_tokens
 import concurrent.futures
@@ -130,7 +130,7 @@ class ClusterAgent:
     # ==========================================
     # Graph Nodes
     # ==========================================
-    def node_fetch_unclustered(self, state: ComparisonState) -> Dict[str, Any]:
+    def node_fetch_unclustered(self, state: dict) -> Dict[str, Any]:
         """미분류 기사 로드"""
         log_llm_event("ClusterAgent", "미분류 기사 로드 노드 시작")
         try:
@@ -154,7 +154,7 @@ class ClusterAgent:
             log_llm_event("ClusterAgent", msg, type="ERROR")
             return {"unclustered_articles": [], "error": str(e), "messages": [msg]}
 
-    def node_lexical_cluster(self, state: ComparisonState) -> Dict[str, Any]:
+    def node_lexical_cluster(self, state: dict) -> Dict[str, Any]:
         """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
         log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
         articles = state.get("unclustered_articles", [])
@@ -231,7 +231,7 @@ class ClusterAgent:
             logger.error(f"[ClusterAgent:Cluster] 치명적 오류: {e}")
             return {"clustered_topics": [], "messages": [f"클러스터링 중단됨: {e}"]}
 
-    def node_name_and_save_issues(self, state: ComparisonState) -> Dict[str, Any]:
+    def node_name_and_save_issues(self, state: dict) -> Dict[str, Any]:
         """이슈 명명 및 저장, 그리고 분석 대상 issue_id 자동 결정"""
         log_llm_event("ClusterAgent", "이슈 저장 및 다음 타겟 선정 노드 시작")
         topics = state.get("clustered_topics", [])
@@ -283,7 +283,7 @@ class ClusterAgent:
             logger.error(f"[ClusterAgent:Save] 이슈 저장 실패: {e}")
             return {"error": str(e), "messages": [f"이슈 저장 실패: {e}"]}
 
-    def node_cleanup_unclustered(self, state: ComparisonState) -> Dict[str, Any]:
+    def node_cleanup_unclustered(self, state: dict) -> Dict[str, Any]:
         """이슈에 할당되지 않은(Outlier) 기사들 DB에서 삭제"""
         log_llm_event("ClusterAgent", "미분류 노이즈 기사 정리 노드 시작")
         try:
