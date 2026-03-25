@@ -36,24 +36,6 @@ async def get_issue_images_api(issue_id: int, db: Session = Depends(get_db)):
     service = DraftService(db)
     return await service.get_issue_images(issue_id)
 
-# 4. 표절 유사도 검사 API
-@router.post("/similarity", response_model=SimilarityResponse, summary="기사 유사도 검사")
-async def check_similarity_api(request: SimilarityRequest, db: Session = Depends(get_db)):
-    """
-    작성된 기사 초안과 해당 이슈의 기존 기사들의 텍스트 겹침 정도를 비교하여 % 점수로 알려줍니다.
-    """
-    service = DraftService(db)
-    return service.check_similarity(request)
-
-# 5. 3가지 진영 관점 분석 API
-@router.get("/perspectives/{issue_id}", response_model=PerspectivesResponse, summary="진보/중립/보수 관점 기사 분석")
-async def analyze_perspectives_api(issue_id: int, db: Session = Depends(get_db)):
-    """
-    해당 이슈의 기사들을 언론사 성향(보수/진보/중립)별로 3그룹으로 나눈 후, 
-    Gemini를 통해 각 진영의 논점을 요약 분석하여 반환합니다.
-    """
-    service = DraftService(db)
-    return await service.analyze_perspectives(issue_id)
 
 @router.post("/workspace/from-issue", summary="시스템 초안을 내 작업실로 가져오기")
 async def save_draft_to_workspace_api(

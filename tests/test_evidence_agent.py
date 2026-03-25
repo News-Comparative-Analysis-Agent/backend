@@ -42,8 +42,7 @@ def test_evidence_agent_integration(db: Session, test_data):
     agent = EvidenceAgent(db)
     
     # A. 시스템 LLM 모드 확인
-    settings = repo.get_system_settings()
-    llm_mode = settings.llm_mode
+    llm_mode = "local_only"
     print(f"\n[INFO] 현재 시스템 LLM 모드: {llm_mode}")
 
     # B. 테스트용 초기 데이터 생성 (Issue & Articles)

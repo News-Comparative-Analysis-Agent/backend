@@ -23,6 +23,9 @@ LOCAL_LLM_SERVERS = {
     "7B": f"http://{LLM_SERVER_IP}:{PORT_7B}/{API_PATH}",
 }
 
+# 로컬 모델 이름 설정
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct").strip()
+
 def parse_llm_json(text: str) -> any:
     """
     LLM의 응답 텍스트에서 JSON 블록을 찾아 파싱합니다.
@@ -106,33 +109,35 @@ def parse_llm_json(text: str) -> any:
 @traceable(run_type="llm", name="LocalLLM Call")
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다."""
-    # 하위 호환성: 7B_1, 7B_2 등이 들어오면 기본 7B로 변환
-    if model_size in ["7B_1", "7B_2"]:
-        model_size = "7B"
         
     url = LOCAL_LLM_SERVERS.get(model_size)
     if not url:
         raise ValueError(f"정의되지 않은 LLM 크기입니다: {model_size}")
 
     payload = {
+        "model": LLM_MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "max_tokens": 2048
     }
-    # schema가 있으면 json_mode 강제 활성화
-    if json_mode or schema:
-        payload["response_format"] = {"type": "json_object"}
+    # MLX 서버 등 일부 로컬 서버는 response_format 포함 시 404 에러를 반환할 수 있으므로 제외
+    # 대신 parse_llm_json 함수를 통해 유연하게 파싱함
+    # if json_mode or schema:
+    #     payload["response_format"] = {"type": "json_object"}
     
     try:
+        # 1. 요청 로깅: 전달되는 URL과 페이로드(데이터)를 로그에 남겨 추적이 가능하게 합니다.
         log_llm_event("LocalLLM", f"Requesting {model_size}", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
+        # 2. HTTP POST 요청: 실제 서버에 데이터를 전송합니다. 타임아웃은 300초(5분)로 넉넉하게 설정되어 있습니다.
         res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
+        # 3. 상태 코드 확인: 404(Not Found)나 500(Error) 같은 오류가 발생하면 즉시 예외(Exception)를 발생시킵니다.
         res.raise_for_status()
         
         response_data = res.json()
         content = response_data['choices'][0]['message']['content']
         
         token_info_dict = response_data.get('usage')
-        log_llm_event("LocalLLM", "Response received", details=content, token_info=token_info_dict)
+        # log_llm_event("LocalLLM", "Response received", details=content, token_info=token_info_dict)
         
         usage = {
             "prompt_tokens": token_info_dict.get("prompt_tokens", 0) if token_info_dict else 0,
@@ -187,7 +192,7 @@ def call_gemini(prompt: str, schema: dict = None) -> dict:
             'completion_tokens': usage.candidates_token_count
         }
         
-        log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
+        # log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
         return parse_llm_json(response.text), token_info
     except Exception as e:
         log_llm_event("Gemini", f"Error: {e}", details=str(e))
@@ -232,7 +237,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
                 'prompt_tokens': usage.prompt_token_count,
                 'completion_tokens': usage.candidates_token_count
             }
-            log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
+            # log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
             return response.text.strip(), token_info
         except Exception as e:
             logger.error(f"Gemini Text 호출 실패: {e}")
@@ -257,7 +262,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
                     'prompt_tokens': usage_meta.prompt_token_count,
                     'completion_tokens': usage_meta.candidates_token_count
                 }
-                log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
+                # log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
                 return response.text.strip(), token_info
             except Exception as gemini_e:
                 logger.error(f"Gemini 폴백도 실패: {gemini_e}")

@@ -26,7 +26,7 @@ def test_editor_agent_integration(editor_input):
     
     print("\n[STEP 1] node_edit_draft 실행 중 (기사 최종 교정)...")
     state = {
-        "llm_mode": "gemini_only",
+        "llm_mode": "local_only",
         "issue_id": editor_input.get("issue_id"),
         "draft_article": editor_input,
         "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}

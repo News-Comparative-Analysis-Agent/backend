@@ -83,19 +83,7 @@ class WriterAgent:
         }}
         """
         
-        # 이전 Judge 단계에서 Writer를 향한 반려 사유가 있다면 프롬프트에 추가
-        if judge_status == "FAIL_WRITER" and judge_feedback:
-            previous_draft = state.get("draft_article", "")
-            prompt += f"""
-            
-            [🚨 편집장 피드백 반영 사항 🚨]
-            {judge_feedback}
-            
-            [당신이 작성했던 이전 초안]
-            {json.dumps(previous_draft, ensure_ascii=False) if isinstance(previous_draft, dict) else previous_draft}
-            """
-            log_llm_event("writer_agent", f"Writer 피드백 반영 및 자가 수정 모드 활성화")
-            
+
         try:
             llm_mode = state.get("llm_mode", "gemini_only")
             if llm_mode == "gemini_only":
