@@ -1,5 +1,6 @@
 import os
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -52,12 +53,13 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
         
         # 4. JWT 발행
         jwt_token = create_access_token(subject=user.id)
-        print("jwt_token: ", jwt_token)
-        return {
-            "access_token": jwt_token,
-            "token_type": "bearer",
-            "user": user
-        }
+        
+        # 5. 프론트엔드로 리다이렉트 (토큰 포함)
+        frontend_url = os.getenv("FRONTEND_URL", "https://frontend-psi-olive-89.vercel.app").strip().strip('"').strip("'")
+        redirect_url = f"{frontend_url}/?token={jwt_token}"
+        
+        print(f"로그인 성공, 리다이렉트 수행: {redirect_url}")
+        return RedirectResponse(url=redirect_url)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
