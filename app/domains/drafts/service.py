@@ -325,32 +325,14 @@ class DraftService:
         self.repo.db.commit()
         return issue_id
 
-    def update_issue_draft(self, issue_id: int, content: str, user_id: int) -> int:
+    def get_issue_draft_content(self, issue_id: int) -> str:
         """
-        이슈의 초안 내용을 업데이트합니다.
+        특정 이슈의 공유 초안 본문을 가져옵니다.
         """
-        from app.domains.users.models import User
-        
         issue = self.repo.get_issue_by_id(issue_id)
         if not issue:
             raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
-            
-        # 1. 초안 내용 업데이트 (공유 저장소)
-        issue.pre_generated_draft = content
-        
-        # 2. 유저의 작업 이력에 추가
-        user = self.repo.db.query(User).get(user_id)
-        if user:
-            if user.draft_issue_ids is None:
-                user.draft_issue_ids = []
-            if issue_id not in user.draft_issue_ids:
-                new_list = list(user.draft_issue_ids)
-                new_list.append(issue_id)
-                user.draft_issue_ids = new_list
-                self.repo.db.add(user)
-        
-        self.repo.db.commit()
-        return issue_id
+        return issue.pre_generated_draft or ""
 
     # ==========================================
     # 7. 최종 품질 검토 로직 (Final Review) - LangGraph 적용

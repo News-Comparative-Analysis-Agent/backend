@@ -44,7 +44,8 @@ async def save_draft_to_workspace_api(
     user: User = Depends(get_current_user)
 ):
     """
-    이슈의 pre_generated_draft를 읽어서 현재 로그인한 유저의 Draft 테이블로 복사(저장)합니다.
+    이슈의 pre_generated_draft를 유저의 작업실 목록(draft_issue_ids)에 추가합니다.
+    (별도의 Draft 테이블로 복사하지 않고 공유 초안 모델을 유지합니다)
     """
     service = DraftService(db)
     new_draft_id = service.save_issue_draft_to_workspace(user_id=user.id, request=request)
@@ -62,6 +63,16 @@ async def update_draft_api(
     service = DraftService(db)
     updated_id = service.update_issue_draft(issue_id, request.content, user.id)
     return {"message": "초안이 성공적으로 수정되었습니다.", "issue_id": updated_id}
+
+@router.get("/issue/{issue_id}", summary="공유 초안 본문 조회 (이슈 기준)")
+async def get_draft_content_api(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """특정 이슈의 공유 초안 본문을 가져옵니다."""
+    service = DraftService(db)
+    content = service.get_issue_draft_content(issue_id)
+    return {"issue_id": issue_id, "content": content}
 
 # 7. 최종 품질 검토 API
 @router.get("/final-review/{issue_id}", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")
