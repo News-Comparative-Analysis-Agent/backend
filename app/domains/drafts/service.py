@@ -271,21 +271,24 @@ class DraftService:
     # ==========================================
     def save_issue_draft_to_workspace(self, user_id: int, request: SaveDraftRequest) -> int:
         """
-        초안 저장 로직 (리팩토링 버전)
+        초안 저장 및 업데이트 (통합 버전)
         - User의 draft_issue_ids에 추가함.
-        - 초안 본문은 이미 IssueLabel.pre_generated_draft에 존재함.
+        - 만약 request에 content가 있으면 IssueLabel의 pre_generated_draft를 업데이트함.
         """
         from app.domains.users.models import User
-        
-        issue = self.repo.get_issue_by_id(request.issue_id)
-        if not issue:
-            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
-        
         user = self.repo.db.query(User).get(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+        issue = self.repo.get_issue_by_id(request.issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+
+        # 1. 내용이 있으면 업데이트 (동시 처리)
+        if request.content is not None:
+            issue.pre_generated_draft = request.content
             
-        # user.draft_issue_ids 목록에 이슈 ID 추가 (중복 방지)
+        # 2. 작업실 목록에 추가
         if user.draft_issue_ids is None:
             user.draft_issue_ids = []
             
@@ -294,9 +297,41 @@ class DraftService:
             new_list.append(request.issue_id)
             user.draft_issue_ids = new_list
             self.repo.db.add(user)
-            self.repo.db.commit()
             
+        self.repo.db.commit()
         return request.issue_id
+
+    def get_user_workspace_drafts(self, user_id: int) -> List[WorkspaceDraftSummary]:
+        """
+        현재 유저의 작업실에 보관 중인 초안 리스트를 가져옵니다.
+        """
+        from app.domains.users.models import User
+        from app.domains.issues.models import IssueLabel
+        import json
+
+        user = self.repo.db.query(User).get(user_id)
+        if not user or not user.draft_issue_ids:
+            return []
+
+        # 작업 중인 이슈들 조회
+        issues = self.repo.db.query(IssueLabel).filter(IssueLabel.id.in_(user.draft_issue_ids)).all()
+        
+        # ID 순서대로 정렬 (최신 순 등을 원할 경우 created_at 등 사용)
+        results = []
+        # user.draft_issue_ids 순서(추가된 순서)를 유지하려면 매핑 필요
+        issue_map = {issue.id: issue for issue in issues}
+        
+        from datetime import datetime
+        for iid in reversed(user.draft_issue_ids): # 최신 추가 순
+            if iid in issue_map:
+                issue = issue_map[iid]
+                results.append(WorkspaceDraftSummary(
+                    issue_id=issue.id,
+                    title=issue.name,
+                    updated_at=getattr(issue, "created_at", datetime.now())
+                ))
+        
+        return results
 
     def update_issue_draft(self, issue_id: int, content: str, user_id: int) -> int:
         """

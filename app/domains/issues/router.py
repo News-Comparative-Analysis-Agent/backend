@@ -41,19 +41,6 @@ def get_issue_analysis(
     service = IssueService(db)
     return service.get_issue_analysis(issue_id)
 
-@router.get("/{issue_id}/draft",
-            response_model=IssueDraftResponse,
-            summary="이슈 상세 분석 및 초안",
-            description="이슈 상세 분석 및 초안.")
-def get_issue_draft(
-    issue_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    특정 이슈의 언론사별 분석 데이터 조회
-    """
-    service = IssueService(db)
-    return service.get_issue_draft(issue_id)
 
 @router.get("/{issue_id}/timeline",
             response_model=IssueTimelineResponse,
