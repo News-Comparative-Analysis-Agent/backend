@@ -263,7 +263,10 @@ class ScrollerService:
     def update_llm_mode(self, mode: str) -> str:
         """시스템 LLM 모드를 업데이트하고 결과를 반환합니다."""
         try:
-            old_mode = self.db.query(SystemSettings).first().llm_mode
+            # 안전하게 기존 모드 조회 (데이터가 없을 경우 "unknown" 처리)
+            existing = self.db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+            old_mode = existing.llm_mode if existing else "unknown"
+
             settings = self.repo.update_system_llm_mode(mode)
             self.db.commit()
             logger.info(f"⚙️ 시스템 LLM 모드 변경: {old_mode} -> {settings.llm_mode}")

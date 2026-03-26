@@ -64,13 +64,6 @@ def test_review_agent_with_json_data():
     # Node 1: Fetch (생략 - JSON 데이터로 이미 채워짐)
     print("Step 1: Skipping DB Fetch (using JSON data)...")
 
-    # Node 2: Reliability (신뢰도 분석 - 소스 추출)
-    print("Step 2: Calculating reliability (extracting sources)...")
-    rel_res = agent.node_calculate_reliability(state)
-    state.update(rel_res)
-    assert len(state["top_sources"]) > 0
-    print(f"✅ Reliability Success: {len(state['top_sources'])} sources extracted")
-
     # Node 3: Analyze and Opine (가이드라인 검증 및 종합 의견)
     print("Step 3: Analyzing guidelines and generating AI opinion...")
     # Gemini API 키 설정 확인

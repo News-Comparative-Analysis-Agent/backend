@@ -110,7 +110,7 @@ class EvidenceAgent:
                 usage["prompt_tokens"] = len(prompt) // 4
                 usage["completion_tokens"] = len(response.text) // 4
             else:
-                card_data, usage = call_llm(prompt, "7B", state)
+                card_data, usage = call_llm(prompt=prompt, model_size="7B", state=state)
             
             if card_data:
                 # 내부 식별용 매핑
@@ -128,14 +128,14 @@ class EvidenceAgent:
         """
         articles = state.get("articles", [])
         issue_id = state.get("issue_id")
-        llm_mode = state.get("llm_mode", "gemini_only")
+        llm_mode = state.get("llm_mode", "local_only")
         
         if not articles:
             return {"claim_cards": [], "messages": ["로드된 기사가 없습니다."]}
             
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
-        workers = 5 if llm_mode == "gemini_only" else 3 # TODO 몇개까지 버티는지 테스트 진행예정
+        workers = 3 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
         
         msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 주장 카드 추출 시작 (Mode: {llm_mode})"
         logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")

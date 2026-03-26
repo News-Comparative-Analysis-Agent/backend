@@ -100,9 +100,9 @@ def create_analysis_subgraph():
         retry = state.get("retry_count", 0)
         if retry >= 3 or status == "PASS":
             return END
-        return "writer" if status == "FAIL_WRITER" else "editor"
+        return "editor"
 
-    workflow.add_conditional_edges("judge", route_from_judge, {"writer": "writer", "editor": "editor", END: END})
+    workflow.add_conditional_edges("judge", route_from_judge, {"editor": "editor", END: END})
     
     return workflow.compile()
 

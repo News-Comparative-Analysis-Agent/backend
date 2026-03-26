@@ -28,7 +28,7 @@ def test_judge_agent_integration(judge_input):
     
     # judge_input의 모든 필드를 state로 언패킹하여 전달
     state = {
-        "llm_mode": "gemini_only",
+        "llm_mode": "local_only",
         "retry_count": 0,
         "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0},
         "messages": [],
