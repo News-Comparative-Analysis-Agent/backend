@@ -379,7 +379,12 @@ class NLPSearchService:
         }
         
         for i, block in enumerate(blocks):
-            if i == 0 and not any(block.startswith(prefix) for prefix in ["첫째", "1.", "-", "하나"]):
+            # 첫 문단이 매우 짧고(예: "다음과 같습니다.") 첫째/1. 등으로 시작하지 않으면 서론으로 간주 (80자 미만)
+            is_intro = False
+            if i == 0 and len(block) < 80 and not any(block.startswith(prefix) for prefix in ["첫째", "1.", "-", "하나"]):
+                is_intro = True
+                
+            if is_intro:
                 structured_summary["intro"] = block
             else:
                 parts = block.split('. ', 1)
@@ -391,23 +396,42 @@ class NLPSearchService:
                     content = block
                 
                 clean_title = title
+                # 숫자나 순서 키워드 제거
                 for prefix in ["첫째, ", "둘째, ", "셋째, ", "넷째, ", "다섯째, ", "1. ", "2. ", "3. ", "첫번째, ", "두번째, ", "세번째, "]:
                     if clean_title.startswith(prefix):
                         clean_title = clean_title[len(prefix):].strip()
                         break
                 
-                # 주제 문단에 포함된 키워드 매칭
-                topic_keywords = [k for k in final_keywords if k in block]
+                # 불필요한 접속사 추가 제거
+                for prefix in ["한편, ", "이와 별도로, ", "또한, ", "마지막으로, ", "끝으로, ", "더불어, ", "그리고, "]:
+                    if clean_title.startswith(prefix):
+                        clean_title = clean_title[len(prefix):].strip()
+                        break
+                
+                # 주제 문단에 포함된 키워드 매칭 (검색어 원어 제외하여 변별력 확보)
+                topic_keywords = [k for k in final_keywords if k in block and k != user_query]
+                
                 related_article_ids = []
                 for art in formatted_articles:
-                    if set(topic_keywords) & set(art['matching_keywords']):
+                    # 기사의 키워드 중에서도 검색어 원어 제거
+                    art_kws = [k for k in art['matching_keywords'] if k != user_query]
+                    
+                    # 검색어 제외하고 남은 키워드끼리 겹치면 해당 기사 매칭
+                    if set(topic_keywords) & set(art_kws):
                         related_article_ids.append(art['id'])
+                
+                # 만약 걸러낸 키워드가 하나도 없어 매칭이 안됐다면, 원어 포함해서 최소한 하나라도 보여주기 (예비)
+                if not related_article_ids:
+                    fallback_topic_keywords = [k for k in final_keywords if k in block]
+                    for art in formatted_articles:
+                        if set(fallback_topic_keywords) & set(art['matching_keywords']):
+                            related_article_ids.append(art['id'])
                 
                 structured_summary["topics"].append({
                     "id": len(structured_summary["topics"]) + 1,
                     "title": clean_title,
                     "content": content,
-                    "related_articles": related_article_ids
+                    "related_articles": list(dict.fromkeys(related_article_ids)) # 중복 안전장치
                 })
 
         return {
