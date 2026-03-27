@@ -369,12 +369,54 @@ class NLPSearchService:
                 "matching_keywords": matched
             })
 
+        # ai_summary 파싱 (프론트엔드 연동을 위한 구조화)
+        ai_summary_text = briefing.get('summary_content', '')
+        blocks = [b.strip() for b in ai_summary_text.split('\n\n') if b.strip()]
+        
+        structured_summary = {
+            "intro": "",
+            "topics": []
+        }
+        
+        for i, block in enumerate(blocks):
+            if i == 0 and not any(block.startswith(prefix) for prefix in ["첫째", "1.", "-", "하나"]):
+                structured_summary["intro"] = block
+            else:
+                parts = block.split('. ', 1)
+                if len(parts) > 1:
+                    title = parts[0] + "."
+                    content = parts[1]
+                else:
+                    title = block
+                    content = block
+                
+                clean_title = title
+                for prefix in ["첫째, ", "둘째, ", "셋째, ", "넷째, ", "다섯째, ", "1. ", "2. ", "3. ", "첫번째, ", "두번째, ", "세번째, "]:
+                    if clean_title.startswith(prefix):
+                        clean_title = clean_title[len(prefix):].strip()
+                        break
+                
+                # 주제 문단에 포함된 키워드 매칭
+                topic_keywords = [k for k in final_keywords if k in block]
+                related_article_ids = []
+                for art in formatted_articles:
+                    if set(topic_keywords) & set(art['matching_keywords']):
+                        related_article_ids.append(art['id'])
+                
+                structured_summary["topics"].append({
+                    "id": len(structured_summary["topics"]) + 1,
+                    "title": clean_title,
+                    "content": content,
+                    "related_articles": related_article_ids
+                })
+
         return {
             "success": True,
             "data": {
                 "original_query": user_query,
                 "generated_keywords": final_keywords,
-                "ai_summary": briefing.get('summary_content', ''),
+                "ai_summary": ai_summary_text,
+                "ai_summary_structured": structured_summary,
                 "total_results": len(formatted_articles),
                 "articles": formatted_articles,
                 "by_source": dict(source_counter)
