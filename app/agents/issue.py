@@ -84,12 +84,32 @@ class IssueAgent:
             아래 `media_items`는 Evidence가 추출한 사실 기반 데이터입니다.
 
             요청:
-            1) `conflict_summary`를 하나의 문자열로 생성: 언론사들이 동일 이슈에 대해 서로 다르게 주장하는 핵심 시각 차이 요약.
-            2) `media_narratives`를 배열로 생성: 각 항목은 {{press, url, narrative}} 형태이며, narrative는 반드시 해당 media의 claim/evidence에 근거해서 1~2문장으로 서술.
+            1) 모든 응답(요약, 분석 문장 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
+            2) `conflict_summary`를 하나의 문자열로 생성: 언론사들이 동일 이슈에 대해 서로 다르게 주장하는 핵심 시각 차이를 요약하세요. 
+               **만약 언론사 간에 큰 갈등 없이 사실 관계가 일치한다면, 해당 이슈가 공통적으로 중요하게 다뤄지는 이유나 언론의 통합된 시각을 요약해 주세요.** 절대 빈 문자열로 두지 마세요.
+            3) `media_narratives`를 배열로 생성: 각 항목은 {{press, url, narrative}} 형태이며, narrative는 해당 media의 claim/evidence에 근거해서 1~2문장으로 서술하세요. 
+               각 언론사가 해당 사건을 어떻게 묘사하고 있는지(예: 강조점, 보도 시점의 의미 등)를 구체적으로 기술하세요.
 
             중요 제한(할루시네이션 방지):
             - press/claim/evidence/url 같은 factual 필드는 출력에서 절대 바꾸지 마세요. (출력에는 narrative만 생성)
             - narrative에는 claim/evidence에 없는 사실/새 인물/새 통계/새 사건을 추가하지 마세요.
+
+            [응답 예시]
+            {{
+                "conflict_summary": "정부의 강경한 법적 대응 방침과 의료계의 집단 행동이 정면으로 충돌하며 타협점을 찾지 못하고 있습니다.",
+                "media_narratives": [
+                    {{
+                        "press": "조선일보",
+                        "url": "...",
+                        "narrative": "의료계의 집단 행동을 불법으로 규정하고 정부의 엄정한 법 집행이 필요함을 강조하고 있습니다."
+                    }},
+                    {{
+                        "press": "한겨레",
+                        "url": "...",
+                        "narrative": "정부의 일방적인 정책 추진이 갈등을 키웠다고 분석하며 대화를 통한 해결을 촉구하고 있습니다."
+                    }}
+                ]
+            }}
 
             입력: media_items
             {media_json}
