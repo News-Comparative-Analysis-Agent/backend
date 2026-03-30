@@ -1,6 +1,6 @@
 import json
 from app.agents.state import ComparisonState
-from app.agents.utils import call_llm, update_total_tokens
+from app.agents.utils import update_total_tokens
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 
@@ -57,10 +57,30 @@ class WriterAgent:
         {context_json}
 
         [작성 지침]
-        1. 단순한 사실 나열이 아닌, 언론사들이 왜 서로 다른 목소리를 내는지, 그 이면에 깔린 핵심 쟁점을 날카롭게 분석하십시오.
-        2. 'article_body'는 쟁점의 발단, 전개, 갈등의 핵심, 그리고 사회적 함의를 포함하여 1000자 내외의 완성된 기사 형태로 작성하십시오.
-        3. 기존 데이터(title, description, background, conflict_summary 등)는 분석을 위해 활용하되, 필요하다면 더 정교하게 리라이팅하여 최종 JSON에 포함하십시오.
-        4. 새로운 사실을 날조하지 마십시오.
+        1. 모든 응답(title, article_body 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
+        2. 단순한 사실 나열이 아닌, 언론사들이 왜 서로 다른 목소리를 내는지, 그 이면에 깔린 핵심 쟁점을 날카롭게 분석하십시오.
+        3. 'article_body'는 쟁점의 발단, 전개, 갈등의 핵심, 그리고 사회적 함의를 포함하여 1000자 내외의 완성된 기사 형태로 작성하십시오.
+        4. 기존 데이터(title, description, background, conflict_summary 등)는 분석을 위해 활용하되, 필요하다면 더 정교하게 리라이팅하여 최종 JSON에 포함하십시오.
+        5. 새로운 사실을 날조하지 마십시오.
+
+        [응답 예시]
+        {{
+          "title": "의료 대란 기로에 선 대한민국",
+          "description": "정부의 의대 증원 강행과 의료계의 집단 사직이 맞물리며 국가적 의료 공백 위기가 고조되고 있습니다.",
+          "background": "정부가 필수 의료 인력 확충을 위해 의대 정원을 확대하겠다고 발표한 이후 갈등이 촉발되었습니다.",
+          "core_contentions": "정부의 법과 원칙 준수 강조와 의료계의 정책 철회 요구가 평행선을 달리고 있습니다.",
+          "conflict_summary": "보수 언론은 환자의 생명을 담보로 한 집단 행동을 비판하며 법적 대응을 지지하는 반면, 진보 언론은 정부의 일방적인 불통 행정이 사태를 악화시켰다고 지적하고 있습니다.",
+          "media_views": [
+            {{
+              "press": "관련 언론사",
+              "claim": "...",
+              "evidence": "...",
+              "url": "...",
+              "narrative": "..."
+            }}
+          ],
+          "article_body": "의료계의 겨울이 길어지고 있다... (이하 한국어 기사 본문)"
+        }}
 
         [출력 JSON 스키마]
         {{
@@ -84,8 +104,13 @@ class WriterAgent:
         """
         
 
+        # LLM 호출
         try:
             llm_mode = state.get("llm_mode", "gemini_only")
+            
+            # 7B 모델의 경우 스키마 준수율을 높이기 위해 명시적으로 스키마 예시를 한 번 더 강조
+            modified_prompt = prompt + "\n※ 주의: 반드시 위 [출력 JSON 스키마]의 모든 필드(title, description, article_body 등)를 포함한 하나의 JSON 객체만 반환하세요."
+
             if llm_mode == "gemini_only":
                 import google.generativeai as genai
                 response_schema = {
@@ -130,14 +155,51 @@ class WriterAgent:
                 }
             else:
                 from app.agents.utils import call_llm
-                final_data, usage = call_llm(prompt, "7B", state)
-                
+                # 7B 모델 호출 시 schema를 직접 전달하여 utils.py의 response_format 기능을 활성화
+                fallback_schema = {
+                    "issue_id": issue_id,
+                    "title": title,
+                    "description": description,
+                    "background": background,
+                    "media_views": media_views,
+                    "article_body": "비평 본문"
+                }
+                final_data, usage = call_llm(modified_prompt, "7B", state, schema=fallback_schema)
+            
+            # 데이터 보정 (7B 모델이 일부 필드만 반환했을 경우 입력값으로 복구)
+            if not isinstance(final_data, dict):
+                final_data = {"article_body": str(final_data)}
+            
+            # 필수 필드 복구 로직
+            if "article_body" not in final_data and "narrative" in final_data:
+                # 모델이 media_view 형태만 반환한 경우를 대비해 narrative를 본문으로 차용
+                final_data["article_body"] = final_data.get("narrative", "")
+            
+            final_data.setdefault("issue_id", issue_id)
+            final_data.setdefault("title", title or "제목 없음")
+            final_data.setdefault("description", description or "설명 없음")
+            final_data.setdefault("background", background or "")
+            final_data.setdefault("core_contentions", state.get("core_contentions", ""))
+            final_data.setdefault("conflict_summary", conflict_summary or "")
+            final_data.setdefault("media_views", media_views)
+            final_data.setdefault("article_body", "본문 생성에 실패했습니다.")
+
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "WriterAgent")
 
             msg = "비평 보고서 개요(Outline JSON) 생성 완료"
             log_llm_event("agent_writer", msg, details=json.dumps(final_data, ensure_ascii=False, indent=2))
-            return {"draft_article": final_data, "messages": [msg], "total_tokens": total_tokens}
+            return {
+                "draft_article": final_data, 
+                "title": final_data["title"],
+                "description": final_data["description"],
+                "background": final_data["background"],
+                "core_contentions": final_data["core_contentions"],
+                "conflict_summary": final_data["conflict_summary"],
+                "media_views": final_data["media_views"],
+                "messages": [msg], 
+                "total_tokens": total_tokens
+            }   
             
         except Exception as e:
             msg = f"초안 생성 실패: {e}"

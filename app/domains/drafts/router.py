@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 
 from app.core.database import get_db
+from app.domains.users.service import UserService
+from app.domains.users.schemas import TokenResponse, MyPageResponse, MyPageDraftSummary
 from app.domains.drafts.schemas import (
-    StreamDraftRequest, ChatRequest, ChatResponse, ImageItem, 
-    SimilarityRequest, SimilarityResponse,
-    PerspectivesResponse, SaveDraftRequest,
-    FinalReviewResponse, DraftUpdate
+    StreamDraftRequest, ChatRequest, ChatResponse, ImageItem,
+    FinalReviewResponse, SimilarityRequest, SimilarityResponse, 
+    PerspectivesResponse, WorkspaceDraftSummary, DraftUpdate
 )
 from app.domains.drafts.service import DraftService
 from app.domains.users.models import User
@@ -37,20 +38,14 @@ async def get_issue_images_api(issue_id: int, db: Session = Depends(get_db)):
     return await service.get_issue_images(issue_id)
 
 
-@router.post("/workspace/from-issue", summary="시스템 초안을 내 작업실로 가져오기")
-async def save_draft_to_workspace_api(
-    request: SaveDraftRequest, 
+@router.get("/workspace", response_model=List[WorkspaceDraftSummary], summary="내 작업실 초안 목록 조회")
+async def get_workspace_drafts_api(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """
-    이슈의 pre_generated_draft를 유저의 작업실 목록(draft_issue_ids)에 추가합니다.
-    (별도의 Draft 테이블로 복사하지 않고 공유 초안 모델을 유지합니다)
-    """
+    """현재 로그인한 유저의 작업실에 보관된 모든 초안 목록을 반환합니다."""
     service = DraftService(db)
-    new_draft_id = service.save_issue_draft_to_workspace(user_id=user.id, request=request)
-    
-    return {"message": "초안이 작업실에 성공적으로 저장되었습니다.", "issue_id": new_draft_id}
+    return service.get_user_workspace_drafts(user_id=user.id)
 
 @router.put("/issue/{issue_id}", summary="초안 수정 및 임시 저장 (이슈 기준)")
 async def update_draft_api(
@@ -59,20 +54,15 @@ async def update_draft_api(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    """이슈 ID를 기준으로 초안 본문 내용을 업데이트합니다."""
+    """
+    이슈 ID를 기준으로 초안 본문 내용을 업데이트하고, 
+    해당 이슈를 사용자의 작업실 목록에 추가합니다. (임시 저장 및 목록 추가 동시 수행)
+    """
     service = DraftService(db)
     updated_id = service.update_issue_draft(issue_id, request.content, user.id)
-    return {"message": "초안이 성공적으로 수정되었습니다.", "issue_id": updated_id}
+    
+    return {"message": "초안이 성공적으로 수정 및 저장되었습니다.", "issue_id": updated_id}
 
-@router.get("/issue/{issue_id}", summary="공유 초안 본문 조회 (이슈 기준)")
-async def get_draft_content_api(
-    issue_id: int,
-    db: Session = Depends(get_db)
-):
-    """특정 이슈의 공유 초안 본문을 가져옵니다."""
-    service = DraftService(db)
-    content = service.get_issue_draft_content(issue_id)
-    return {"issue_id": issue_id, "content": content}
 
 # 7. 최종 품질 검토 API
 @router.get("/final-review/{issue_id}", response_model=FinalReviewResponse, summary="최종 품질 검토 리포트 생성")

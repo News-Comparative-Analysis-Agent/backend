@@ -4,9 +4,13 @@ import re
 import time
 import functools
 import requests
+import threading
 from google import genai
 from langsmith import traceable
 from app.core.logger import logger, log_llm_event
+
+# 로컬 LLM 서버 부하 방지를 위해 요청을 1개씩 직렬화
+llm_semaphore = threading.Semaphore(1)
 
 
 
@@ -100,7 +104,9 @@ def parse_llm_json(text: str) -> any:
             score += len(obj.keys())
             if 'claim' in obj: score += 20
             if 'title' in obj: score += 10
-            if 'contention_title' in obj: score += 50
+            if 'conflict_summary' in obj: score += 50
+            if 'media_narratives' in obj: score += 30
+            if 'contention_title' in obj: score += 10 # 과거 버전 호환성 유지 (점수 낮춤)
         return score
 
     results.sort(key=score_object, reverse=True)
@@ -108,7 +114,7 @@ def parse_llm_json(text: str) -> any:
 
 @traceable(run_type="llm", name="LocalLLM Call")
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None) -> str:
-    """온프레미스 로컬 LLM 서버에 요청을 보냅니다."""
+    """온프레미스 로컬 LLM 서버에 요청을 보냅니다 (재시도 및 예외 전파 포함)."""
         
     url = LOCAL_LLM_SERVERS.get(model_size)
     if not url:
@@ -120,39 +126,40 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
         "temperature": 0.1,
         "max_tokens": 2048
     }
-    # MLX 서버 등 일부 로컬 서버는 response_format 포함 시 404 에러를 반환할 수 있으므로 제외
-    # 대신 parse_llm_json 함수를 통해 유연하게 파싱함
-    # if json_mode or schema:
-    #     payload["response_format"] = {"type": "json_object"}
     
-    try:
-        # 1. 요청 로깅: 전달되는 URL과 페이로드(데이터)를 로그에 남겨 추적이 가능하게 합니다.
-        log_llm_event("LocalLLM", f"Requesting {model_size}", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
-        # 2. HTTP POST 요청: 실제 서버에 데이터를 전송합니다. 타임아웃은 300초(5분)로 넉넉하게 설정되어 있습니다.
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
-        # 3. 상태 코드 확인: 404(Not Found)나 500(Error) 같은 오류가 발생하면 즉시 예외(Exception)를 발생시킵니다.
-        res.raise_for_status()
-        
-        response_data = res.json()
-        content = response_data['choices'][0]['message']['content']
-        
-        token_info_dict = response_data.get('usage')
-        # log_llm_event("LocalLLM", "Response received", details=content, token_info=token_info_dict)
-        
-        usage = {
-            "prompt_tokens": token_info_dict.get("prompt_tokens", 0) if token_info_dict else 0,
-            "completion_tokens": token_info_dict.get("completion_tokens", 0) if token_info_dict else 0
-        }
-        return content, usage
-    except requests.exceptions.ConnectionError as e:
-        err_msg = f"로컬 LLM 서버({model_size}) 연결 거부: 서버가 작동 중인지 확인하십시오. ({e})"
-        log_llm_event("LocalLLM", "Connection Error", details=err_msg)
-        logger.error(err_msg)
-        return ("{}", {"prompt_tokens": 0, "completion_tokens": 0}) if json_mode else ("", {"prompt_tokens": 0, "completion_tokens": 0})
-    except Exception as e:
-        log_llm_event("LocalLLM", f"Error: {e}")
-        logger.error(f"로컬 LLM({model_size}) 호출 실패: {e}")
-        return ("{}", {"prompt_tokens": 0, "completion_tokens": 0}) if json_mode else ("", {"prompt_tokens": 0, "completion_tokens": 0})
+    # JSON 모드 혹은 스키마가 제공된 경우 response_format 추가 지원 (vLLM, Ollama, MLX 등 OpenAI 호환 서버 대응)
+    if json_mode or schema:
+        payload["response_format"] = {"type": "json_object"}
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            log_llm_event("LocalLLM", f"Requesting {model_size} (Attempt {attempt+1})", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
+            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
+            res.raise_for_status()
+            
+            response_data = res.json()
+            content = response_data['choices'][0]['message']['content']
+            
+            # Raw Response 로깅 추가 (디버깅용)
+            log_llm_event("LocalLLM", f"Response received from {model_size}", details=content)
+            
+            token_info_dict = response_data.get('usage')
+            usage = {
+                "prompt_tokens": token_info_dict.get("prompt_tokens", 0) if token_info_dict else 0,
+                "completion_tokens": token_info_dict.get("completion_tokens", 0) if token_info_dict else 0
+            }
+            return content, usage
+            
+        except (requests.exceptions.RequestException, Exception) as e:
+            if attempt < max_retries - 1:
+                wait_time = (2 ** attempt) + 0.5 # Exponential backoff with simple jitter
+                logger.warning(f"로컬 LLM 호출 실패 (시도 {attempt+1}): {e}. {wait_time}초 후 재시도...")
+                time.sleep(wait_time)
+            else:
+                log_llm_event("LocalLLM", f"Error after {max_retries} attempts: {e}")
+                logger.error(f"로컬 LLM({model_size}) 최종 호출 실패: {e}")
+                raise e # 최종 실패 시 예외를 던져서 상위(Gemini Fallback)에서 처리하게 함
 
 # Gemini 클라이언트 초기화 코드 (지연 로딩)
 _gemini_client = None
@@ -221,8 +228,9 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     mode = state.get("llm_mode", "gemini_only")
     
     if mode == "local_only":
-        return call_local_llm(model_size, prompt)
-        
+        with llm_semaphore:
+            return call_local_llm(model_size, prompt)
+            
     if mode == "gemini_only":
         try:
             log_llm_event("GeminiText", "Requesting gemini-2.0-flash (Text Mode)", details=prompt)
@@ -245,7 +253,8 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             
     if mode == "local_priority":
         try:
-            content, usage = call_local_llm(model_size, prompt)
+            with llm_semaphore:
+                content, usage = call_local_llm(model_size, prompt)
             if content: return content.strip(), usage
             raise ValueError("로컬 LLM 응답 비어있음")
         except Exception as e:
@@ -276,7 +285,8 @@ def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> 
     mode = state.get("llm_mode", "gemini_only")
     
     if mode == "local_only":
-        content, usage = call_local_llm(model_size, prompt, schema=schema)
+        with llm_semaphore:
+            content, usage = call_local_llm(model_size, prompt, schema=schema)
         return parse_llm_json(content), usage
         
     if mode == "gemini_only":
@@ -284,7 +294,8 @@ def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> 
         
     if mode == "local_priority":
         try:
-            content, usage = call_local_llm(model_size, prompt, schema=schema)
+            with llm_semaphore:
+                content, usage = call_local_llm(model_size, prompt, schema=schema)
             parsed = parse_llm_json(content)
             if parsed: return parsed, usage
             raise ValueError("로컬 LLM 응답 파싱 실패")

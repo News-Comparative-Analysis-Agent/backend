@@ -157,9 +157,11 @@ def create_comparison_graph(db: Session):
     # 라우팅 1: 시작 시점
     def route_start(state: OverallState) -> str:
         if state.get("issue_id"): return "analysis_worker"
+        if state.get("unclustered_articles") and len(state["unclustered_articles"]) > 0:
+            return "cluster"
         return "crawl"
 
-    workflow.add_conditional_edges(START, route_start, {"crawl": "crawl", "analysis_worker": "analysis_worker"})
+    workflow.add_conditional_edges(START, route_start, {"crawl": "crawl", "analysis_worker": "analysis_worker", "cluster": "cluster"})
     
     # 공통 흐름
     workflow.add_edge("crawl", "save")

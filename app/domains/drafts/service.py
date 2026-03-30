@@ -14,8 +14,8 @@ from app.domains.drafts.schemas import (
     ChatRequest, ChatResponse, ImageItem, 
     SimilarityRequest, SimilarityResponse,
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
-    SaveDraftRequest,
-    FinalReviewResponse,
+    SaveDraftRequest, SaveDraftResponse,
+    FinalReviewResponse, WorkspaceDraftSummary,
     GuidelineCheck, ArticleSourceItem
 )
 from app.core.logger import logger
@@ -137,8 +137,14 @@ class DraftService:
 6. **[결론 (Closing)]**: 프레임 해석 멘트로 마무리
 
 # Tone & Manner
+- 모든 텍스트는 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
 - 단편적인 사실뿐만 아니라 제3자의 관찰자 시점 유지
 - 마크다운 등 코드블록 금지
+
+# 작성 예시
+[헤드라인]: 의대 정원 갈등, 의료 공백 현실화되나
+[전문]: 정부의 의대 증원 발표 이후 의료계의 반발이 거세지고 있습니다...
+[본문 1]: 보건복지부는 지난 6일 의대 정원 2000명 확대를 공식 발표했습니다...
         """
         return StreamingResponse(
             self._stream_generator(prompt=system_prompt, pre_generated_text=pre_generated_draft), 
@@ -165,16 +171,19 @@ class DraftService:
 사용자는 현재 뉴스 기사 초안을 작성하고 있는 기자 또는 작가입니다.
 
 [역할]
-1. 사용자의 질문에 친절하고 전문적으로 답변하세요.
-2. 'draft_content'가 제공되면, 문맥을 파악하여 피드백을 제공하세요.
-3. 제공된 '[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]'이 있다면, 해당 내용을 바탕으로 더 일관성 있고 맥락에 맞는 답변을 제공하세요.
-4. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 조언을 구하면, 당신은 **반드시 `modified_content` 필드에 처음부터 끝까지 수정 및 완성된 기사 전체 내용(Full Text)을 작성해야 합니다.** 다시 말해, `response` 필드에는 간단한 안내 멘트만 적고 실제 수정본은 모두 `modified_content`에 넣으세요!
+1. 모든 응답은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
+2. 사용자의 질문에 친절하고 전문적으로 답변하세요.
+3. 'draft_content'가 제공되면, 문맥을 파악하여 피드백을 제공하세요.
+4. 제공된 '[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]'이 있다면, 해당 내용을 바탕으로 더 일관성 있고 맥락에 맞는 답변을 제공하세요.
+5. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 조언을 구하면, 당신은 **반드시 `modified_content` 필드에 처음부터 끝까지 수정 및 완성된 기사 전체 내용(Full Text)을 작성해야 합니다.** 다시 말해, `response` 필드에는 간단한 안내 멘트만 적고 실제 수정본은 모두 `modified_content`에 넣으세요!
 
 [출력 형식]
 반드시 다음 JSON 형식으로만 응답하세요. 마크다운 코드 블록(` ```json `)을 포함하지 마세요.
+
+[응답 예시]
 {
-    "response": "수정 방향이나 안내 멘트 등 사용자에게 할 말 (한국어)",
-    "modified_content": "수정된 전체 기사 초안 텍스트 (수정 요청일 경우 필수 작성, 질문만 있으면 null)"
+    "response": "말씀하신 부분의 논조를 보수 언론의 시각을 담아 수정해 보았습니다.",
+    "modified_content": "수정된 기사 본문 전체 텍스트..."
 }
             """
             context_message = f"{system_prompt}{pre_generated_context}\n\n[현재 작성 중인 초안 (draft_content)]\n{request.draft_content}\n\n"
@@ -279,21 +288,24 @@ class DraftService:
     # ==========================================
     def save_issue_draft_to_workspace(self, user_id: int, request: SaveDraftRequest) -> int:
         """
-        초안 저장 로직 (리팩토링 버전)
+        초안 저장 및 업데이트 (통합 버전)
         - User의 draft_issue_ids에 추가함.
-        - 초안 본문은 이미 IssueLabel.pre_generated_draft에 존재함.
+        - 만약 request에 content가 있으면 IssueLabel의 pre_generated_draft를 업데이트함.
         """
         from app.domains.users.models import User
-        
-        issue = self.repo.get_issue_by_id(request.issue_id)
-        if not issue:
-            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
-        
         user = self.repo.db.query(User).get(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+        issue = self.repo.get_issue_by_id(request.issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+
+        # 1. 내용이 있으면 업데이트 (동시 처리)
+        if request.content is not None:
+            issue.pre_generated_draft = request.content
             
-        # user.draft_issue_ids 목록에 이슈 ID 추가 (중복 방지)
+        # 2. 작업실 목록에 추가
         if user.draft_issue_ids is None:
             user.draft_issue_ids = []
             
@@ -302,9 +314,41 @@ class DraftService:
             new_list.append(request.issue_id)
             user.draft_issue_ids = new_list
             self.repo.db.add(user)
-            self.repo.db.commit()
             
+        self.repo.db.commit()
         return request.issue_id
+
+    def get_user_workspace_drafts(self, user_id: int) -> List[WorkspaceDraftSummary]:
+        """
+        현재 유저의 작업실에 보관 중인 초안 리스트를 가져옵니다.
+        """
+        from app.domains.users.models import User
+        from app.domains.issues.models import IssueLabel
+        import json
+
+        user = self.repo.db.query(User).get(user_id)
+        if not user or not user.draft_issue_ids:
+            return []
+
+        # 작업 중인 이슈들 조회
+        issues = self.repo.db.query(IssueLabel).filter(IssueLabel.id.in_(user.draft_issue_ids)).all()
+        
+        # ID 순서대로 정렬 (최신 순 등을 원할 경우 created_at 등 사용)
+        results = []
+        # user.draft_issue_ids 순서(추가된 순서)를 유지하려면 매핑 필요
+        issue_map = {issue.id: issue for issue in issues}
+        
+        from datetime import datetime
+        for iid in reversed(user.draft_issue_ids): # 최신 추가 순
+            if iid in issue_map:
+                issue = issue_map[iid]
+                results.append(WorkspaceDraftSummary(
+                    issue_id=issue.id,
+                    title=issue.name,
+                    updated_at=getattr(issue, "created_at", datetime.now())
+                ))
+        
+        return results
 
     def update_issue_draft(self, issue_id: int, content: str, user_id: int) -> int:
         """

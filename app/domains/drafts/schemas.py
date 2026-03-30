@@ -98,17 +98,17 @@ class PerspectivesResponse(BaseModel):
 # ==========================================
 class SaveDraftRequest(BaseModel):
     issue_id: int
+    content: Optional[str] = None # 선택적으로 초안 내용도 함께 저장 가능
 
 class SaveDraftResponse(BaseModel):
     message: str
     draft_id: int
 
-class DraftSummary(BaseModel):
+class WorkspaceDraftSummary(BaseModel):
     """내 작업실 목록 조회를 위한 간략한 초안 정보"""
-    id: int
+    issue_id: int
     title: str
-    user_email: str # 작성자 이메일 추가
-    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
