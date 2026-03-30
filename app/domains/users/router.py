@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.domains.users.models import User
 from app.domains.users.service import UserService
 from app.domains.users.schemas import TokenResponse, MyPageResponse, MyPageDraftSummary
-from app.core.security import create_access_token, get_current_user
+from app.core.security import create_access_token
 from app.domains.issues.models import IssueLabel
 
 
@@ -65,12 +65,19 @@ async def login_kakao(code: str, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=MyPageResponse, summary="내 정보 및 초안 목록 & 스크랩한 기사들 조회 (마이페이지)")
 async def get_my_page(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     """
     현재 로그인한 사용자의 프로필 정보와 작성 중인 초안 목록을 반환합니다.
+    (로그인 없이 ID 1번 유저 정보를 기본으로 사용합니다)
     """
+    user = db.query(User).filter(User.id == 1).first()
+    if not user:
+        user = db.query(User).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="기본 사용자를 찾을 수 없습니다.")
+
     from datetime import datetime
     # draft_issue_ids가 있다면 해당 이슈 정보들을 가져오기
     drafts = []
