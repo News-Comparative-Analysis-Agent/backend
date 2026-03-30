@@ -17,6 +17,16 @@ from app.core.security import get_current_user
 router = APIRouter()
 
 
+# 1. 자동 초안 스트리밍 생성 API
+@router.post("/ai_draft/stream", summary="비평 기사 자동 생성 (스트리밍)")
+async def generate_draft_stream_api(request: StreamDraftRequest, db: Session = Depends(get_db)):
+    """
+    특정 이슈(issue_id)와 관련된 기사들을 바탕으로, 비평 기사 초안을 스트리밍 방식으로 생성합니다.
+    """
+    service = DraftService(db)
+    return service.generate_draft_stream(request.issue_id)
+
+
 # 2. AI 챗봇 대화 및 수정 API
 @router.post("/chat", response_model=ChatResponse, summary="초안 첨삭 및 작성 보조 챗봇")
 async def chat_with_ai_api(request: ChatRequest, db: Session = Depends(get_db)):
