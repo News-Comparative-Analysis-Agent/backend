@@ -42,6 +42,21 @@ def get_issue_analysis(
     return service.get_issue_analysis(issue_id)
 
 
+@router.get("/{issue_id}/draft",
+            response_model=IssueDraftResponse,
+            summary="이슈 초안 보기 (AI 생성 초안 포함)",
+            description="특정 이슈의 기본 분석 정보와 AI가 사전 생성한 초안 내용을 함께 반환합니다.")
+def get_issue_draft(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 이슈의 초안 데이터 조회
+    """
+    service = IssueService(db)
+    return service.get_issue_draft(issue_id)
+
+
 @router.get("/{issue_id}/timeline",
             response_model=IssueTimelineResponse,
             summary="특정 이슈의 과거/최신 타임라인 조회",

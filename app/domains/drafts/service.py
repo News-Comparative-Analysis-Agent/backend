@@ -88,68 +88,6 @@ class DraftService:
             error_msg = json.dumps({"text": f"\n\n[Error] 생성 중 오류 발생: {str(e)}"}, ensure_ascii=False)
             yield f"data: {error_msg}\n\n"
 
-    def generate_draft_stream(self, issue_id: int, user_id: Optional[int] = None):
-        from app.domains.users.models import User
-        context_text = ""
-        pre_generated_draft = None
-        
-        if issue_id:
-            issue = self.repo.get_issue_by_id(issue_id)
-            if issue:
-                # IssueLabel의 pre_generated_draft를 최신 초안으로 사용
-                if issue.pre_generated_draft:
-                    pre_generated_draft = issue.pre_generated_draft
-                
-                articles = self.repo.get_articles_by_issue_with_publisher(issue_id, limit=5)
-                article_summaries = []
-                for idx, art in enumerate(articles, 1):
-                    publisher_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없는 언론사"
-                    article_summaries.append(f"[{idx}] 언론사: {publisher_name} | 제목: {art.title}\n요약: {art.summary or '내용 없음'}")
-                
-                context_text = f"""
-                [참고 자료]
-                주제: {issue.name}
-                
-                관련 기사 요약:
-                {chr(10).join(article_summaries)}
-                """
-        
-        system_prompt = f"""
-# Role (당신의 역할)
-당신은 대한민국 언론의 보도 행태를 날카롭게 분석하는 **'미디어 전문 비평가'**입니다.
-주어진 5개 내외의 뉴스 기사들을 읽고, 해당 이슈를 바라보는 **언론사별 시각 차이(Frame)**를 비교 분석하는 기사를 작성하세요.
-
-# Input Data (분석할 기사 목록)
-{context_text} 
-
-# Analysis Goals (분석 목표)
-1. **쟁점 파악**: 이 사안의 핵심 팩트(Fact)는 무엇인가?
-2. **구도 설정**: 언론사들의 반응이 어떻게 갈리는가?
-3. **논조 비교**: 각 언론사가 주장을 뒷받침하기 위해 어떤 근거를 들었는가?
-
-# Writing Guidelines (작성 지침)
-기사는 아래 **5단 구성**을 엄격히 지켜 작성해 주세요.
-1. **[헤드라인]**: 이슈의 핵심과 언론의 대립 구도가 한눈에 보이는 제목
-2. **[전문 (Lead)]**: 사건의 개요 요약
-3. **[본문 1 - 팩트]**: 주관적 해석 배제, 사건 자체의 Fact 서술
-4. **[본문 2 - 시각 A (제1그룹)]**: 언론사 실명 언급, 핵심 논리 인용
-5. **[본문 3 - 시각 B (제2그룹)]**: 반대편 언론사 서술
-6. **[결론 (Closing)]**: 프레임 해석 멘트로 마무리
-
-# Tone & Manner
-- 모든 텍스트는 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-- 단편적인 사실뿐만 아니라 제3자의 관찰자 시점 유지
-- 마크다운 등 코드블록 금지
-
-# 작성 예시
-[헤드라인]: 의대 정원 갈등, 의료 공백 현실화되나
-[전문]: 정부의 의대 증원 발표 이후 의료계의 반발이 거세지고 있습니다...
-[본문 1]: 보건복지부는 지난 6일 의대 정원 2000명 확대를 공식 발표했습니다...
-        """
-        return StreamingResponse(
-            self._stream_generator(prompt=system_prompt, pre_generated_text=pre_generated_draft), 
-            media_type="text/event-stream"
-        )
 
     # ==========================================
     # 2. AI 챗봇 (초안 첨삭) 로직
