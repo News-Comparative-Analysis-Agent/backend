@@ -19,7 +19,6 @@ def run_local_full_test():
     """
     tests/full_test_data.json을 로드하여 
     [클러스터 -> 명명 -> 청소 -> 분석 -> 기사 작성 -> 교정 -> 검수]
-    전 과정을 로컬 LLM(local_only)으로 실행합니다.
     """
     logger.info("🚀 [Local Full Test] JSON 데이터 기반 로컬 LLM 테스트 시작...")
     

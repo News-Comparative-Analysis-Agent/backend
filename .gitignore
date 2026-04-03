@@ -24,3 +24,5 @@ dist/
 # Logs
 logs/
 .cursorrules
+
+.md
