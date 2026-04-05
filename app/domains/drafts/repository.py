@@ -28,12 +28,12 @@ class DraftRepository:
 
     def get_articles_meta_by_issue(self, issue_id: int) -> List[Article]:
         """
-        최종 검토용: 이슈에 속한 기사들의 제목, URL, 언론사 정보만 조회합니다.
-        (기사 본문은 불필요하므로 publisher만 eager load)
+        최종 검토용: 이슈에 속한 기사들의 제목, URL, 언론사 정보 및 본문을 조회합니다.
+        (기사 본문 원문 비교를 위해 body도 eager load 추가)
         """
         return (
             self.db.query(Article)
-            .options(joinedload(Article.publisher))
+            .options(joinedload(Article.publisher), joinedload(Article.body))
             .filter(Article.issue_label_id == issue_id)
             .order_by(Article.published_at.desc())
             .all()

@@ -44,6 +44,18 @@ class ArticleSourceItem(BaseModel):
     url: str
     published_at: str
 
+class ReviewScoreItem(BaseModel):
+    score: int
+    max_score: int
+    detail: str
+
+class ReviewScores(BaseModel):
+    fairness: ReviewScoreItem
+    faithfulness: ReviewScoreItem
+    harmlessness: ReviewScoreItem
+    total_score: int
+    hate_speech_list: List[str] = []
+    distortions_count: int = 0
 
 class FinalReviewResponse(BaseModel):
     """이슈 상세 분석 응답 (고도화 버전)"""
@@ -56,7 +68,7 @@ class FinalReviewResponse(BaseModel):
     updated_at: datetime
     pre_generated_draft: Optional[str] = None
     sources: List[ArticleSourceItem] = [] # 신뢰도 점수 대신 소스 기사 목록만 직접 노출
-    guideline_checks: List[GuidelineCheck]
+    scores: ReviewScores
     ai_opinion: str
     class Config:
         from_attributes = True

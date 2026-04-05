@@ -358,17 +358,20 @@ class DraftService:
 
             # 3. 결과 리포트 조립
             sources = [
-                ArticleSourceItem(**src) for src in final_state.get("articles_meta", [])
-            ]
-
-            guideline_checks = [
-                GuidelineCheck(**check) for check in final_state.get("guideline_checks", [])
+                ArticleSourceItem(
+                    title=src["title"],
+                    publisher=src["publisher"],
+                    url=src["url"],
+                    published_at=src["published_at"]
+                ) for src in final_state.get("articles_meta", [])
             ]
 
             # 4. 이슈 기본 정보 조회
             issue = self.repo.get_issue_by_id(issue_id)
             if not issue:
                 raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+
+            from app.domains.drafts.schemas import ReviewScores
 
             return FinalReviewResponse(
                 id=issue.id,
@@ -380,7 +383,7 @@ class DraftService:
                 updated_at=getattr(issue, "updated_at", issue.created_at), # 신규 필드 (없으면 created_at)
                 pre_generated_draft=issue.pre_generated_draft,
                 sources=sources,
-                guideline_checks=guideline_checks,
+                scores=ReviewScores(**final_state.get("scores", {})),
                 ai_opinion=final_state.get("ai_opinion", "의견을 생성할 수 없습니다.")
             )
 
