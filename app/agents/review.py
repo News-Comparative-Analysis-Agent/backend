@@ -38,10 +38,12 @@ class ReviewAgent:
             articles_meta = []
             for art in articles:
                 pub_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없음"
+                content = art.body.raw_content if getattr(art, "body", None) else ""
                 articles_meta.append({
                     "title": art.title,
                     "url": art.url,
                     "publisher": pub_name,
+                    "content": content,
                     "published_at": art.published_at.strftime("%Y-%m-%dT%H:%M") if art.published_at else ""
                 })
 
@@ -78,7 +80,7 @@ class ReviewAgent:
     # -----------------------------------------------------------
     def node_analyze_and_opine(self, state: ReviewState) -> dict:
         """
-        [Node 3] LLM을 사용하여 가이드라인 검증, 분석 내용 반영 여부, AI 종합 의견을 생성합니다.
+        [Node 3] LLM을 사용하여 가이드라인 검증 점수(공정성, 원문충실도, 무해성)에 필요한 값을 추출하고 종합 의견을 생성합니다.
         """
         from app.agents.utils import call_llm, update_total_tokens
         
@@ -88,131 +90,179 @@ class ReviewAgent:
         core_contentions = state.get("core_contentions", "")
         conflict_summary = state.get("conflict_summary", "")
         
+        # 기사 원문(상위 3건 정도만 제한)을 포맷팅하여 프롬프트에 포함
+        sources_text = ""
+        articles = state.get("articles_meta", [])
+        for i, a in enumerate(articles[:3]):
+            sources_text += f"\n[원본 기사 {i+1} : {a.get('title', '')}]\n{a.get('content', '')[:1500]}...\n"
+        
         logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 및 종합 의견 생성 시작")
 
         prompt = f"""
-            당신은 언론 윤리 전문가이자 노련한 편집장입니다.
-            제시된 이슈의 분석 데이터(배경, 핵심 쟁점, 갈등 요약)를 바탕으로 기자가 작성한 최종 기사를 엄격히 검토하십시오.
+            당신은 엄격한 언론 윤리 전문가이자 노련한 편집장입니다.
+            제시된 기사 초안을 평가하여 다음 정보를 추출해 주십시오.
 
-            [검토 대상 기사]
+            [검토 대상 기사 (초안)]
             {pre_generated_draft}
 
-            [이슈 분석 데이터]
+            [원본 기사 및 이슈 데이터]
             이슈명: {issue_name}
             배경: {issue_background}
             핵심 쟁점: {core_contentions}
             갈등 요약: {conflict_summary}
+            ---
+            {sources_text}
 
-            [검토 가이드라인]
-            1. 모든 응답(ai_opinion, detail 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-            2. 혐오 표현 및 차별적 서술: 특정 인종·성별·종교·지역 비하 표현이 있는가?
-            3. 자극적인 형용사 사용: 선정적인 표현이 있는가?
-            4. 특정 집단 비하 또는 낙인화: 특정 정치/사회집단을 일방적으로 낙인 찍는가?
-            5. 미확인 사실 및 추측성 서술: 근거 없는 추측을 사실처럼 단정하는가?
-            6. 분석 내용 반영: 제공된 '핵심 쟁점'과 '갈등 요약'의 본질이 기사에 충실히 반영되었는가?
+            [추출해야 하는 항목]
+            1. 공정성 (Fairness)
+               - perspective_category_count: 초안에 서로 다른 입장/관점이 몇 가지나 등장하는지 카운트 (예: 정부, 의협, 환자 등 -> 3)
+               - emotional_word_ratio: 전체 내용 대비 감정적이고 주관적인 단어의 비율 (%)
 
-            [최종 종합 의견]
-            - 기사의 완성도, 균형성, 언론 윤리 준수 여부 및 분석 데이터와의 일치성을 종합하여 1문장으로 작성하십시오.
-            - 'ai_opinion' 필드에 반드시 포함되어야 합니다.
+            2. 원문 충실도 (Faithfulness)
+               - hallucination_ratio: 원본 기사나 데이터에 없는 사실을 지어낸 문장의 비율 (%)
+               - distortion_count: 수치 오류, 의미 반전, 과장/축소가 발생한 건수 (정수)
 
-            [응답 예시]
+            3. 무해성 (Harmlessness)
+               - aggressive_expression_count: 혐오 표현, 비하, 특정 집단 공격적 표현 건수 (정수)
+               - hate_speech_list: 실제로 발견된 공격적/혐오 표현 목록 (없으면 빈 배열 [])
+            
+            [상세 설명 및 의견]
+            - details 객체 내에 공정성, 원문 충실도, 무해성에 대한 간략한 평가 사유를 작성합니다.
+            - ai_opinion 에는 편집장 관점의 종합 평가 1문장을 작성합니다.
+
+            [응답 JSON 형식]
             {{
-                "guideline_checks": [
-                    {{"label": "혐오 표현 및 차별적 서술", "passed": true, "detail": "해당 기사에서 차별적 표현은 발견되지 않았습니다."}},
-                    {{"label": "핵심 분석 내용 반영", "passed": true, "detail": "정부와 의료계의 갈등 구도가 핵심 쟁점에 맞춰 잘 서술되었습니다."}}
-                ],
-                "ai_opinion": "전체적으로 언론 윤리 가이드를 잘 준수하였으며, 갈등의 핵심을 객관적으로 분석한 우수한 기사입니다."
-            }}
-
-            [출력 형식 - 반드시 순수 JSON만 반환]
-            {{
-                "guideline_checks": [
-                    {{"label": "혐오 표현 및 차별적 서술", "passed": true, "detail": ""}},
-                    {{"label": "자극적인 형용사 사용", "passed": true, "detail": ""}},
-                    {{"label": "특정 집단 비하 또는 낙인화 표현", "passed": true, "detail": ""}},
-                    {{"label": "미확인 사실 및 추측성 서술", "passed": true, "detail": ""}},
-                    {{"label": "핵심 분석 내용 반영", "passed": true, "detail": "핵심 쟁점 반영 정도 기술"}}
-                ],
-                "ai_opinion": "종합 평가 내용"
+                "metrics": {{
+                    "perspective_category_count": 2,
+                    "emotional_word_ratio": 1.5,
+                    "hallucination_ratio": 5,
+                    "distortion_count": 0,
+                    "aggressive_expression_count": 0,
+                    "hate_speech_list": []
+                }},
+                "details": {{
+                    "fairness_detail": "서로 다른 입장 교차로 서술됨.",
+                    "faithfulness_detail": "원문 전반에 충실하나 일부 수치 누락.",
+                    "harmlessness_detail": "혐오/공격적 표현 없음."
+                }},
+                "ai_opinion": "전체적으로 뛰어난 완성도를 보이는 기사입니다."
             }}
         """
 
         response_schema = {
             "type": "OBJECT",
             "properties": {
-                "guideline_checks": {
-                    "type": "ARRAY",
-                    "items": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "label": {"type": "STRING"},
-                            "passed": {"type": "BOOLEAN"},
-                            "detail": {"type": "STRING"}
-                        },
-                        "required": ["label", "passed", "detail"]
-                    }
+                "metrics": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "perspective_category_count": {"type": "INTEGER"},
+                        "emotional_word_ratio": {"type": "NUMBER"},
+                        "hallucination_ratio": {"type": "NUMBER"},
+                        "distortion_count": {"type": "INTEGER"},
+                        "aggressive_expression_count": {"type": "INTEGER"},
+                        "hate_speech_list": {"type": "ARRAY", "items": {"type": "STRING"}}
+                    },
+                    "required": ["perspective_category_count", "emotional_word_ratio", "hallucination_ratio", "distortion_count", "aggressive_expression_count", "hate_speech_list"]
+                },
+                "details": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "fairness_detail": {"type": "STRING"},
+                        "faithfulness_detail": {"type": "STRING"},
+                        "harmlessness_detail": {"type": "STRING"}
+                    },
+                    "required": ["fairness_detail", "faithfulness_detail", "harmlessness_detail"]
                 },
                 "ai_opinion": {"type": "STRING"}
             },
-            "required": ["guideline_checks", "ai_opinion"]
+            "required": ["metrics", "details", "ai_opinion"]
         }
 
         try:
-            # utils.call_llm을 사용하여 llm_mode에 따라 호출
+            # LLM 호출
             result, usage = call_llm(prompt, "7B", state, schema=response_schema)
-            
-            # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
 
-            # 결과 보정 로직 (Post-processing)
-            final_checks = []
-            final_opinion = ""
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+                
+            metrics = result.get("metrics", {})
+            details = result.get("details", {})
+            
+            # --- 파이썬 기반 논리적 점수 계산 ---
+            # 1. 공정성 (최대 4점)
+            p_count = metrics.get('perspective_category_count', 0)
+            e_ratio = metrics.get('emotional_word_ratio', 0)
+            
+            fairness_score = 0
+            if p_count >= 2: fairness_score += 2
+            elif p_count == 1: fairness_score += 1
+            
+            if e_ratio <= 2: fairness_score += 2
+            elif e_ratio <= 5: fairness_score += 1
+            
+            # 2. 원문 충실도 (최대 4점)
+            h_ratio = metrics.get('hallucination_ratio', 0)
+            d_count = metrics.get('distortion_count', 0)
+            
+            faithfulness_score = 0
+            if h_ratio < 10: faithfulness_score += 2
+            elif h_ratio <= 20: faithfulness_score += 1
+            
+            if d_count == 0: faithfulness_score += 2
+            elif d_count <= 3: faithfulness_score += 1
+            
+            # 3. 무해성 (최대 2점)
+            a_count = metrics.get('aggressive_expression_count', 0)
+            harmlessness_score = 0
+            if a_count == 0: harmlessness_score += 2
+            elif a_count <= 3: harmlessness_score += 1
+            
+            total_score = fairness_score + faithfulness_score + harmlessness_score
 
-            if isinstance(result, list):
-                final_checks = result
-                failed_items = [c.get("label") for c in result if isinstance(c, dict) and not c.get("passed", True)]
-                final_opinion = "전체적으로 가이드라인을 준수하고 있습니다." if not failed_items else f"{', '.join(failed_items)} 항목에 대한 개선이 권장됩니다."
-            elif isinstance(result, dict):
-                final_checks = result.get("guideline_checks", [])
-                final_opinion = result.get("ai_opinion", "")
-
-            # 통과(passed: True) 항목에 대해 빈 detail 채우기 (사용자 요청 반영)
-            default_details = {
-                "혐오 표현 및 차별적 서술": "혐오 표현 및 차별적 서술이 없습니다.",
-                "자극적인 형용사 사용": "자극적인 형용사 사용이 발견되지 않았습니다.",
-                "특정 집단 비하 또는 낙인화 표현": "특정 집단에 대한 비하 또는 낙인화 표현이 없습니다.",
-                "미확인 사실 및 추측성 서술": "미확인 사실이나 추측성 서술이 발견되지 않았습니다.",
-                "핵심 분석 내용 반영": "핵심 분석 내용이 기사에 충실히 반영되었습니다."
+            scores = {
+                "fairness": {
+                    "score": fairness_score,
+                    "max_score": 4,
+                    "detail": details.get("fairness_detail", "")
+                },
+                "faithfulness": {
+                    "score": faithfulness_score,
+                    "max_score": 4,
+                    "detail": details.get("faithfulness_detail", "")
+                },
+                "harmlessness": {
+                    "score": harmlessness_score,
+                    "max_score": 2,
+                    "detail": details.get("harmlessness_detail", "")
+                },
+                "total_score": total_score,
+                "hate_speech_list": metrics.get("hate_speech_list", []),
+                "distortions_count": d_count
             }
 
-            for check in final_checks:
-                if isinstance(check, dict) and check.get("passed") is True:
-                    if not check.get("detail"):
-                        label = check.get("label", "")
-                        check["detail"] = default_details.get(label, "가이드라인을 준수하고 있습니다.")
-
-            # 최종 결과 조립
-            result = {
-                "guideline_checks": final_checks,
-                "ai_opinion": final_opinion if final_opinion else "검토가 완료되었습니다."
-            }
-            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 (의견: {result['ai_opinion'][:20]}...)")
+            ai_opinion = result.get("ai_opinion", "검토가 완료되었습니다.")
+            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 총점 {{total_score}}점 (의견: {{ai_opinion[:20]}}...)")
 
         except Exception as e:
-            msg = f"LLM 분석 오류: {e}"
-            logger.error(f"⚖️ [ReviewAgent] {msg}")
-            result = {
-                "guideline_checks": [
-                    {"label": "윤리 및 가이드라인 검증", "passed": True, "detail": "분석 오류로 인한 자동 통과"},
-                    {"label": "핵심 분석 내용 반영", "passed": True, "detail": ""}
-                ],
-                "ai_opinion": f"분석 중 오류가 발생했습니다: {str(e)}"
+            msg = f"LLM 분석 오류: {{e}}"
+            logger.error(f"⚖️ [ReviewAgent] {{msg}}")
+            # 에러 발생 시 기본 통과 점수로 처리
+            scores = {
+                "fairness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
+                "faithfulness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
+                "harmlessness": {"score": 2, "max_score": 2, "detail": "분석 오류 - 기본 점수 부여"},
+                "total_score": 10,
+                "hate_speech_list": [],
+                "distortions_count": 0
             }
-            total_tokens = state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0})
+            ai_opinion = f"분석 중 오류가 발생했습니다: {{str(e)}}"
+            total_tokens = state.get("total_tokens", {{"prompt_tokens": 0, "completion_tokens": 0}})
 
         return {
-            "guideline_checks": result.get("guideline_checks", []),
-            "ai_opinion": result.get("ai_opinion", ""),
+            "scores": scores,
+            "ai_opinion": ai_opinion,
             "total_tokens": total_tokens,
             "messages": ["최종 검토 및 종합 의견 생성 완료"]
         }
