@@ -129,6 +129,9 @@ def parse_llm_json(text: str) -> any:
             if 'conflict_summary' in obj: score += 50
             if 'media_narratives' in obj: score += 30
             if 'contention_title' in obj: score += 10 # 과거 버전 호환성 유지 (점수 낮춤)
+            if 'metrics' in obj: score += 50
+            if 'details' in obj: score += 50
+            if 'ai_opinion' in obj: score += 50
         return score
 
     results.sort(key=score_object, reverse=True)

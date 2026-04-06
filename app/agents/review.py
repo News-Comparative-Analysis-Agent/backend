@@ -150,30 +150,30 @@ class ReviewAgent:
         """
 
         response_schema = {
-            "type": "OBJECT",
+            "type": "object",
             "properties": {
                 "metrics": {
-                    "type": "OBJECT",
+                    "type": "object",
                     "properties": {
-                        "perspective_category_count": {"type": "INTEGER"},
-                        "emotional_word_ratio": {"type": "NUMBER"},
-                        "hallucination_ratio": {"type": "NUMBER"},
-                        "distortion_count": {"type": "INTEGER"},
-                        "aggressive_expression_count": {"type": "INTEGER"},
-                        "hate_speech_list": {"type": "ARRAY", "items": {"type": "STRING"}}
+                        "perspective_category_count": {"type": "integer"},
+                        "emotional_word_ratio": {"type": "number"},
+                        "hallucination_ratio": {"type": "number"},
+                        "distortion_count": {"type": "integer"},
+                        "aggressive_expression_count": {"type": "integer"},
+                        "hate_speech_list": {"type": "array", "items": {"type": "string"}}
                     },
                     "required": ["perspective_category_count", "emotional_word_ratio", "hallucination_ratio", "distortion_count", "aggressive_expression_count", "hate_speech_list"]
                 },
                 "details": {
-                    "type": "OBJECT",
+                    "type": "object",
                     "properties": {
-                        "fairness_detail": {"type": "STRING"},
-                        "faithfulness_detail": {"type": "STRING"},
-                        "harmlessness_detail": {"type": "STRING"}
+                        "fairness_detail": {"type": "string"},
+                        "faithfulness_detail": {"type": "string"},
+                        "harmlessness_detail": {"type": "string"}
                     },
                     "required": ["fairness_detail", "faithfulness_detail", "harmlessness_detail"]
                 },
-                "ai_opinion": {"type": "STRING"}
+                "ai_opinion": {"type": "string"}
             },
             "required": ["metrics", "details", "ai_opinion"]
         }
@@ -185,9 +185,18 @@ class ReviewAgent:
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage)
 
+            if isinstance(result, list):
+                result = result[0] if len(result) > 0 else {}
+            
             if isinstance(result, str):
                 import json
-                result = json.loads(result)
+                try:
+                    result = json.loads(result)
+                except Exception:
+                    result = {}
+                    
+            if not isinstance(result, dict):
+                result = {}
                 
             metrics = result.get("metrics", {})
             details = result.get("details", {})
@@ -245,11 +254,11 @@ class ReviewAgent:
             }
 
             ai_opinion = result.get("ai_opinion", "검토가 완료되었습니다.")
-            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 총점 {{total_score}}점 (의견: {{ai_opinion[:20]}}...)")
+            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 총점 {total_score}점 (의견: {ai_opinion[:20]}...)")
 
         except Exception as e:
-            msg = f"LLM 분석 오류: {{e}}"
-            logger.error(f"⚖️ [ReviewAgent] {{msg}}")
+            msg = f"LLM 분석 오류: {e}"
+            logger.error(f"⚖️ [ReviewAgent] {msg}")
             # 에러 발생 시 기본 통과 점수로 처리
             scores = {
                 "fairness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
@@ -259,8 +268,8 @@ class ReviewAgent:
                 "hate_speech_list": [],
                 "distortions_count": 0
             }
-            ai_opinion = f"분석 중 오류가 발생했습니다: {{str(e)}}"
-            total_tokens = state.get("total_tokens", {{"prompt_tokens": 0, "completion_tokens": 0}})
+            ai_opinion = f"분석 중 오류가 발생했습니다: {str(e)}"
+            total_tokens = state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0})
 
         return {
             "scores": scores,

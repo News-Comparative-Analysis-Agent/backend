@@ -5,60 +5,82 @@ import json
 # 프로젝트 경로 설정
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from app.core.database import SessionLocal
+from app.domains.drafts.repository import DraftRepository
 from app.agents.review import ReviewAgent
+from dotenv import load_dotenv
 
-def run_benchmark():
-    agent = ReviewAgent(db=None)  # DB에 접근하지 않으므로 None
+def run_db_benchmark():
+    db = SessionLocal()
+    repo = DraftRepository(db)
+    agent = ReviewAgent(db)
     
-    # 벤치마크용 임의의 상태 데이터 (원문 기사 및 이슈 기본 정보)
+    from app.domains.issues.models import IssueLabel
+    issues = db.query(IssueLabel).order_by(IssueLabel.id.desc()).all()
+    if not issues:
+        print("DB에 이슈 데이터가 없습니다.")
+        return
+        
+    issue = next((i for i in issues if i.pre_generated_draft), issues[0])
+    
+    # 1. DB 기반 State 가공
+    articles = repo.get_articles_meta_by_issue(issue.id)
+    articles_meta = []
+    for art in articles:
+        pub_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없음"
+        content = art.body.raw_content if getattr(art, "body", None) else ""
+        articles_meta.append({
+            "title": art.title,
+            "url": art.url,
+            "publisher": pub_name,
+            "content": content,
+            "published_at": art.published_at.strftime("%Y-%m-%dT%H:%M") if art.published_at else ""
+        })
+        
     base_state = {
-        "issue_name": "의료계 파업 갈등",
-        "issue_background": "정부의 의대 증원 정책에 반발하여 의료계가 파업을 선언함.",
-        "core_contentions": "정부는 필수 의료 인력 부족을 이유로 증원 주장, 의료계는 수가 문제 해결을 우선 주장.",
-        "conflict_summary": "정부와 의료계의 입장이 팽팽해 협상이 지연 중.",
-        "articles_meta": [
-            {
-                "title": "의협, 파업 장기화 우려...",
-                "content": "의사협회는 정부의 일방적인 의대 정원 확대에 반발하며 무기한 파업에 돌입할 수 있다고 경고했다. 정부는 법과 원칙에 따라 대응하겠다는 입장이다."
-            }
-        ],
+        "issue_name": issue.name,
+        "issue_background": issue.background or "",
+        "core_contentions": issue.core_contentions or "",
+        "conflict_summary": issue.description or "",
+        "articles_meta": articles_meta,
         "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
     }
     
-    print("====================================================================")
-    print(" [벤치마크 1] 공정하고 충실하게 작성된 '정상 초안'")
-    print("====================================================================")
-    clean_draft = """
-정부의 의대 증원 발표 이후 의료계와 정부 간의 대립이 격화되고 있다.
-정부 측은 지역과 필수 의료 인력을 확보하기 위해 증원이 불가피하다는 입장이다. 반면 대한의사협회는 현재의 교육 인프라로는 늘어난 인원을 감당하기 어렵고, 근본적인 의료 수가 개선이 선행되어야 한다고 반박하고 있다.
-환자 단체들은 양측의 조속한 대화와 합의를 통해 진료 공백이 최소화되기를 촉구하고 있다.
-    """
+    # 정상 초안
+    clean_draft = issue.pre_generated_draft or "기사 초안이 제공되지 않았습니다."
     state_clean = base_state.copy()
     state_clean["pre_generated_draft"] = clean_draft
     
+    print("=================== 1. 진짜 DB 초안 평가 진행 중... ===================")
     result_clean = agent.node_analyze_and_opine(state_clean)
-    print(json.dumps(result_clean["scores"], indent=2, ensure_ascii=False))
-    print("\n[AI 에디터 의견]:", result_clean["ai_opinion"])
-    print("\n\n")
 
-    print("====================================================================")
-    print(" [벤치마크 2] 욕설, 극단적 감정어, 수치 왜곡(5만명 등)이 포함된 '불량 초안'")
-    print("====================================================================")
-    toxic_draft = """
-아니 진짜 정부 이 버러지 같은 XX들 제정신인가? 지들 맘대로 의대생을 5만명이나 쳐늘린다고 개소리를 지껄이고 있다.
-의협은 이런 미친 소리에 아주 기가 막혀서 다 때려부술 기세다.
-우리 멍청하고 역겨운 정치인들은 아무 생각 없이 이 쓰레기 정책에 찬성만 누르고 앉아있고.
-애초에 의사가 모자란다는 건 좌파 집단들이 꾸며낸 완전한 거짓말이다. 환자들은 알아서 병원 안 가면 그만이지 맨날 징징대고 자빠졌다.
-의사들 다 굶어 죽게 만들고 아주 혐오스러운 정책이 아닐 수 없다.
-    """
+    # 비정상 초안 (욕설/편향 강제 주입)
+    # 정상 내용에 매우 원색적인 욕설과 편향된 맥락 추가
+    toxic_injection = "\n\n하지만 냉정하게 말해서 저 집단의 주장은 완전 헛소리이자 개소리다. 이 멍청하고 역겨운 쓰레기 같은 정치꾼 새끼들이 나라를 망치고 있다. 우리 시민들은 이 버러지 같은 집단을 당장 매장시켜야 할 것이다."
+    toxic_draft = clean_draft + toxic_injection
+    
     state_toxic = base_state.copy()
     state_toxic["pre_generated_draft"] = toxic_draft
     
+    print("=================== 2. 욕설이 주입된 초안 평가 진행 중... ===================")
     result_toxic = agent.node_analyze_and_opine(state_toxic)
-    print(json.dumps(result_toxic["scores"], indent=2, ensure_ascii=False))
-    print("\n[AI 에디터 의견]:", result_toxic["ai_opinion"])
+    
+    output = {
+        "issue_name": issue.name,
+        "benchmark_1_real_clean": {
+            "scores": result_clean.get("scores", {}),
+            "ai_opinion": result_clean.get("ai_opinion", "")
+        },
+        "benchmark_2_real_toxic": {
+            "scores": result_toxic.get("scores", {}),
+            "ai_opinion": result_toxic.get("ai_opinion", "")
+        }
+    }
+    
+    with open("benchmark_db_results.json", "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+    print("완료! benchmark_db_results.json 생성됨")
 
 if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv() # .env에서 GOOGLE_API_KEY 로드
-    run_benchmark()
+    load_dotenv()
+    run_db_benchmark()
