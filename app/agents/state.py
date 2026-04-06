@@ -121,8 +121,8 @@ class ReviewState(TypedDict):
     # 이슈에 속한 기사 목록 (제목, URL, 언론사만 사용)
     articles_meta: List[Dict[str, Any]]        # [{"title": str, "url": str, "publisher": str, "published_at": str}]
 
-    # 가이드라인 검증 결과 (Gemini)
-    guideline_checks: List[Dict[str, Any]]     # [{"label": str, "passed": bool, "detail": str}]
+    # 가이드라인 검증 결과 (10점 만점 점수 체계)
+    scores: Dict[str, Any]                     # fairness, faithfulness, harmlessness 점수 객체
 
     # AI 종합 의견 (Gemini)
     ai_opinion: str
