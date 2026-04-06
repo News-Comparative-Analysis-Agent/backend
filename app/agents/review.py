@@ -47,13 +47,19 @@ class ReviewAgent:
                     "published_at": art.published_at.strftime("%Y-%m-%dT%H:%M") if art.published_at else ""
                 })
 
-            # pre_generated_draft에서 실제 본문 추출 (JSON 구조 고려)
+            # 1. 원본 JSON 데이터를 그대로 보관 (프론트엔드 전달용)
             raw_draft = issue.pre_generated_draft or ""
-            parsed_draft = raw_draft
+            
+            # 2. LLM 분석용 텍스트 추출 (내부 로컬 변수)
+            llm_draft_text = raw_draft
             try:
                 if raw_draft.strip().startswith('{'):
                     draft_json = json.loads(raw_draft)
-                    parsed_draft = draft_json.get("article_body", raw_draft)
+                    # article_body, contentions, intro 등 다양한 필드 대응 (Fallback)
+                    llm_draft_text = draft_json.get("article_body") or \
+                                     draft_json.get("contentions") or \
+                                     draft_json.get("introduction") or \
+                                     raw_draft
             except Exception:
                 pass
 
@@ -64,7 +70,8 @@ class ReviewAgent:
                 "issue_background": issue.background or "",
                 "core_contentions": issue.core_contentions or "",
                 "conflict_summary": issue.conflict_summary or "",
-                "pre_generated_draft": parsed_draft,
+                "pre_generated_draft": raw_draft,  # 원본 그대로 유지
+                "llm_draft_text": str(llm_draft_text), # LLM 전용 필드 추가
                 "articles_meta": articles_meta,
                 "messages": [f"이슈 분석 데이터 및 기사 {len(articles_meta)}건 로드 완료"]
             }
@@ -103,7 +110,7 @@ class ReviewAgent:
             제시된 기사 초안을 평가하여 다음 정보를 추출해 주십시오.
 
             [검토 대상 기사 (초안)]
-            {pre_generated_draft}
+            {state.get("llm_draft_text", pre_generated_draft)}
 
             [원본 기사 및 이슈 데이터]
             이슈명: {issue_name}
@@ -216,8 +223,8 @@ class ReviewAgent:
             d_count = metrics.get('distortion_count', 0)
             
             faithfulness_score = 0
-            if h_ratio < 10: faithfulness_score += 2
-            elif h_ratio <= 20: faithfulness_score += 1
+            if h_ratio == 0: faithfulness_score += 2
+            elif h_ratio < 10: faithfulness_score += 1
             
             if d_count == 0: faithfulness_score += 2
             elif d_count <= 3: faithfulness_score += 1

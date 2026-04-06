@@ -65,6 +65,17 @@ def run_db_benchmark():
     print("=================== 2. 욕설이 주입된 초안 평가 진행 중... ===================")
     result_toxic = agent.node_analyze_and_opine(state_toxic)
     
+    # 3. 원문 충실도 불량 초안 (환각 및 왜곡 강제 주입)
+    # 왜곡: 원문 내용의 수량 변조(100배), 부정(완전 반대 의미), 인물 직책이나 행동 과장
+    distorted_injection = "\n\n특히 관련자 전원이 징역 100년형을 선고받고 전 재산 100조 원을 압수당했다. 당사자들은 기존 입장을 180도 뒤집고 일방적인 항복을 선언했으며, 이 사태로 인해 국가 경제는 순식간에 붕괴하여 코스피 지수가 0으로 추락하는 등 돌이킬 수 없는 피해가 발생했다."
+    distorted_draft = clean_draft.replace("법적 대응", "즉각적인 무기한 휴업 및 파업").replace("의견", "극단적인 폭력 행사").replace("장관", "초등학생") + distorted_injection
+    
+    state_distorted = base_state.copy()
+    state_distorted["pre_generated_draft"] = distorted_draft
+    
+    print("=================== 3. 환각/왜곡이 주입된 초안 평가 진행 중... ===================")
+    result_distorted = agent.node_analyze_and_opine(state_distorted)
+    
     output = {
         "issue_name": issue.name,
         "benchmark_1_real_clean": {
@@ -74,6 +85,10 @@ def run_db_benchmark():
         "benchmark_2_real_toxic": {
             "scores": result_toxic.get("scores", {}),
             "ai_opinion": result_toxic.get("ai_opinion", "")
+        },
+        "benchmark_3_real_distorted": {
+            "scores": result_distorted.get("scores", {}),
+            "ai_opinion": result_distorted.get("ai_opinion", "")
         }
     }
     
