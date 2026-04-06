@@ -17,14 +17,14 @@ llm_semaphore = threading.Semaphore(1)
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
 LLM_SERVER_IP = os.getenv("LLM_SERVER_IP", os.getenv("HOST_IP", "127.0.0.1")).strip()
 
-# 포트 설정 (.env 우선, 없으면 7B_PORT 공통 설정 반영, 그마저도 없으면 기본값)
-PORT_7B = 8081
+# 포트 설정 (.env 우선, 없으면 LOCAL_PORT 공통 설정 반영, 그마저도 없으면 기본값)
+LOCAL_PORT = 8081
 
 # API 엔드포인트 경로 (.env 우선)
 API_PATH = os.getenv("LLM_SERVER_API_URI", "v1/chat/completions").strip()
 
 LOCAL_LLM_SERVERS = {
-    "7B": f"http://{LLM_SERVER_IP}:{PORT_7B}/{API_PATH}",
+    "local": f"http://{LLM_SERVER_IP}:{LOCAL_PORT}/{API_PATH}",
 }
 
 def get_local_model_name() -> str:
@@ -33,7 +33,7 @@ def get_local_model_name() -> str:
     (OpenAI, Ollama, llama.cpp 등 다양한 응답 구조 대응)
     """
     try:
-        url = f"http://{LLM_SERVER_IP}:{PORT_7B}/v1/models"
+        url = f"http://{LLM_SERVER_IP}:{LOCAL_PORT}/v1/models"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
@@ -150,7 +150,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
         "model": actual_model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
-        "max_tokens": 2048
+        "max_tokens": 8192  # 기사 잘림 방지를 위해 출력 한도 대폭 상향
     }
     
     # JSON 모드 혹은 스키마가 제공된 경우 response_format 추가 지원 (vLLM, Ollama, MLX 등 OpenAI 호환 서버 대응)
@@ -204,6 +204,9 @@ def get_gemini_client():
 @traceable(run_type="llm", name="Gemini Call")
 def call_gemini(prompt: str, schema: dict = None) -> dict:
     """제미나이 API를 호출합니다."""
+    # 랭스미스 트레이싱용 메타데이터 태깅
+    metadata = {"model_name": "gemini-2.0-flash", "provider": "google"}
+    
     try:
         # log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
         client = get_gemini_client()

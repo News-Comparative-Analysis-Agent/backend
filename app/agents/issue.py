@@ -160,7 +160,7 @@ class IssueAgent:
                 usage["prompt_tokens"] = len(prompt) // 4
                 usage["completion_tokens"] = len(response.text) // 4
             else:
-                result, usage = call_llm(prompt, "7B", state)
+                result, usage = call_llm(prompt, "local", state)
             
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "IssueAgent")

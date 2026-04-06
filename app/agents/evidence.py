@@ -119,7 +119,7 @@ class EvidenceAgent:
                 usage["prompt_tokens"] = len(prompt) // 4
                 usage["completion_tokens"] = len(response.text) // 4
             else:
-                card_data, usage = call_llm(prompt=prompt, model_size="7B", state=state)
+                card_data, usage = call_llm(prompt=prompt, model_size="local", state=state)
             
             if card_data:
                 # 내부 식별용 매핑

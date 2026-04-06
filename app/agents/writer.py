@@ -164,7 +164,7 @@ class WriterAgent:
                     "media_views": media_views,
                     "article_body": "비평 본문"
                 }
-                final_data, usage = call_llm(modified_prompt, "7B", state, schema=fallback_schema)
+                final_data, usage = call_llm(modified_prompt, "local", state, schema=fallback_schema)
             
             # 데이터 보정 (7B 모델이 일부 필드만 반환했을 경우 입력값으로 복구)
             if not isinstance(final_data, dict):

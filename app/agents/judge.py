@@ -131,7 +131,7 @@ class JudgeAgent:
                 "required": ["thought", "total_score", "redo_instruction"]
             }
             # G-EVAL 모델 호출 (call_llm이 schema와 함께 호출되면 이미 파싱된 dict를 반환함)
-            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="7B", state=state, schema=schema)
+            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema)
             
             if not g_eval_result:
                 g_eval_result = {"total_score": 75, "redo_instruction": "", "thought": "응답 누락으로 강제 통과 처리된 G-EVAL"}

@@ -166,7 +166,7 @@ class EditorAgent:
                 }
             else:
                 from app.agents.utils import call_llm
-                # 7B 모델 호출 시 schema를 직접 전달하여 utils.py의 response_format 기능을 활성화
+                # 모델 호출 시 schema를 직접 전달하여 utils.py의 response_format 기능을 활성화
                 fallback_schema = {
                     "issue_id": issue_id_int,
                     "title": state.get("title", ""),
@@ -175,7 +175,7 @@ class EditorAgent:
                     "media_views": state.get("media_views", []),
                     "article_body": "교정된 본문"
                 }
-                final_data, usage = call_llm(modified_prompt, "7B", state, schema=fallback_schema)
+                final_data, usage = call_llm(modified_prompt, "local", state, schema=fallback_schema)
             
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "EditorAgent")

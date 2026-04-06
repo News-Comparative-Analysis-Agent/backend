@@ -115,7 +115,7 @@ class ClusterAgent:
             """
             
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
-            parsed, usage = call_llm(prompt=prompt, model_size="7B", state=state)
+            parsed, usage = call_llm(prompt=prompt, model_size="local", state=state)
             # ✅ state 직접 변이 제거 — usage만 반환하여 호출부에서 누적 처리
             
             if parsed:
@@ -197,7 +197,7 @@ class ClusterAgent:
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=0.82
+                distance_threshold=1.1
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
