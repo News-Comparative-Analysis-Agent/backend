@@ -109,7 +109,8 @@ class ReviewState(TypedDict):
     """
     llm_mode: str                              # "gemini_only", "local_priority", "local_only"
     issue_id: int                              # 검토 대상 이슈 ID
-    pre_generated_draft: str                   # DB에서 가져온 최종 기사 초안 텍스트
+    pre_generated_draft: str                   # DB에서 가져온 최종 기사 초안 (원본 JSON 또는 텍스트)
+    llm_draft_text: str                        # LLM 분석용으로 정제된 본문 텍스트
 
     # 이슈 메타데이터
     issue_name: str                            # 이슈명
