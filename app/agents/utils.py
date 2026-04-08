@@ -9,8 +9,7 @@ from google import genai
 from langsmith import traceable
 from app.core.logger import logger, log_llm_event
 
-# 로컬 LLM 서버 부하 방지를 위해 요청을 1개씩 직렬화
-llm_semaphore = threading.Semaphore(1)
+# 로컬 LLM 서버(llama.cpp 등) 자체 병렬 처리(Continuous Batching) 활용을 위해 세마포어 잠금 제거
 
 
 
@@ -180,6 +179,24 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
                 "prompt_tokens": token_info_dict.get("prompt_tokens", 0) if token_info_dict else 0,
                 "completion_tokens": token_info_dict.get("completion_tokens", 0) if token_info_dict else 0
             }
+            
+            # LangSmith 대시보드 시스템(Input/Output) 토큰 컬럼 매핑!
+            try:
+                import langsmith
+                from langsmith.run_helpers import get_current_run_tree
+                rt = get_current_run_tree()
+                if rt:
+                    if rt.extra is None:
+                        rt.extra = {}
+                    rt.extra["usage_metadata"] = {
+                        "input_tokens": usage["prompt_tokens"],
+                        "output_tokens": usage["completion_tokens"],
+                        "total_tokens": usage["prompt_tokens"] + usage["completion_tokens"]
+                    }
+                    rt.add_metadata({"usage": usage})
+            except Exception as ex:
+                pass
+                
             return content, usage
             
         except (requests.exceptions.RequestException, Exception) as e:
@@ -262,8 +279,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
     mode = state.get("llm_mode", "gemini_only")
     
     if mode == "local_only":
-        with llm_semaphore:
-            return call_local_llm(model_size, prompt)
+        return call_local_llm(model_size, prompt)
             
     if mode == "gemini_only":
         try:
@@ -287,8 +303,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             
     if mode == "local_priority":
         try:
-            with llm_semaphore:
-                content, usage = call_local_llm(model_size, prompt)
+            content, usage = call_local_llm(model_size, prompt)
             if content: return content.strip(), usage
             raise ValueError("로컬 LLM 응답 비어있음")
         except Exception as e:
@@ -319,25 +334,26 @@ def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> 
     mode = state.get("llm_mode", "gemini_only")
     
     if mode == "local_only":
-        with llm_semaphore:
-            content, usage = call_local_llm(model_size, prompt, schema=schema)
+        content, usage = call_local_llm(model_size, prompt, schema=schema)
         return parse_llm_json(content), usage
         
     if mode == "gemini_only":
-        return call_gemini(prompt, schema=schema)
+        content, usage = call_gemini(prompt, schema=schema)
+        return parse_llm_json(content), usage
         
     if mode == "local_priority":
         try:
-            with llm_semaphore:
-                content, usage = call_local_llm(model_size, prompt, schema=schema)
+            content, usage = call_local_llm(model_size, prompt, schema=schema)
             parsed = parse_llm_json(content)
             if parsed: return parsed, usage
             raise ValueError("로컬 LLM 응답 파싱 실패")
         except Exception as e:
             logger.warning(f"로컬 LLM 실패로 인해 제미나이로 폴백합니다: {e}")
-            return call_gemini(prompt, schema=schema)
+            content, usage = call_gemini(prompt, schema=schema)
+            return parse_llm_json(content), usage
     
-    return call_gemini(prompt, schema=schema)
+    content, usage = call_gemini(prompt, schema=schema)
+    return parse_llm_json(content), usage
 
 
 

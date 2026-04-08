@@ -112,12 +112,6 @@ class JudgeAgent:
                 "redo_instruction": ""
             }}
 
-            [반환 포맷 예시]
-            {{
-                "thought": "...사실성 점검: OOO부분은 원문에 없음. 논리성: 흐름이 좋음. 어조: 적절함...",
-                "total_score": 65,
-                "redo_instruction": "OOO 부분은 원문에 없으니 삭제하거나 수정하세요."
-            }}
             """
             
             # G-EVAL 모델 호출 (llm_mode 라우팅 등 중앙 집중식 call_llm 활용)

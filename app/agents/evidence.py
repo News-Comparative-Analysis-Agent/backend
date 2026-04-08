@@ -69,61 +69,48 @@ class EvidenceAgent:
     def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str, state: ComparisonState) -> tuple[dict | None, dict]:
         
         prompt = f"""
-        당신은 사실 기반 팩트체커입니다. 아래 뉴스 기사 본문에서 핵심 주장을 발췌하여 원자적(Atomic) 주장 카드를 생성하세요.
+        당신은 예리한 사실 기반 팩트체커입니다. 아래 주어진 [뉴스 원문]을 읽고, 해당 언론사가 가장 강하게 내세우는 핵심 주장을 발췌하세요.
         
         [뉴스 원문]
         언론사: {art['press']}
         제목: {art['title']}
         내용: {art['content'][:2500]}
         
-        [지시사항]
-        1. 모든 필드("claim", "evidence" 등)는 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-        2. "claim": 기사가 전달하려는 가장 핵심적인 주장 1문장.
-        3. "evidence": 위 주장을 뒷받침하는 기사 내부의 '정확한 원문 인용구' (작성자가 지어내지 말 것).
-        4. "url": 제공된 기사 URL ({art['url']}).
-        5. "press": 제공된 언론사명 ({art['press']}).
+        [작성 지침]
+        1. 모든 값은 반드시 한국어로만 작성하세요.
+        2. "thought": 본문을 읽고, 어느 단락이 이 기사의 핵심 논조를 담고 있는지 분석하는 과정을 2~3문장으로 간략히 적어주세요.
+        3. "claim": 본문의 핵심 주장(기사 작성자의 요점)을 1문장으로 요약하세요.
+        4. "evidence": 위 주장의 근거가 되는 기사 본문 내 '특정 문장'을 **단 한 글자도 바꾸지 말고, 원문 그대로 100% 똑같이 복사(Ctrl+C, Ctrl+V)** 해서 넣으세요. 본문에 없는 단어를 넣으면 절대 안 됩니다.
         
-        [응답 예시]
+        [출력 JSON 예시]
         {{
-            "claim": "정부의 의대 증원 정책은 의료 현장의 목소리를 반영하지 않은 졸속 추진이다.",
-            "evidence": "대한의사협회는 정부가 충분한 협의 없이 2,000명 증원을 일방적으로 결정했다고 비판했다.",
-            "url": "{art['url']}",
-            "press": "{art['press']}"
-        }}
-
-        [반환 형식 - 순수 JSON만]
-        {{
-            "claim": "핵심 주장 1문장",
-            "evidence": "원문 인용(근거)",
-            "url": "{art['url']}",
-            "press": "{art['press']}"
+            "thought": "이 기사는 세 번째 단락에서 의대 증원의 부작용을 강도 높게 비판하고 있다. 따라서 해당 부분을 핵심 주장과 인용 근거로 삼는 것이 적절하다.",
+            "claim": "정부의 의대 증원 정책은 의료 현장의 목소리를 배제한 강압적인 정책이다.",
+            "evidence": "대한의사협회는 정부가 의료계와 충분한 사전 협의 없이 2,000명 증원을 일방적으로 통보했다고 강력히 비판했다."
         }}
         """
         
         usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
-            if llm_mode == "gemini_only":
-                response_schema = {
-                    "type": "OBJECT",
-                    "properties": {
-                        "claim": {"type": "STRING"},
-                        "evidence": {"type": "STRING"},
-                        "url": {"type": "STRING"},
-                        "press": {"type": "STRING"}
-                    },
-                    "required": ["claim", "evidence", "url", "press"]
-                }
-                gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
-                response = gen_model.generate_content(prompt)
-                card_data = json.loads(response.text)
-                usage["prompt_tokens"] = len(prompt) // 4
-                usage["completion_tokens"] = len(response.text) // 4
-            else:
-                card_data, usage = call_llm(prompt=prompt, model_size="local", state=state)
+
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "thought": {"type": "STRING"},
+                    "claim": {"type": "STRING"},
+                    "evidence": {"type": "STRING"}
+                },
+                "required": ["thought", "claim", "evidence"]
+            }
+            
+            # call_llm이 내부적으로 llm_mode 판단 후 제미나이/로컬 분기 및 JSON 파싱을 모두 수행함!
+            card_data, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema)
             
             if card_data:
-                # 내부 식별용 매핑
-                card_data['article_id'] = art['article_id'] 
+                # 내부 식별용 및 메타데이터 자동 병합
+                card_data['article_id'] = art['article_id']
+                card_data['url'] = art['url']
+                card_data['press'] = art['press']
                 return card_data, usage
         except Exception as e:
             logger.error(f"주장 카드 추출 실패 ({art['press']}): {e}")
@@ -133,18 +120,18 @@ class EvidenceAgent:
     @traceable(name="Agent 1: Evidence (주장 및 근거 추출) 🕵️‍♂️")
     def node_extract_claims(self, state: ComparisonState) -> dict:
         """
-        [Node] 병렬 처리를 통해 여러 기사에서 주장 카드(Claim Card)를 추출합니다.
+        [Node] 기사에서 주장 카드(Claim Card)를 추출합니다.
         """
         articles = state.get("articles", [])
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode", "local_only")
         
         if not articles:
-            return {"claim_cards": [], "messages": ["로드된 기사가 없습니다."]}
+            return {"messages": ["로드된 기사가 없습니다."]}
             
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
-        workers = 3 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
+        workers = 5 if llm_mode == "gemini_only" else 2 # TODO 몇개까지 버티는지 테스트 진행예정
         
         msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 주장 카드 추출 시작 (Mode: {llm_mode})"
         logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")
