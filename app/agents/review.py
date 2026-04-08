@@ -179,9 +179,11 @@ class ReviewAgent:
         }
 
         try:
-            # LLM 호출
-            result, usage = call_llm(prompt, "7B", state, schema=response_schema)
-            total_tokens = update_total_tokens(state, usage)
+            # utils.call_llm을 사용하여 llm_mode에 따라 호출
+            result, usage = call_llm(prompt, "local", state, schema=response_schema)
+            
+            # 토큰 업데이트
+            total_tokens = update_total_tokens(state, usage, "ReviewAgent")
 
             if isinstance(result, list):
                 result = result[0] if len(result) > 0 else {}

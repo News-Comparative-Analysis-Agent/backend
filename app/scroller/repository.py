@@ -82,10 +82,9 @@ class ScrollerRepository:
 
     def save_article_with_body(self, publisher_id: int, 
                                 title: str, url: str, image_urls: list,
-                                published_at: datetime, content: str,
-                                summary: str = None, bias: str = None,
-                                bias_score: float = None,
-                                reporter: str = None) -> Article:
+                                 published_at: datetime, content: str,
+                                summary: str = None, 
+                                 reporter: str = None) -> Article:
         """
         기사 메타데이터와 본문을 각각의 테이블에 연동하여 저장합니다.
         
@@ -97,8 +96,6 @@ class ScrollerRepository:
             published_at (datetime): 발행 일시
             content (str): 기사 원문 (본문)
             summary (str): AI 요약문
-            bias (str): 정치 성향 (liberal, neutral, conservative)
-            bias_score (float): 성향 점수
             reporter (str): 기자 이름
             
         Returns:
@@ -112,8 +109,6 @@ class ScrollerRepository:
             image_urls=image_urls,
             published_at=published_at,
             summary=summary,
-            bias=bias,
-            bias_score=bias_score,
             reporter=reporter
         )
         self.db.add(article)

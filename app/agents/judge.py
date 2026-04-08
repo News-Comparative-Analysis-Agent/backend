@@ -112,12 +112,6 @@ class JudgeAgent:
                 "redo_instruction": ""
             }}
 
-            [반환 포맷 예시]
-            {{
-                "thought": "...사실성 점검: OOO부분은 원문에 없음. 논리성: 흐름이 좋음. 어조: 적절함...",
-                "total_score": 65,
-                "redo_instruction": "OOO 부분은 원문에 없으니 삭제하거나 수정하세요."
-            }}
             """
             
             # G-EVAL 모델 호출 (llm_mode 라우팅 등 중앙 집중식 call_llm 활용)
@@ -131,7 +125,7 @@ class JudgeAgent:
                 "required": ["thought", "total_score", "redo_instruction"]
             }
             # G-EVAL 모델 호출 (call_llm이 schema와 함께 호출되면 이미 파싱된 dict를 반환함)
-            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="7B", state=state, schema=schema)
+            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema)
             
             if not g_eval_result:
                 g_eval_result = {"total_score": 75, "redo_instruction": "", "thought": "응답 누락으로 강제 통과 처리된 G-EVAL"}
@@ -166,17 +160,26 @@ class JudgeAgent:
                     from app.scroller.repository import ScrollerRepository
                     repo = ScrollerRepository(self.db)
                     
-                    # 초안 저장
-                    edited_json_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
-                    repo.update_issue_draft(issue_id, edited_json_str)
+                    # 초안 저장 (전체 JSON이 아닌 본문 텍스트만 저장)
+                    if isinstance(edited_article, dict):
+                        article_body = edited_article.get("article_body", "")
+                    else:
+                        article_body = str(edited_article)
                     
-                    # 나머지 분석 메타데이터 저장
+                    repo.update_issue_draft(issue_id, article_body)
+                    
+                    # 나머지 분석 메타데이터 저장 (EditorAgent가 다듬은 최종 버전 우선 사용)
+                    final_desc = edited_article.get("description", state.get("description")) if isinstance(edited_article, dict) else state.get("description")
+                    final_bg = edited_article.get("background", state.get("background")) if isinstance(edited_article, dict) else state.get("background")
+                    final_core = edited_article.get("core_contentions", state.get("core_contentions")) if isinstance(edited_article, dict) else state.get("core_contentions")
+                    final_conflict = edited_article.get("conflict_summary", state.get("conflict_summary")) if isinstance(edited_article, dict) else state.get("conflict_summary")
+
                     repo.update_issue_analysis_results(
                         issue_id=issue_id,
-                        description=state.get("description"),
-                        background=state.get("background"),
-                        core_contentions=state.get("core_contentions"),
-                        conflict_summary=state.get("conflict_summary")
+                        description=final_desc,
+                        background=final_bg,
+                        core_contentions=final_core,
+                        conflict_summary=final_conflict
                     )
                     self.db.commit()
                     logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과가 DB에 저장되었습니다. (Issue ID: {issue_id})")

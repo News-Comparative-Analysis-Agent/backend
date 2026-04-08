@@ -11,9 +11,6 @@ from app.domains.drafts.schemas import (
     PerspectivesResponse, WorkspaceDraftSummary, DraftUpdate
 )
 from app.domains.drafts.service import DraftService
-from app.domains.users.models import User
-from app.core.security import get_current_user
-
 router = APIRouter()
 
 # 2. AI 챗봇 대화 및 수정 API
@@ -39,26 +36,24 @@ async def get_issue_images_api(issue_id: int, db: Session = Depends(get_db)):
 
 @router.get("/workspace", response_model=List[WorkspaceDraftSummary], summary="내 작업실 초안 목록 조회")
 async def get_workspace_drafts_api(
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     """현재 로그인한 유저의 작업실에 보관된 모든 초안 목록을 반환합니다."""
     service = DraftService(db)
-    return service.get_user_workspace_drafts(user_id=user.id)
+    return service.get_user_workspace_drafts(user_id=1)
 
 @router.put("/issue/{issue_id}", summary="초안 수정 및 임시 저장 (이슈 기준)")
 async def update_draft_api(
     issue_id: int,
     request: DraftUpdate,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     """
     이슈 ID를 기준으로 초안 본문 내용을 업데이트하고, 
     해당 이슈를 사용자의 작업실 목록에 추가합니다. (임시 저장 및 목록 추가 동시 수행)
     """
     service = DraftService(db)
-    updated_id = service.update_issue_draft(issue_id, request.content, user.id)
+    updated_id = service.update_issue_draft(issue_id, request.content, user_id=1)
     
     return {"message": "초안이 성공적으로 수정 및 저장되었습니다.", "issue_id": updated_id}
 
