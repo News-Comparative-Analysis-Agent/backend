@@ -1,5 +1,5 @@
 from app.agents.state import ComparisonState
-from app.agents.utils import update_total_tokens
+from app.agents.utils import update_total_tokens, call_llm
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 import json
@@ -98,24 +98,7 @@ class EditorAgent:
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "EditorAgent")
 
-            # 데이터 보정 (7B 모델이 일부 필드만 반환했을 경우 복구)
-            if not isinstance(final_data, dict):
-                final_data = {"article_body": str(final_data)}
-            
-            # 필수 필드 복구 로직 (이전 단계인 draft나 state에서 가져옴)
-            final_data.setdefault("issue_id", issue_id_int)
-            final_data.setdefault("title", state.get("title") or (draft.get("title") if isinstance(draft, dict) else "제목 없음"))
-            final_data.setdefault("description", state.get("description") or (draft.get("description") if isinstance(draft, dict) else "설명 없음"))
-            final_data.setdefault("background", state.get("background") or (draft.get("background") if isinstance(draft, dict) else ""))
-            final_data.setdefault("core_contentions", state.get("core_contentions") or (draft.get("core_contentions") if isinstance(draft, dict) else ""))
-            final_data.setdefault("conflict_summary", state.get("conflict_summary") or (draft.get("conflict_summary") if isinstance(draft, dict) else ""))
-            final_data.setdefault("media_views", state.get("media_views") or (draft.get("media_views") if isinstance(draft, dict) else []))
-            
-            if "article_body" not in final_data:
-                 # 본문이 없을 경우 draft의 본문을 그대로 사용
-                 final_data["article_body"] = draft.get("article_body") if isinstance(draft, dict) else str(draft)
-
-            edited_article = final_data
+            # 데이터 보조 로깅 및 종료
             log_llm_event("agent_editor", "비평 기사 교정 완료", details=json.dumps(edited_article, ensure_ascii=False, indent=2))
                 
             return {
@@ -127,5 +110,4 @@ class EditorAgent:
         except Exception as e:
             msg = f"에디팅 실패: {e}"
             logger.error(f"🎨 [EditorAgent] {msg}")
-            traceback.print_exc()
             return {"edited_article": draft, "messages": [msg]}
