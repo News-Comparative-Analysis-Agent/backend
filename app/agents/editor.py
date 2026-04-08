@@ -41,142 +41,60 @@ class EditorAgent:
         articles = state.get("articles", [])
         articles_context = ""
         for i, art in enumerate(articles, 1):
-            content_snippet = art.get("content", "")[:300]
-            articles_context += f"--- [원본 기사 {i}: {art.get('press', '알수없음')}] ---\n{content_snippet}...\n\n"
+            content_snippet = art.get("content", "")[:150]
+            articles_context += f"--- [원본 {i}: {art.get('press', '알수없음')}] ---\n{content_snippet}...\n\n"
 
+        # ... (중략: prompt 구성 로직은 유지하되 출력 형식 예시만 단순화)
         prompt = f"""
         당신은 사안의 횡단적 분석을 전문으로 하는 신문사의 **수석 논설위원**입니다.
-        아래 [비평 기사 초안]과 [원본 뉴스 기사 (참조용)]를 정밀하게 대조하며, 단순한 사실 나열을 넘어 사안을 꿰뚫는 통찰력이 담긴 **최종 비평 리포트**로 완성하십시오.
+        아래 [비평 기사 초안]을 교정하여, 날카로운 통찰과 유려한 문장이 조화된 **최종 비평 리포트**로 완성하십시오.
 
-        [비평 기사 초안 (JSON)]
+        [비평 기사 초안]
         {json.dumps(draft, ensure_ascii=False, indent=2) if isinstance(draft, dict) else draft}
 
-        [원본 뉴스 기사 (참조용: 각 300자)]
+        [참조용 원본 뉴스 (각 150자)]
         {articles_context}
 
-        [에디팅 및 집필 가이드라인 (중요! 🖋️)]
-        1. **⚠️ 나열 금지 (Anti-Listing)**: 절대로 "A 언론사는..., B 언론사는..." 하는 식으로 언론사를 주어로 삼아 순차적으로 나열하지 마십시오. 이는 하급 기자의 방식입니다.
-        2. **쟁점 중심 통합 (Issue-based Synthesis)**: 사안을 관통하는 '핵심 갈등'을 소제목이나 문단의 주제로 잡으십시오. 제공된 '원본 뉴스 기사'에서 초안이 놓친 날카로운 표현이나 구체적인 논조를 찾아내어 본문에 **입체적으로 녹여내십시오.**
-        3. **논리적 연결어 사용 강제**: 모든 문장이나 문단 사이에는 반드시 (반면, 또한, 결과적으로, 이와는 대조적으로, 그럼에도 불구하고)와 같은 논리적 연결어를 사용하여 서사가 물 흐르듯 이어지게 하십시오.
-        4. **통찰력 있는 제목**: 단순히 사안을 요약하는 제목이 아닌, 사안의 본질적 모순이나 시대적 의미를 짚어주는 압축적인 제목을 만드세요.
-        5. **결론부 강화**: 마지막 문단은 반드시 이 논쟁이 우리 사회나 독자에게 주는 시사점이 무엇인지, 수석 논설위원으로서의 날카로운 결론을 한 문장으로 남기십시오.
-        6. **무결성 유지**: 문장은 유려하게 고치되, 제공된 원본 데이터에 없는 사실을 날조하는 것은 절대 금지입니다.
+        [에디팅 가이드라인]
+        1. **나열 금지**: 언론사를 나열하지 말고 '쟁점' 중심으로 서술을 통합하십시오.
+        2. **논리적 연결**: '반면', '결과적으로' 등 연결어를 적극적으로 사용하여 문장을 매끄럽게 이으십시오.
+        3. **통찰력 있는 제목**: 사안의 본질을 짚는 압축적인 제목으로 교정하십시오.
 
-        [최종 출력 형식 예시 (JSON)]
+        [출력 JSON 형식]
         {{
-          "issue_id": {issue_id_int},
-          "title": "압축적이고 선언적인 제목 (예: '보수의 심장에 던져진 리트머스 시험지')",
-          "description": "배경과 갈등을 한눈에 보여주는 심층 요약",
-          "background": "구조적 배경",
-          "core_contentions": "대립하는 가치의 정점",
-          "conflict_summary": "매체 간의 시각 차이를 '대조'와 '대립'의 관점에서 요약",
-          "media_views": [
-            {{
-              "press": "...", "claim": "...", "evidence": "...", "url": "...", "narrative": "..."
-            }}
-          ],
-          "article_body": "원본의 풍부한 맥락을 반영하여 재조직된, 매끄러운 최종 통합 비평 기사 본문"
-        }}
-
-        [출력 JSON 스키마]
-        {{
-          "issue_id": {issue_id_int},
-          "title": "통찰력 있는 기사 제목",
-          "description": "심층 요약",
-          "background": "구조적 배경 설명",
-          "core_contentions": "대립하는 핵심 가치",
-          "conflict_summary": "언론사별 시각 대조 요약",
-          "media_views": [
-            {{
-              "press": "언론사명",
-              "claim": "핵심 주장",
-              "evidence": "인용된 근거(수정 금지)",
-              "url": "기사 URL(수정 금지)",
-              "narrative": "해당 매체의 프레임 분석"
-            }}
-          ],
-          "article_body": "최종 완성된 심층 비평 기사 본문 (원본 대조 및 통찰력 중점)"
+          "article_body": "교정 및 다듬기가 완료된 최종 비평 본문"
         }}
         """
         
-        # 이전 Judge 단계에서 Editor를 향한 사소한 피드백이 있다면 반영
-        if judge_status == "FAIL_EDITOR" and judge_feedback:
-            previous_edit = state.get("edited_article", "")
-            prompt += f"""
-            
-            [🚨 편집장 최종 수정 지시 🚨]
-            {judge_feedback}
-            
-            [이전 교정본]
-            {json.dumps(previous_edit, ensure_ascii=False) if isinstance(previous_edit, dict) else previous_edit}
-            """
-            
         # LLM 호출
         try:
-            # 7B 모델의 경우 스키마 준수율을 높이기 위해 명시적으로 스키마 예시를 한 번 더 강조
-            modified_prompt = prompt + "\n※ 주의: 반드시 위 [출력 JSON 스키마]의 모든 필드(title, description, article_body 등)를 포함한 하나의 JSON 객체만 반환하세요."
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "article_body": {"type": "STRING"}
+                },
+                "required": ["article_body"]
+            }
 
-            if llm_mode == "gemini_only":
-                import google.generativeai as genai
-                response_schema = {
-                    "type": "object",
-                    "properties": {
-                        "issue_id": {"type": "integer"},
-                        "title": {"type": "string"},
-                        "description": {"type": "string"},
-                        "background": {"type": "string"},
-                        "core_contentions": {"type": "string"},
-                        "conflict_summary": {"type": "string"},
-                        "media_views": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "press": {"type": "string"},
-                                    "claim": {"type": "string"},
-                                    "evidence": {"type": "string"},
-                                    "url": {"type": "string"},
-                                    "narrative": {"type": "string"},
-                                },
-                                "required": ["press", "claim", "evidence", "url", "narrative"],
-                            },
-                        },
-                        "article_body": {"type": "string"}
-                    },
-                    "required": [
-                        "issue_id", "title", "description", "background", "core_contentions", 
-                        "conflict_summary", "media_views", "article_body"
-                    ],
-                }
-                gen_model = genai.GenerativeModel(
-                    'gemini-2.0-flash',
-                    generation_config={"response_mime_type": "application/json", "response_schema": response_schema},
-                )
-                response = gen_model.generate_content(prompt)
-
-                try:
-                    final_data = json.loads(response.text)
-                except:
-                    from app.agents.utils import parse_llm_json
-                    final_data = parse_llm_json(response.text)
-
-                usage = {
-                    "prompt_tokens": len(prompt) // 4,
-                    "completion_tokens": len(response.text) // 4
-                }
-            else:
-                from app.agents.utils import call_llm
-                # 모델 호출 시 schema를 직접 전달하여 utils.py의 response_format 기능을 활성화
-                fallback_schema = {
-                    "issue_id": issue_id_int,
-                    "title": state.get("title", ""),
-                    "description": state.get("description", ""),
-                    "background": state.get("background", ""),
-                    "media_views": state.get("media_views", []),
-                    "article_body": "교정된 본문"
-                }
-                final_data, usage = call_llm(modified_prompt, "local", state, schema=fallback_schema)
+            result, usage = call_llm(prompt, "local", state, schema=response_schema)
             
+            # 데이터 복구 및 조립
+            # 제목은 Cluster Agent의 원본 title을 유지 (Writer가 조립한 draft_article["title"] 활용)
+            final_title = state.get("title") or (draft.get("title") if isinstance(draft, dict) else "제목 없음")
+            final_body = result.get("article_body") if isinstance(result, dict) else (str(result) if result else "본문 생성 실패")
+
+            # 최종 데이터 구조 완성
+            edited_article = {
+                "issue_id": issue_id_int,
+                "title": final_title,
+                "description": state.get("description") or (draft.get("description") if isinstance(draft, dict) else "설명 없음"),
+                "background": state.get("background") or (draft.get("background") if isinstance(draft, dict) else ""),
+                "core_contentions": state.get("core_contentions") or (draft.get("core_contentions") if isinstance(draft, dict) else ""),
+                "conflict_summary": state.get("conflict_summary") or (draft.get("conflict_summary") if isinstance(draft, dict) else ""),
+                "media_views": state.get("media_views") or (draft.get("media_views") if isinstance(draft, dict) else []),
+                "article_body": final_body
+            }
+
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "EditorAgent")
 
