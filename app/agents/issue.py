@@ -14,228 +14,70 @@ class IssueAgent:
         self.db = db
         self.issue_repo = IssueRepository(db) if db is not None else None
 
-    @traceable(name="Agent 2: Issue (쟁점 구조화) 🧩")
+    @traceable(name="Agent 2: Issue (갈등 양상 분석) 🧩")
     def node_structure_issues(self, state: ComparisonState) -> dict:
         """
-        [Node] Evidence가 만든 media 근거(claim/evidence/url) 위에서,
-        LLM이 반드시 "서술형 값" 두 가지(`conflict_summary`, `narrative`)만 생성하도록 제한합니다.
-
-        - 절대 press/claim/evidence/url 같은 factual 필드를 출력값에서 훼손하지 않도록,
-          해당 필드는 "입력"으로만 사용하고 출력에는 포함하지 않습니다.
+        [Node] 추출된 매체별 주장들을 종합하여 전체적인 대립 구도(conflict_summary)를 생성합니다.
         """
-        llm_mode = state.get("llm_mode", "local_priority")
-        issue_id = state.get("issue_id")
-
-        # 최상단 메타는 DB에서 가져옵니다. (Evidence/Issue 단계에서 LLM 생성 금지)
-        issue_title = ""
-        issue_description = ""
-        issue_background = ""
-        issue_core_contentions = ""
-        if self.issue_repo is not None and issue_id is not None:
-            issue = self.issue_repo.get_by_id(issue_id)
-            if issue is not None:
-                issue_title = issue.name or ""
-                issue_description = issue.description or ""
-                issue_background = issue.background or ""
-                issue_core_contentions = issue.core_contentions or ""
-
-        issue_payload_items = state.get("issue_payload_items", []) or []
-
-        # Flatten + press/url 기준 dedupe (narrative 매핑 키)
-        media_items: list[dict] = []
-        seen = set()
-        for item in issue_payload_items:
-            for mv in item.get("media_views", []) or []:
-                if not isinstance(mv, dict):
-                    continue
-                press = mv.get("press", "")
-                url = mv.get("url", "")
-                key = (press, url)
-                if key in seen:
-                    continue
-                seen.add(key)
-                media_items.append({
-                    "press": press,
-                    "claim": mv.get("claim", ""),
-                    "evidence": mv.get("evidence", ""),
-                    "url": url,
-                })
-
-        log_llm_event("agent_issue", f"Agent 2 (Issue): {len(media_items)}개 media 기반 서술 생성 시작")
+        # 1. 전달받은 분석 데이터 확인 
+        media_items = state.get("media_views", []) or []
+        msg_start = f"Agent 2 (Issue): {len(media_items)}개 매체 데이터 기반 통합 갈등 분석 시작"
+        log_llm_event("agent_issue", msg_start)
 
         if not media_items:
-            return {
-                "issue_id": issue_id,
-                "title": issue_title,
-                "description": issue_description,
-                "background": issue_background,
-                "core_contentions": issue_core_contentions,
-                "conflict_summary": "",
-                "media_narratives": [],
-                "media_views": [],
-                "issue_payload_items": [],
-                "messages": ["입력 media가 없어 Issue 중단"],
-            }
+            return {"messages": ["분석할 매체 뷰가 없습니다."], "media_views": [], "conflict_summary": ""}
 
+        # 2. 대립 구도 분석을 위한 LLM 호출
         media_json = json.dumps(media_items, ensure_ascii=False, indent=2)
-
         prompt = f"""
-            당신은 편집국 분석가입니다.
-            아래 `media_items`는 Evidence가 추출한 사실 기반 데이터입니다.
+            당신은 복잡한 사안의 이면을 꿰뚫어 보는 전문 논설위원입니다. 
+            아래 [매체별 분석 데이터]를 읽고, 이번 사안을 바라보는 언론사들 간의 핵심 갈등 지점과 시각 차이를 **'대립 구도'** 관점에서 요약하세요.
+
+            [매체별 분석 데이터]
+            {media_json}
 
             요청:
-            1) 모든 응답(요약, 분석 문장 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-            2) `conflict_summary`를 하나의 문자열로 생성: 언론사들이 동일 이슈에 대해 서로 다르게 주장하는 핵심 시각 차이를 요약하세요. 
-               **만약 언론사 간에 큰 갈등 없이 사실 관계가 일치한다면, 해당 이슈가 공통적으로 중요하게 다뤄지는 이유나 언론의 통합된 시각을 요약해 주세요.** 절대 빈 문자열로 두지 마세요.
-            3) `media_narratives`를 배열로 생성: 각 항목은 {{press, url, narrative}} 형태이며, narrative는 해당 media의 claim/evidence에 근거해서 1~2문장으로 서술하세요. 
-               각 언론사가 해당 사건을 어떻게 묘사하고 있는지(예: 강조점, 보도 시점의 의미 등)를 구체적으로 기술하세요.
-
-            중요 제한(할루시네이션 방지):
-            - press/claim/evidence/url 같은 factual 필드는 출력에서 절대 바꾸지 마세요. (출력에는 narrative만 생성)
-            - narrative에는 claim/evidence에 없는 사실/새 인물/새 통계/새 사건을 추가하지 마세요.
+            1) 모든 응답은 **반드시 한국어로만 작성**해야 합니다.
+            2) `conflict_summary`를 하나의 문자열로 생성: 모든 언론사가 공통적으로 주목하는 핵심 이슈와 그 안에서 나타나는 시각 차이(프레임의 충돌)를 독자들이 이해하기 쉽게 분석하여 서술하세요.
+               **단순한 사실 요약이 아니라, 매체들이 어떤 정치적/사회적 관점 차이를 보이는지에 집중하십시오.**
 
             [응답 예시]
             {{
-                "conflict_summary": "정부의 강경한 법적 대응 방침과 의료계의 집단 행동이 정면으로 충돌하며 타협점을 찾지 못하고 있습니다.",
-                "media_narratives": [
-                    {{
-                        "press": "조선일보",
-                        "url": "...",
-                        "narrative": "의료계의 집단 행동을 불법으로 규정하고 정부의 엄정한 법 집행이 필요함을 강조하고 있습니다."
-                    }},
-                    {{
-                        "press": "한겨레",
-                        "url": "...",
-                        "narrative": "정부의 일방적인 정책 추진이 갈등을 키웠다고 분석하며 대화를 통한 해결을 촉구하고 있습니다."
-                    }}
-                ]
+                "conflict_summary": "정부의 의대 증원 정책에 대해 보수 언론은 '필수 의료 확충을 위한 불가피한 선택'이자 '법과 원칙의 준수'를 강조하는 반면, 진보 언론은 '정부의 일방적 불통 행정'이 사태를 키웠다고 분석하며 대화를 통한 사회적 합의를 촉구하고 있어 팽팽한 시각 차를 보입니다."
             }}
-
-            입력: media_items
-            {media_json}
 
             아래 JSON만 출력하세요.
             {{
-            "conflict_summary": "언론사 간 시각 차이 요약",
-            "media_narratives": [
-                {{
-                "press": "언론사명",
-                "url": "기사 URL",
-                "narrative": "서술형 분석 문장"
-                }}
-            ]
+                "conflict_summary": "갈등의 본질과 매체 간 대립 구조를 분석한 요약문"
             }}
         """
+
         
         try:
-            usage = {"prompt_tokens": 0, "completion_tokens": 0}
-            if llm_mode == "gemini_only":
-                import google.generativeai as genai
-                response_schema = {
-                    "type": "OBJECT",
-                    "properties": {
-                        "conflict_summary": {"type": "STRING"},
-                        "media_narratives": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "press": {"type": "STRING"},
-                                    "url": {"type": "STRING"},
-                                    "narrative": {"type": "STRING"},
-                                },
-                                "required": ["press", "url", "narrative"],
-                            },
-                        },
-                    },
-                    "required": ["conflict_summary", "media_narratives"],
-                }
-                gen_model = genai.GenerativeModel(
-                    "gemini-2.0-flash",
-                    generation_config={"response_mime_type": "application/json", "response_schema": response_schema},
-                )
-                response = gen_model.generate_content(prompt)
-                result = json.loads(response.text)
-                # token 추정(정확 토큰 메타는 Gemini SDK가 반환하는 형식이 다를 수 있어 기존 방식처럼 근사 유지)
-                usage["prompt_tokens"] = len(prompt) // 4
-                usage["completion_tokens"] = len(response.text) // 4
-            else:
-                result, usage = call_llm(prompt, "local", state)
-            
-            # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage, "IssueAgent")
-
-            if not isinstance(result, dict):
-                result = {"conflict_summary": "", "media_narratives": []}
-
-            conflict_summary = result.get("conflict_summary", "") or ""
-            media_narratives = result.get("media_narratives", []) or []
-            if not isinstance(media_narratives, list):
-                media_narratives = []
-
-            msg = "conflict_summary 및 media_narratives 서술 생성 완료"
-            # 상세 내용(요약 및 매체별 서술)을 로그에 포함
-            details = {
-                "conflict_summary": conflict_summary,
-                "media_narratives": media_narratives
+            schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "conflict_summary": {"type": "STRING"}
+                },
+                "required": ["conflict_summary"]
             }
-            log_llm_event("agent_issue", msg, details=json.dumps(details, ensure_ascii=False, indent=2))
-
-            # 서버측 조립: factual(claim/evidence/url)은 input(media_items) 그대로 쓰고,
-            # narrative는 LLM 출력(media_narratives)에서 press/url 매칭으로만 채웁니다.
-            narrative_by_key: dict[tuple[str, str], str] = {}
-            for mn in media_narratives:
-                if not isinstance(mn, dict):
-                    continue
-                k = (mn.get("press", "") or "", mn.get("url", "") or "")
-                narrative_by_key[k] = mn.get("narrative", "") or ""
-
-            media_views: list[dict] = []
-            seen = set()
-            for mi in media_items:
-                if not isinstance(mi, dict):
-                    continue
-                press = mi.get("press", "") or ""
-                url = mi.get("url", "") or ""
-                k = (press, url)
-                if k in seen:
-                    continue
-                seen.add(k)
-                media_views.append(
-                    {
-                        "press": press,
-                        "claim": mi.get("claim", "") or "",
-                        "evidence": mi.get("evidence", "") or "",
-                        "url": url,
-                        "narrative": narrative_by_key.get(k, ""),
-                    }
-                )
+            
+            result, usage = call_llm(prompt, "local", state, schema=schema)
+            total_tokens = update_total_tokens(state, usage, "IssueAgent")
+            
+            conflict_summary = result.get("conflict_summary", "") if isinstance(result, dict) else ""
+            
+            msg = "통합 갈등 분석(conflict_summary) 생성 완료"
+            log_llm_event("agent_issue", msg, details=conflict_summary)
 
             return {
-                "issue_id": issue_id,
-                "title": issue_title,
-                "description": issue_description,
-                "background": issue_background,
-                "core_contentions": issue_core_contentions,
                 "conflict_summary": conflict_summary,
-                "media_views": media_views,
-                "issue_payload_items": [],
+                "media_views": media_items, # 분석에 사용된 데이터를 그대로 Writer에게 전달
+                "issue_payload_items": [], # 역할 소진 시 비움
                 "messages": [msg],
                 "total_tokens": total_tokens,
             }
             
         except Exception as e:
-            msg = f"쟁점 구조화 시스템 에러: {e}"
-            logger.error(msg)
-            log_llm_event("agent_issue", msg)
-            return {
-                "issue_id": issue_id,
-                "title": issue_title,
-                "description": issue_description,
-                "background": issue_background,
-                "core_contentions": issue_core_contentions,
-                "conflict_summary": "",
-                "media_views": [],
-                "issue_payload_items": [],
-                "messages": [msg],
-            }
+            logger.error(f"IssueAgent 분석 실패: {e}")
+            return {"messages": [f"분석 오류: {e}"], "conflict_summary": "", "media_views": media_items}

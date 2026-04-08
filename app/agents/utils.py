@@ -251,7 +251,7 @@ def call_gemini(prompt: str, schema: dict = None) -> dict:
         }
         
         # log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
-        return parse_llm_json(response.text), token_info
+        return response.text.strip(), token_info
     except Exception as e:
         log_llm_event("Gemini", f"Error: {e}", details=str(e))
         logger.error(f"Gemini 호출 실패: {e}")
@@ -282,24 +282,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
         return call_local_llm(model_size, prompt)
             
     if mode == "gemini_only":
-        try:
-            # log_llm_event("GeminiText", "Requesting gemini-2.0-flash (Text Mode)", details=prompt)
-            client = get_gemini_client()
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt
-            )
-            
-            usage = response.usage_metadata
-            token_info = {
-                'prompt_tokens': usage.prompt_token_count,
-                'completion_tokens': usage.candidates_token_count
-            }
-            # log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
-            return response.text.strip(), token_info
-        except Exception as e:
-            logger.error(f"Gemini Text 호출 실패: {e}")
-            return "", {"prompt_tokens": 0, "completion_tokens": 0}
+        return call_gemini(prompt)
             
     if mode == "local_priority":
         try:
@@ -308,25 +291,9 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             raise ValueError("로컬 LLM 응답 비어있음")
         except Exception as e:
             logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
-            try:
-                # log_llm_event("GeminiText", "Fallback: Requesting gemini-2.0-flash (Text Mode)", details=prompt)
-                client = get_gemini_client()
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=prompt
-                )
-                usage_meta = response.usage_metadata
-                token_info = {
-                    'prompt_tokens': usage_meta.prompt_token_count,
-                    'completion_tokens': usage_meta.candidates_token_count
-                }
-                # log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
-                return response.text.strip(), token_info
-            except Exception as gemini_e:
-                logger.error(f"Gemini 폴백도 실패: {gemini_e}")
-                return "", {"prompt_tokens": 0, "completion_tokens": 0}
+            return call_gemini(prompt)
     
-    return "", {"prompt_tokens": 0, "completion_tokens": 0}
+    return call_gemini(prompt)
 
 @traceable(run_type="chain", name="LLM Routing (JSON)")
 def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> tuple:

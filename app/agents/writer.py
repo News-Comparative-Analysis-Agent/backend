@@ -1,6 +1,6 @@
 import json
 from app.agents.state import ComparisonState
-from app.agents.utils import update_total_tokens
+from app.agents.utils import call_llm, update_total_tokens
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 
@@ -106,74 +106,45 @@ class WriterAgent:
 
         # LLM 호출
         try:
-            llm_mode = state.get("llm_mode", "gemini_only")
+            llm_mode = state.get("llm_mode", "local_only")
             
             # 7B 모델의 경우 스키마 준수율을 높이기 위해 명시적으로 스키마 예시를 한 번 더 강조
             modified_prompt = prompt + "\n※ 주의: 반드시 위 [출력 JSON 스키마]의 모든 필드(title, description, article_body 등)를 포함한 하나의 JSON 객체만 반환하세요."
 
-            if llm_mode == "gemini_only":
-                import google.generativeai as genai
-                response_schema = {
-                    "type": "OBJECT",
-                    "properties": {
-                        "issue_id": {"type": "INTEGER"},
-                        "title": {"type": "STRING"},
-                        "description": {"type": "STRING"},
-                        "background": {"type": "STRING"},
-                        "core_contentions": {"type": "STRING"},
-                        "conflict_summary": {"type": "STRING"},
-                        "media_views": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "press": {"type": "STRING"},
-                                    "claim": {"type": "STRING"},
-                                    "evidence": {"type": "STRING"},
-                                    "url": {"type": "STRING"},
-                                    "narrative": {"type": "STRING"}
-                                },
-                                "required": ["press", "claim", "evidence", "url", "narrative"]
-                            }
-                        },
-                        "article_body": {"type": "STRING"}
+            # utils.py의 call_llm을 사용하여 llm_mode(gemini_only, local_only 등)에 맞춰 자동 라우팅
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "issue_id": {"type": "INTEGER"},
+                    "title": {"type": "STRING"},
+                    "description": {"type": "STRING"},
+                    "background": {"type": "STRING"},
+                    "core_contentions": {"type": "STRING"},
+                    "conflict_summary": {"type": "STRING"},
+                    "media_views": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "press": {"type": "STRING"},
+                                "claim": {"type": "STRING"},
+                                "evidence": {"type": "STRING"},
+                                "url": {"type": "STRING"},
+                                "narrative": {"type": "STRING"}
+                            },
+                            "required": ["press", "claim", "evidence", "url", "narrative"]
+                        }
                     },
-                    "required": ["issue_id", "title", "description", "background", "core_contentions", "conflict_summary", "media_views", "article_body"]
-                }
-                gen_model = genai.GenerativeModel('gemini-2.0-flash', generation_config={"response_mime_type": "application/json", "response_schema": response_schema})
-                response = gen_model.generate_content(prompt)
-                
-                try:
-                    final_data = json.loads(response.text)
-                except:
-                    from app.agents.utils import parse_llm_json
-                    final_data = parse_llm_json(response.text)
-                
-                usage = {
-                    "prompt_tokens": len(prompt) // 4,
-                    "completion_tokens": len(response.text) // 4
-                }
-            else:
-                from app.agents.utils import call_llm
-                # 7B 모델 호출 시 schema를 직접 전달하여 utils.py의 response_format 기능을 활성화
-                fallback_schema = {
-                    "issue_id": issue_id,
-                    "title": title,
-                    "description": description,
-                    "background": background,
-                    "media_views": media_views,
-                    "article_body": "비평 본문"
-                }
-                final_data, usage = call_llm(modified_prompt, "local", state, schema=fallback_schema)
+                    "article_body": {"type": "STRING"}
+                },
+                "required": ["issue_id", "title", "description", "background", "core_contentions", "conflict_summary", "media_views", "article_body"]
+            }
+            
+            final_data, usage = call_llm(modified_prompt, "local", state, schema=response_schema)
             
             # 데이터 보정 (7B 모델이 일부 필드만 반환했을 경우 입력값으로 복구)
             if not isinstance(final_data, dict):
                 final_data = {"article_body": str(final_data)}
-            
-            # 필수 필드 복구 로직
-            if "article_body" not in final_data and "narrative" in final_data:
-                # 모델이 media_view 형태만 반환한 경우를 대비해 narrative를 본문으로 차용
-                final_data["article_body"] = final_data.get("narrative", "")
             
             final_data.setdefault("issue_id", issue_id)
             final_data.setdefault("title", title or "제목 없음")

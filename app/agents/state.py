@@ -65,17 +65,11 @@ class ComparisonState(TypedDict):
     # EvidenceAgent가 LLM 호출을 위해 사용하는 원문 기사 목록
     articles: List[Dict[str, Any]]
 
-    # EvidenceAgent가 IssueAgent로 전달하는 media 근거 묶음
-    # (내부에서 narrative/conflict_summary 같은 서술형 값은 생성되지 않음)
-    issue_payload_items: List[Dict[str, Any]]
-
-    # IssueAgent가 생성하는 서술형 값(정확한 factual 입력은 evidence 기반으로 고정)
+    # IssueAgent가 생성하는 서술형 값
     conflict_summary: str
-    media_narratives: List[Dict[str, Any]]  # [{press: str, url: str, narrative: str}, ...]
 
-    # IssueAgent가 LLM 출력(서술형)과 evidence factual input을 서버측에서 조립해 넘기는 최종 media 뷰
-    # (claim/evidence/url은 LLM이 아닌 조립 코드가 채웁니다)
-    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url, narrative}, ...]
+    # EvidenceAgent가 추출하고 IssueAgent가 분석에 참여하며 Writer가 사용하는 최종 media 뷰
+    media_views: List[Dict[str, Any]]  # [{press, thought, claim, evidence, url, narrative}, ...]
 
     # 최종 이슈 프레임(최상단 메타)
     title: str

@@ -17,6 +17,7 @@ from app.scroller.repository import ScrollerRepository
 from app.core.logger import logger, log_llm_event
 from app.agents.utils import parse_llm_json, call_llm, call_llm_text, update_total_tokens
 import concurrent.futures
+from langsmith import traceable
 
 class ClusterAgent:
     """
@@ -80,42 +81,49 @@ class ClusterAgent:
                 
         return df.drop(index=list(duplicates)).copy()
 
+    @traceable(name="Agent 0: Cluster (이슈 라벨링 LLM) 🏷️")
     def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, str, dict]:
         """이슈 그룹에 대해 제목과 배경 등을 생성. (title, desc, background, core, usage) 5-tuple 반환"""
         empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
             prompt = f"""
-            당신은 뉴스 요약 및 이슈 추출가입니다. 중요 배경 지식을 먼저 숙지하세요:
-            [현재 시점: 2026년 3월]
-            [현재 대한민국 대통령: 이재명 (더불어민주당 출신)]
-            [과거 대통령: 윤석열, 문재인, 박근혜, 이명박 등]
-            
-            ※ 제목이나 본문에 '이 대통령'이라는 수식어가 등장할 경우, 문맥상 특별한 이유가 없다면 현직인 '이재명 대통령'을 지칭하는 것입니다. 이를 과거의 '이명박 대통령'으로 오해하여 요약명에 "이명박"을 적는 환각현상을 절대 일으키지 마세요.
+            당신은 뉴스 분석 및 이슈 프레임 추출 전문가입니다. 
+            [현재 시점: 2026년 3월 / 현직 대통령: 이재명]
             
             다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
             {titles[:15]} (총 {len(titles)}건)
 
-            이 뉴스 제목들을 철저히 분석하여 구체적인 단일 이슈에 대한 제목, 요약, 발단, 주요 쟁점을 작성해주세요.
+            이 뉴스 제목들을 철저히 분석하여 '미디어 비평'의 기초가 될 이슈 상세 정보를 작성해주세요.
             
             [작성 규칙]
-            1. 모든 응답(title, description, background, core_contentions 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-            2. 반드시 아래와 같은 JSON 형식으로만 응답할 것.
+            1. title: 단순히 사건명을 적지 말고, '갈등의 본질'이나 '언론의 보도 태도'가 드러나는 날카로운 제목을 작성할 것. (예: "XX 사건을 둘러싼 언론의 프레임 전쟁" 등)
+            2. description: 사건 요약과 함께, 현재 언론이 이 사건을 얼마나 편향되게 다루고 있는지 1~2문장 포함할 것.
+            3. background: 사건의 물리적 발생 원인뿐만 아니라, 이것이 왜 정치적 쟁점이 되었는지 배경을 기술할 것.
+            4. core_contentions: 단순히 'A와 B가 싸운다'가 아니라, 'A 매체가 사용하는 프레임 vs B 매체가 숨기려는 팩트'의 구도로 쟁점을 기술할 것.
+            5. 할루시네이션 방지: 제공된 텍스트에 없는 이념적 추측은 배제하되, '제목'에 나타난 단어(예: '조작', '회유', '가짜뉴스')는 적극 활용할 것.
             
             [응답 예시]
             {{
-                "title": "의대 정원 확대 갈등",
-                "description": "정부의 의대 증원 방침에 반발하여 의료계가 집단 행동을 예고하며 갈등이 깊어지고 있습니다. 환자들의 불편이 가중될 것이라는 우려가 나옵니다.",
-                "background": "보건복지부가 2025학년도부터 의과대학 정원을 2,000명 늘리겠다고 발표한 것이 발단입니다.",
-                "core_contentions": "정부는 의료 공백 해소를 위해 증원이 필수적이라는 입장이나, 의료계는 교육 질 저하를 우려하며 철회를 요구하고 있습니다."
+                "title": "검찰의 '회유' 의혹과 언론의 '절차 논란' 바꿔치기",
+                "description": "새롭게 불거진 수사 기관의 진술 유도 정황에 대해, 일부 매체는 의혹의 실체보다 '녹취록 공개의 적절성'을 문제 삼으며 본질을 흐리는 전형적인 보도 행태를 보이고 있습니다.",
+                "background": "최근 공개된 특정 사건 수사 관련 녹취록이 발단이 되었으며, 이를 두고 사법 정의의 훼손이라는 비판과 정치적 음모라는 주장이 팽팽히 맞서고 있는 상황입니다.",
+                "core_contentions": "증거의 진위 여부를 넘어, 언론이 권력 감시라는 본연의 역할을 수행하는지 아니면 특정 기관의 해명을 일방적으로 받아쓰고 있는지에 대한 매체 비평적 관점이 핵심입니다."
             }}
-            
-            3. 할루시네이션 절대 금지: 제공된 제목 텍스트 안에 있는 팩트만 사용하십시오.
-            4. 기사에 등장하는 실명, 사건명이 제목에 명확히 드러나야 합니다.
-            5. 제목은 명사형으로 끝맺을 것.
             """
             
+            response_schema = {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "background": {"type": "string"},
+                    "core_contentions": {"type": "string"}
+                },
+                "required": ["title", "description", "background", "core_contentions"]
+            }
+            
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
-            parsed, usage = call_llm(prompt=prompt, model_size="local", state=state)
+            parsed, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema)
             # ✅ state 직접 변이 제거 — usage만 반환하여 호출부에서 누적 처리
             
             if parsed:
@@ -134,6 +142,7 @@ class ClusterAgent:
     # ==========================================
     # Graph Nodes
     # ==========================================
+    @traceable(name="Agent 0: Cluster (미분류 기사 로드) 📂")
     def node_fetch_unclustered(self, state: dict) -> Dict[str, Any]:
         """미분류 기사 로드"""
         log_llm_event("ClusterAgent", "미분류 기사 로드 노드 시작")
@@ -158,6 +167,7 @@ class ClusterAgent:
             log_llm_event("ClusterAgent", msg, type="ERROR")
             return {"unclustered_articles": [], "error": str(e), "messages": [msg]}
 
+    @traceable(name="Agent 0: Cluster (정밀 이슈 군집화) 🧶")
     def node_lexical_cluster(self, state: dict) -> Dict[str, Any]:
         """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
         log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
@@ -235,6 +245,7 @@ class ClusterAgent:
             logger.error(f"[ClusterAgent:Cluster] 치명적 오류: {e}")
             return {"clustered_topics": [], "messages": [f"클러스터링 중단됨: {e}"]}
 
+    @traceable(name="Agent 0: Cluster (이슈 생성 및 최적 이슈 선정) 💾")
     def node_name_and_save_issues(self, state: dict) -> Dict[str, Any]:
         """이슈 명명 및 저장, 그리고 분석 대상 issue_id 자동 결정"""
         log_llm_event("ClusterAgent", "이슈 저장 및 다음 타겟 선정 노드 시작")
@@ -287,6 +298,7 @@ class ClusterAgent:
             logger.error(f"[ClusterAgent:Save] 이슈 저장 실패: {e}")
             return {"error": str(e), "messages": [f"이슈 저장 실패: {e}"]}
 
+    @traceable(name="Agent 0: Cluster (노이즈 리셋) 🧹")
     def node_cleanup_unclustered(self, state: dict) -> Dict[str, Any]:
         """이슈에 할당되지 않은(Outlier) 기사들 DB에서 삭제"""
         log_llm_event("ClusterAgent", "미분류 노이즈 기사 정리 노드 시작")

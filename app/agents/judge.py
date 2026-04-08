@@ -160,17 +160,26 @@ class JudgeAgent:
                     from app.scroller.repository import ScrollerRepository
                     repo = ScrollerRepository(self.db)
                     
-                    # 초안 저장
-                    edited_json_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
-                    repo.update_issue_draft(issue_id, edited_json_str)
+                    # 초안 저장 (전체 JSON이 아닌 본문 텍스트만 저장)
+                    if isinstance(edited_article, dict):
+                        article_body = edited_article.get("article_body", "")
+                    else:
+                        article_body = str(edited_article)
                     
-                    # 나머지 분석 메타데이터 저장
+                    repo.update_issue_draft(issue_id, article_body)
+                    
+                    # 나머지 분석 메타데이터 저장 (EditorAgent가 다듬은 최종 버전 우선 사용)
+                    final_desc = edited_article.get("description", state.get("description")) if isinstance(edited_article, dict) else state.get("description")
+                    final_bg = edited_article.get("background", state.get("background")) if isinstance(edited_article, dict) else state.get("background")
+                    final_core = edited_article.get("core_contentions", state.get("core_contentions")) if isinstance(edited_article, dict) else state.get("core_contentions")
+                    final_conflict = edited_article.get("conflict_summary", state.get("conflict_summary")) if isinstance(edited_article, dict) else state.get("conflict_summary")
+
                     repo.update_issue_analysis_results(
                         issue_id=issue_id,
-                        description=state.get("description"),
-                        background=state.get("background"),
-                        core_contentions=state.get("core_contentions"),
-                        conflict_summary=state.get("conflict_summary")
+                        description=final_desc,
+                        background=final_bg,
+                        core_contentions=final_core,
+                        conflict_summary=final_conflict
                     )
                     self.db.commit()
                     logger.info(f"⚖️ [JudgeAgent] 모든 분석 결과가 DB에 저장되었습니다. (Issue ID: {issue_id})")
