@@ -197,7 +197,7 @@ class ClusterAgent:
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=0.82
+                distance_threshold=0.90  # 여기가 테스트 지점
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
@@ -213,7 +213,7 @@ class ClusterAgent:
                 count = len(topic_articles)
                 unique_press_count = topic_articles['press'].nunique()
                 
-                if count >= 2 and unique_press_count >= 2:
+                if count >= 3 and unique_press_count >= 2:
                     clustered_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),
