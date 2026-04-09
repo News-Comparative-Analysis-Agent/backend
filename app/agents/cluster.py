@@ -223,7 +223,7 @@ class ClusterAgent:
                 count = len(topic_articles)
                 unique_press_count = topic_articles['press'].nunique()
                 
-                if count >= 2 and unique_press_count >= 2:
+                if count >= 3 and unique_press_count >= 2:
                     clustered_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),

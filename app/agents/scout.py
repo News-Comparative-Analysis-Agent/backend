@@ -10,19 +10,16 @@ from app.core.logger import logger, log_llm_event
 from app.domains.articles.models import Article
 
 TARGET_PRESS_DICT = {
-    # 🔵 진보/개혁 (Progressive) - 7개
-    "한겨레": "028", "경향신문": "032", "오마이뉴스": "047", "MBC": "214",
-    "JTBC": "437", "노컷뉴스": "079", "프레시안": "002",
+    # 🔵 진보/개혁 (Progressive) - 4개
+    "한겨레": "028", "경향신문": "032", "MBC": "214", "JTBC": "437",
     
-    # 🔴 보수/경제 (Conservative) - 7개
+    # 🔴 보수/경제 (Conservative) - 4개
     "조선일보": "023", "동아일보": "020", "중앙일보": "025", "문화일보": "021",
-    "한국경제": "015", "세계일보": "022", "TV조선": "448",
     
-    # ⚪ 중도/팩트/통신 (Centrist & Fact) - 6개
-    "연합뉴스": "001", "한국일보": "046", "YTN": "052",
-    "뉴스1": "421", "뉴시스": "003", "SBS": "055"
+    # ⚪ 중도/온건 (Centrist) - 4개
+    "한국일보": "046", "국민일보": "005", "서울신문": "081", "세계일보": "022"
 }
-DAYS_TO_CRAWL = 1
+DAYS_TO_CRAWL = 2
 
 class ScoutAgent:
     """
@@ -39,8 +36,8 @@ class ScoutAgent:
         self.semaphore = asyncio.Semaphore(5)
 
     def _get_kst_now(self) -> datetime:
-        now = datetime.utcnow() + timedelta(hours=9)
-        return now
+        """현재 KST(한국 표준시) 기준 일시 반환"""
+        return datetime.utcnow() + timedelta(hours=9)
 
     def _get_existing_url_hashes(self) -> set:
         """최근 데이터의 URL을 로드하여 해시 Set으로 반환 (In-memory Caching)"""
@@ -121,6 +118,12 @@ class ScoutAgent:
         if len(content) < 50: # 너무 짧은 기사(사진만 있는 경우 등) 방어
             return None
             
+        # ✅ 속보 및 짧은 기사 필터링 (클러스터링 품질 향상)
+        NOISE_PREFIXES = ("[속보]", "[긴급]", "[단독]", "【속보】", "《속보》", "[포착]")
+        if any(title.strip().startswith(prefix) for prefix in NOISE_PREFIXES) and len(content) < 300:
+            logger.info(f"⚡ [ScoutAgent] 속보/단신 필터링 제외: {title[:40]}")
+            return None
+            
         # 날짜
         date_tag = soup.select_one('.media_end_head_info_datestamp span')
         pub_date = date_tag['data-date-time'] if date_tag else ""
@@ -155,7 +158,7 @@ class ScoutAgent:
         collected_count = 0
         
         for item in list_items:
-            if collected_count >= 20: # 각 언론사당 20개 제한
+            if collected_count >= 40: # 각 언론사당 40개 제한
                 break
                 
             link_tag = item.select_one('a')

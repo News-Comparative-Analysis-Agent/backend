@@ -21,19 +21,16 @@ if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
 
 TARGET_PRESS_DICT = {
-    # 🔵 진보/개혁 (Progressive) - 7개
-    "한겨레": "028", "경향신문": "032", "오마이뉴스": "047", "MBC": "214",
-    "JTBC": "437", "노컷뉴스": "079", "프레시안": "002",
+    # 🔵 진보/개혁 (Progressive) - 4개
+    "한겨레": "028", "경향신문": "032", "MBC": "214", "JTBC": "437",
     
-    # 🔴 보수/경제 (Conservative) - 7개
+    # 🔴 보수/경제 (Conservative) - 4개
     "조선일보": "023", "동아일보": "020", "중앙일보": "025", "문화일보": "021",
-    "한국경제": "015", "세계일보": "022", "TV조선": "448",
     
-    # ⚪ 중도/팩트/통신 (Centrist & Fact) - 6개
-    "연합뉴스": "001", "한국일보": "046", "YTN": "052",
-    "뉴스1": "421", "뉴시스": "003", "SBS": "055"
+    # ⚪ 중도/온건 (Centrist) - 4개
+    "한국일보": "046", "국민일보": "005", "서울신문": "081", "세계일보": "022"
 }
-DAYS_TO_CRAWL = 4
+DAYS_TO_CRAWL = 2
 
 class ScrollerService:
     def __init__(self, db: Session):
