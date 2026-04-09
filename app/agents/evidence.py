@@ -34,12 +34,16 @@ class EvidenceAgent:
         data = []
         for a in articles:
             content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
+            # 발행일 정보 추가 (YYYY-MM-DD 형식으로 변환)
+            pub_date = a.published_at.strftime("%Y-%m-%d") if a.published_at else "날짜미상"
+            
             data.append({
                 'article_id': a.id,
                 'press': a.publisher.name if a.publisher else "알수없음",
                 'title': a.title,
                 'content': content,
-                'url': a.url
+                'url': a.url,
+                'published_at': pub_date
             })
             
         msg = f"이슈 ID {issue_id}에 대해 기사 {len(data)}건 로드 완료"
@@ -101,6 +105,7 @@ class EvidenceAgent:
                 card_data['article_id'] = art['article_id']
                 card_data['url'] = art['url']
                 card_data['press'] = art['press']
+                card_data['published_at'] = art.get('published_at')
                 return card_data, usage
         except Exception as e:
             logger.error(f"주장 카드 추출 실패 ({art['press']}): {e}")
@@ -143,6 +148,7 @@ class EvidenceAgent:
                     claim_cards.append(card_data)
                     media_views.append({
                         "press": card_data.get("press", ""),
+                        "published_at": card_data.get("published_at", ""),
                         "thought": card_data.get("thought", ""),
                         "narrative": card_data.get("narrative", ""),
                         "claim": card_data.get("claim", ""),

@@ -23,7 +23,8 @@ class JudgeAgent:
         retry_count = state.get("retry_count", 0)
         total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         
-        edited_article = state.get("edited_article", "")
+        # 최종 결과물 확보 (draft_article 사용)
+        edited_article = state.get("draft_article")
         media_views = state.get("media_views", []) or []
         
         # 이슈 메타데이터 (맥락 파악용)
@@ -38,22 +39,9 @@ class JudgeAgent:
         msg_start = f"Agent 5 (Judge): 품질 검수 시작 (현재 시도: {retry_count + 1})"
         logger.info(f"⚖️ [JudgeAgent] {msg_start}")
 
-        # 상세 입력 데이터 로깅 (사용자 요청: DB/LangSmith 외에도 터미널 및 info.log에 직관적으로 출력되게 함)
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터 상세 - [이슈 제목]: {issue_context.get('title', '')}")
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터 상세 - [핵심 쟁점]: {issue_context.get('core_contentions', '')}")
-        
-        ctx_dump = "\n".join([f"  - [{i+1}번 문서] {str(m.get('evidence', ''))[:100]}..." for i, m in enumerate(media_views)])
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터 상세 - [제공된 근거(요약)]: \n{ctx_dump}")
-        
-        log_llm_event("agent_judge", "품질 검토 입력 데이터 상세", details={
-            "issue_context": issue_context,
-            "media_views": media_views,
-            "edited_article": edited_article
-        })
-        
-        # 입력 데이터 요약 로깅
+        # 후속 로직(오류 체크 등)을 위해 데이터 문자열화만 수행 (로깅은 하지 않음)
         article_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
-        logger.info(f"⚖️ [JudgeAgent] 입력 데이터: 최종기사길이={len(article_str)}, 근거수={len(media_views)}")
+        log_llm_event("agent_judge", f"⚖️ [JudgeAgent] 통합 G-EVAL(팩체크+비평톤) 심사 시작... (Retry: {retry_count})")
         
         if not edited_article or "오류가 발생" in article_str:
             msg = "최종 결과물이 없어 검증 불가"
@@ -79,39 +67,39 @@ class JudgeAgent:
             logger.info("⚖️ [JudgeAgent] 통합 G-EVAL(팩트+어조/문맥) 벤치마킹을 시작합니다...")
             
             g_eval_prompt = f"""
-            당신은 전문 언론사의 데스크 편집국장(숙련된 인간 평가자)입니다. 다음 기사 초안을 읽고 엄격한 저널리즘 기준에 따라 100점 만점으로 종합 평가해 주세요.
+            당신은 날카로운 통찰력을 가진 미디어 비평지의 **편집국장**입니다. 
+            아래 기사가 기성 언론의 위선을 제대로 폭로하고 있는지, 아니면 흔한 요약 로봇처럼 굴고 있는지 엄격히 심사하십시오.
 
             [평가 대상 기사]
             {edited_article_str}
 
-            [이슈의 전체 맥락 (Issue Context)]
+            [이슈 맥락 및 원문 근거]
             {full_issue_context_str}
-
-            [작성을 위해 참고한 원문 근거 (Source Contexts)]
             {contexts_str}
 
-            [평가 구체적 기준 (Rubric)]
-            1. 사실성 및 팩트체크 (Faithfulness, 40점):
-            - 기사에 작성된 모든 주장이 '작성을 위해 참고한 원문 근거' 내에 존재하는 사실인가? 임의로 지어낸 허위 사실(할루시네이션)이나 숫자/통계 왜곡은 없는가?
-            2. 논리적 완결성 (Logical Cohesion, 30점): 
-            - 제시된 '이슈의 전체 맥락(배경/쟁점/갈등)'을 글의 서론-본론-결론이 빠짐없이 잘 담아내며 자연스럽게 이어지는가?
-            3. 전문적 어조 (Professional Tone, 30점): 
-            - 신뢰할 수 있는 비평 기사로서 객관성을 유지하며 감정적이거나 가벼운 어휘가 배제되었는가?
+            [평가 기준 (Rubric)]
+            1. 팩트 정합성 (40점): 원문 근거에 없는 사실을 지어내거나 숫자를 왜곡하지 않았는가?
+            2. 비평적 선명성 (30점): 매체별 `narrative`를 활용해 언론의 프레임 전환이나 본질 흐리기를 날카롭게 공격했는가? (기계적 중립은 감점 대상)
+            3. 논리 및 문체 (30점): 서론-본론-결론의 흐름이 단호하며, 미디어스 특유의 독설 섞인 비평적 어휘가 살아있는가?
 
-            [작업 지시사항]
-            1. 모든 응답(thought, redo_instruction 등 모든 필드)은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
-            2. 반드시 JSON 형식으로만 응답해야 합니다. 마크다운(` ```json `)을 쓰지 마세요.
-            3. 먼저 위 세 가지 기준에 대한 각각의 평가 사유(Thought)를 3~4문장으로 상세히 적으세요. 특히 팩트체크 원문에 없는 거짓이 있다면 구체적으로 명시하여 감점하세요.
-            4. 기준에 따라 총점(total_score, 0~100)을 합산하여 매기세요.
-            5. 만약 총점이 70점 미만이라면, Editor가 개선해야 할 명확한 지시사항(redo_instruction)을 남기세요. 70점 이상이면 빈 문자열.
+            [작업 지침]
+            - 총점이 70점 미만이면 반드시 `redo_instruction`에 **"어떤 문단의 어떤 어조를 고쳐야 하는지"** 독하게 적으십시오.
+            - 점수가 90점 이상이라면, 이는 정말로 기득권 언론의 폐부를 찌르는 명문임을 의미합니다.
 
             [응답 예시]
+            성공예시 (PASS):
             {{
-                "thought": "1. 사실성: 모든 통계 수치가 원문과 일치함. 2. 논리성: 서론에서 결론까지 흐름이 매끄러움. 3. 어조: 중립적이고 전문적인 어조를 잘 유지함.",
-                "total_score": 95,
-                "redo_instruction": ""
+              "thought": "1. 사실성: 박상용 검사의 녹취록 인용구가 토씨 하나 틀리지 않고 원문과 일치함. 2. 비평적 선명성: 조선일보와 한국일보가 '절차적 정당성'을 내세워 본질을 흐리고 있다는 지점을 정확히 포착하여 공격함. 3. 어조: '언론의 직무유기', '본질 흐리기' 등 미디어스 특유의 날카로운 어휘를 적재적소에 배치함.",
+              "total_score": 92,
+              "redo_instruction": ""
             }}
 
+            반려예시 (FAIL):
+            {{
+              "thought": "1. 사실성: 팩트 나열에는 문제가 없음. 2. 비평적 선명성: 각 매체의 입장을 'A는 이렇고 B는 저렇다'식으로 단순 나열하는 데 그침. 기성 매체가 왜 그런 프레임을 썼는지에 대한 매서운 비판이 부족함. 3. 어조: 비평 기사라기보다 일반적인 뉴스 요약문에 가까울 정도로 어조가 지나치게 완만함.",
+              "total_score": 62,
+              "redo_instruction": "본문의 '엇갈린 반응을 보이고 있다'와 같은 표현을 삭제하십시오. 대신 조선일보가 왜 녹취록 전문 공개를 요구하며 본질을 회피하는지 그 '비겁한 저의'를 직접적으로 꾸짖는 문장으로 2단락을 전면 수정하십시오. 또한, '프레임 전환'이라는 단어를 활용해 보수 언론의 보도 행태를 심판하십시오."
+            }}
             """
             
             # G-EVAL 모델 호출 (llm_mode 라우팅 등 중앙 집중식 call_llm 활용)
@@ -127,8 +115,10 @@ class JudgeAgent:
             # G-EVAL 모델 호출 (call_llm이 schema와 함께 호출되면 이미 파싱된 dict를 반환함)
             g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema)
             
-            if not g_eval_result:
-                g_eval_result = {"total_score": 75, "redo_instruction": "", "thought": "응답 누락으로 강제 통과 처리된 G-EVAL"}
+            # ✅ 방어적 코드: 결과가 dict가 아닌 경우 예외 처리 (AttributeError 방지)
+            if not isinstance(g_eval_result, dict):
+                logger.error(f"⚖️ [JudgeAgent] G-EVAL 응답 파싱 실패 (결과 타입: {type(g_eval_result)}). 기본값으로 대체합니다.")
+                g_eval_result = {"total_score": 75, "redo_instruction": "", "thought": "응답 파싱 실패로 자동 통과 처리"}
                 
             total_tokens = update_total_tokens(state, usage, "JudgeAgent")
             g_score = g_eval_result.get("total_score", 0)
@@ -139,7 +129,7 @@ class JudgeAgent:
                 status = "PASS"
                 feedback = f"통합 G-EVAL 통과 (점수: {g_score}점). 판단 사유: {thought}"
             else:
-                status = "FAIL_EDITOR"
+                status = "FAIL_WRITER"
                 feedback = f"통합 G-EVAL 개선 지시 (점수: {g_score}점). 판단 사유: {thought} | 지시사항: {redo_instruction}"
                 
             msg = f"✅ 검수 완료: {status} (통합 G-EVAL 점수: {g_score}점)"
@@ -168,11 +158,13 @@ class JudgeAgent:
                     
                     repo.update_issue_draft(issue_id, article_body)
                     
-                    # 나머지 분석 메타데이터 저장 (EditorAgent가 다듬은 최종 버전 우선 사용)
-                    final_desc = edited_article.get("description", state.get("description")) if isinstance(edited_article, dict) else state.get("description")
-                    final_bg = edited_article.get("background", state.get("background")) if isinstance(edited_article, dict) else state.get("background")
-                    final_core = edited_article.get("core_contentions", state.get("core_contentions")) if isinstance(edited_article, dict) else state.get("core_contentions")
-                    final_conflict = edited_article.get("conflict_summary", state.get("conflict_summary")) if isinstance(edited_article, dict) else state.get("conflict_summary")
+                    # 나머지 분석 메타데이터 저장 (EditorAgent/WriterAgent 결과 우선, 없으면 State 원본 사용)
+                    # dict.get(f, default)는 키가 있을 때 빈 문자열이라도 그대로 가져오므로 'or'를 사용하여 빈 값 방어
+                    e_art = edited_article if isinstance(edited_article, dict) else {}
+                    final_desc = e_art.get("description") or state.get("description") or ""
+                    final_bg = e_art.get("background") or state.get("background") or ""
+                    final_core = e_art.get("core_contentions") or state.get("core_contentions") or ""
+                    final_conflict = e_art.get("conflict_summary") or state.get("conflict_summary") or ""
 
                     repo.update_issue_analysis_results(
                         issue_id=issue_id,

@@ -83,7 +83,6 @@ def create_analysis_subgraph():
     workflow.add_node("evidence", evidence_wrapper, retry=RETRY_POLICY)
     workflow.add_node("issue", issue_wrapper, retry=RETRY_POLICY)
     workflow.add_node("writer", writer_wrapper, retry=RETRY_POLICY)
-    workflow.add_node("editor", editor_wrapper, retry=RETRY_POLICY)
     workflow.add_node("judge", judge_wrapper, retry=RETRY_POLICY)
     
     # 엣지 정의
@@ -91,8 +90,7 @@ def create_analysis_subgraph():
     workflow.add_edge("fetch", "evidence")
     workflow.add_edge("evidence", "issue")
     workflow.add_edge("issue", "writer")
-    workflow.add_edge("writer", "editor")
-    workflow.add_edge("editor", "judge")
+    workflow.add_edge("writer", "judge")
     
     # 순환 라우팅 (재작성/재교정)
     def route_from_judge(state: ComparisonState) -> str:
@@ -100,9 +98,9 @@ def create_analysis_subgraph():
         retry = state.get("retry_count", 0)
         if retry >= 3 or status == "PASS":
             return END
-        return "editor"
+        return "writer"
 
-    workflow.add_conditional_edges("judge", route_from_judge, {"editor": "editor", END: END})
+    workflow.add_conditional_edges("judge", route_from_judge, {"writer": "writer", END: END})
     
     return workflow.compile()
 
@@ -131,23 +129,35 @@ def create_comparison_graph(db: Session):
     # 2. 병렬 분석 노드 (서브 그래프 호출용 래퍼)
     def run_analysis_worker(state: OverallState):
         """서브 그래프를 독립적으로 실행하고 결과만 반환합니다."""
+        from app.core.database import SessionLocal
         # state는 Send()로부터 전달받은 단일 이슈 처리용 데이터
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode")
         
-        # 서브 그래프 실행 (초기 상태 설정)
-        sub_initial_state = {
-            "issue_id": issue_id,
-            "llm_mode": llm_mode,
-            "messages": [],
-            "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
-        }
+        # ✅ DB에서 해당 이슈의 '진짜' 상세 정보를 로드 (OverallState는 이를 들고 있지 않음)
+        with SessionLocal() as db:
+            from app.scroller.repository import ScrollerRepository
+            repo = ScrollerRepository(db)
+            issue = repo.get_issue_by_id(issue_id)
+            
+            # 서브 그래프 실행 (초기 상태 설정 - DB에서 로드한 메타데이터 주입)
+            sub_initial_state = {
+                "issue_id": issue_id,
+                "llm_mode": llm_mode,
+                "title": issue.name if issue else "",
+                "description": issue.description if issue else "",
+                "background": issue.background if issue else "",
+                "core_contentions": issue.core_contentions if issue else "",
+                "messages": [],
+                "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
+            }
         
         # invoke로 개별 스레드/프로세스 환경에서 실행
         final_state = analysis_subgraph.invoke(sub_initial_state)
         
-        # ✅ 메인 그래프(OverallState)로 돌려보낼 데이터만 추출 (reducer가 있는 필드만)
+        # ✅ 메인 그래프(OverallState)로 돌려보낼 데이터 추출 (저장 및 후속 처리를 위해 필드 확장)
         return {
+            "conflict_summary": final_state.get("conflict_summary", ""),
             "messages": final_state.get("messages", []),
             "total_tokens": final_state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0})
         }
