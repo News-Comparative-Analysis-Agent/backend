@@ -22,7 +22,6 @@ class IssueAnalysisResponse(BaseModel):
     description: Optional[str] = None
     background: Optional[str] = None
     core_contentions: Optional[str] = None # JSON string
-    media_ratio: Optional[str] = None # JSON string
     created_at: datetime
 
     # 해당 이슈와 관련된 모든 주장 카드 리스트
@@ -38,7 +37,6 @@ class IssueDraftResponse(BaseModel):
     description: Optional[str] = None
     background: Optional[str] = None
     core_contentions: Optional[str] = None # JSON string
-    media_ratio: Optional[str] = None # JSON string
     created_at: datetime
     pre_generated_draft: Optional[str] = None
     # 해당 이슈와 관련된 모든 주장 카드 리스트
