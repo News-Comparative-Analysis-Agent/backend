@@ -41,7 +41,6 @@ class IssueService:
             description=issue.description,
             background=issue.background,
             core_contentions=issue.core_contentions,
-            media_ratio=issue.media_ratio,
             created_at=issue.created_at,
             claim_cards=claim_cards
         )
@@ -76,7 +75,6 @@ class IssueService:
             description=issue.description,
             background=issue.background,
             core_contentions=issue.core_contentions,
-            media_ratio=issue.media_ratio,
             pre_generated_draft=issue.pre_generated_draft,
             created_at=issue.created_at,
             claim_cards=claim_cards
