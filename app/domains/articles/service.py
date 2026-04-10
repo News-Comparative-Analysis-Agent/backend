@@ -1,22 +1,69 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
+from datetime import date as py_date
 from app.domains.articles.models import Article, ArticleBody
 from app.domains.publishers.models import Publisher
-from app.domains.articles.schemas import ArticleResponse, ArticleDetail
+from app.domains.articles.schemas import ArticleResponse, ArticleDetail, ArticleGroupedResponse
 from app.domains.articles.repository import ArticleRepository
+from collections import defaultdict
 
 class ArticleService:
     def __init__(self, db: Session):
         self.db = db
         self.repo = ArticleRepository(db)
 
-    def get_articles(self, issue_id: Optional[int] = None, limit: int = 10) -> List[Article]:
-        """기사 목록 조회 (최신순)"""
-        return self.repo.get_articles(issue_id=issue_id, limit=limit)
+    def get_articles(self, issue_id: Optional[int] = None, date: Optional[str] = None, limit: int = 10) -> List[Article]:
+        """기사 목록 조회 (최신순 + 필터링)"""
+        target_date = None
+        if date:
+            try:
+                target_date = py_date.fromisoformat(date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+                
+        articles = self.repo.get_articles(issue_id=issue_id, target_date=target_date, limit=limit)
+        
+        # 필드 채우기 (publisher_name, image_url)
+        for article in articles:
+            if article.publisher:
+                article.publisher_name = article.publisher.name
+            if article.image_urls and len(article.image_urls) > 0:
+                article.image_url = article.image_urls[0]
+                
+        return articles
+
+    def get_grouped_articles(self, days: int = 7) -> ArticleGroupedResponse:
+        """최근 N일간의 기사를 날짜별/언론사별로 그룹화하여 조회"""
+        articles = self.repo.get_articles_by_date_range(days=days)
+        
+        # 중첩 데이터 구조: { date: { publisher: [articles] } }
+        grouped_data: Dict[str, Dict[str, List[Article]]] = defaultdict(lambda: defaultdict(list))
+        
+        for article in articles:
+            # 필드 채우기 (publisher_name, image_url)
+            publisher_name = "기타"
+            if article.publisher:
+                publisher_name = article.publisher.name
+                article.publisher_name = publisher_name
+                
+            if article.image_urls and len(article.image_urls) > 0:
+                article.image_url = article.image_urls[0]
+                
+            date_key = article.published_at.date().isoformat()
+            grouped_data[date_key][publisher_name].append(article)
+            
+        return ArticleGroupedResponse(data=dict({k: dict(v) for k, v in grouped_data.items()}))
 
     def get_article(self, article_id: int) -> Optional[Article]:
         """기사 상세 조회"""
-        return self.repo.get_article(article_id)
+        article = self.repo.get_article(article_id)
+        if article:
+            if article.publisher:
+                article.publisher_name = article.publisher.name
+            if article.image_urls and len(article.image_urls) > 0:
+                article.image_url = article.image_urls[0]
+        return article
 
     def get_articles_by_issue(self, issue_label_id: int, limit: int = 20) -> List[Article]:
         """이슈 라벨(클러스터)별 기사 목록 조회"""

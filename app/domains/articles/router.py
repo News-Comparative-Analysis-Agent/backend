@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from app.core.database import get_db
 from app.domains.articles.service import ArticleService
-from app.domains.articles.schemas import ArticleResponse, ArticleDetail
+from app.domains.articles.schemas import ArticleResponse, ArticleDetail, ArticleGroupedResponse
 
 router = APIRouter()
 
@@ -24,22 +24,38 @@ def get_top_by_publisher(
 @router.get("/search", 
             response_model=List[ArticleResponse],
             summary="기사 목록 검색",
-            description="이슈(Issue) ID를 기반으로 관련 기사 목록을 조회합니다.")
+            description="이슈(Issue) ID 또는 날짜를 기반으로 관련 기사 목록을 조회합니다.")
 def search_articles(
     issue_id: Optional[int] = Query(None, description="필터링할 이슈(소주제) ID"),
+    date: Optional[str] = Query(None, description="조회할 날짜 (YYYY-MM-DD)"),
     limit: int = Query(20, description="최대 조회 개수"),
     db: Session = Depends(get_db)
 ):
     """
     기사 목록을 검색 조건에 따라 조회합니다.
     - **issue_id**가 있을 경우: 해당 이슈(클러스터)의 기사 반환
+    - **date**가 있을 경우: 해당 날짜의 기사 반환
     - 없을 경우: 전체 기사 최신순 반환
     """
     service = ArticleService(db)
-    articles = service.get_articles(issue_id=issue_id, limit=limit)
+    articles = service.get_articles(issue_id=issue_id, date=date, limit=limit)
     
     # Response 변환 (publisher_name 매핑 등은 여기서 하거나 Schema에서 처리)
     return articles
+
+@router.get("/grouped", 
+            response_model=ArticleGroupedResponse,
+            summary="최근 N일간의 기사 날짜별 그룹화 조회",
+            description="최근 N일 동안 발행된 기사들을 날짜별로 묶어서 반환합니다.")
+def get_grouped_articles(
+    days: int = Query(7, description="조회할 기간 (일 단위)"),
+    db: Session = Depends(get_db)
+):
+    """
+    기사 그룹화 조회 (최근 N일)
+    """
+    service = ArticleService(db)
+    return service.get_grouped_articles(days=days)
 
 @router.get("/{article_id}", 
             response_model=ArticleDetail,

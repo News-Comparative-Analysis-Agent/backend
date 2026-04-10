@@ -83,7 +83,6 @@ class ScrollerRepository:
     def save_article_with_body(self, publisher_id: int, 
                                 title: str, url: str, image_urls: list,
                                  published_at: datetime, content: str,
-                                summary: str = None, 
                                  reporter: str = None) -> Article:
         """
         기사 메타데이터와 본문을 각각의 테이블에 연동하여 저장합니다.
@@ -95,7 +94,6 @@ class ScrollerRepository:
             image_urls (list): 이미지 URL 리스트
             published_at (datetime): 발행 일시
             content (str): 기사 원문 (본문)
-            summary (str): AI 요약문
             reporter (str): 기자 이름
             
         Returns:
@@ -108,7 +106,6 @@ class ScrollerRepository:
             url=url,
             image_urls=image_urls,
             published_at=published_at,
-            summary=summary,
             reporter=reporter
         )
         self.db.add(article)
@@ -264,16 +261,7 @@ class ScrollerRepository:
         logger.error(f"❌ [ScrollerRepository] 이슈 ID {issue_id}를 찾을 수 없어 초안을 저장하지 못했습니다.")
         return False
 
-    def update_article_summary(self, article_id: int, summary: str):
-        """
-        개별 기사의 AI 요약 필드를 업데이트합니다.
-        """
-        article = self.db.query(Article).filter(Article.id == article_id).first()
-        if article:
-            article.summary = summary
-            self.db.flush()
-            return True
-        return False
+    
 
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,

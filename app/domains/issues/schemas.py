@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, computed_field
 from app.domains.publishers.schemas import PublisherAnalysis
 
@@ -27,6 +27,9 @@ class IssueAnalysisResponse(BaseModel):
     # 해당 이슈와 관련된 모든 주장 카드 리스트
     claim_cards: List[ClaimCardResponse] = []
 
+    # 해당 이슈와 관련된 이미지 URL 리스트
+    image_urls: List[str] = []
+
     class Config:
         from_attributes = True
 
@@ -42,35 +45,41 @@ class IssueDraftResponse(BaseModel):
     # 해당 이슈와 관련된 모든 주장 카드 리스트
     claim_cards: List[ClaimCardResponse] = []
 
+    # 해당 이슈와 관련된 이미지 URL 리스트
+    image_urls: List[str] = []
+
     class Config:
         from_attributes = True
 
 
 class IssueFeedItem(BaseModel):
-    """피드용 이슈 응답 스키마 (TOP 10 + 차트아웃 20개 공통)"""
+    """피드용 이슈 응답 스키마"""
     id: int
     name: str
     description: Optional[str] = None
     article_count: int
-    rank: Optional[int] = None           # 현재(또는 최고) 순위
+    rank: Optional[int] = None           # 중요도(기사 수 등)에 따른 순위
     created_at: datetime
 
     # 기사 대표 이미지 URL 목록
     image_urls: List[str] = []           # 소속 기사들의 이미지 URL
 
-    # 차트아웃 이슈 전용 필드
-    is_chart_out: bool = False            # OUT 뱃지 표시 여부
-    peak_rank: Optional[int] = None      # 최고 순위 (ex. 최고 3위)
-    chart_out_minutes: Optional[int] = None  # 차트아웃 후 경과 시간(분)
+    class Config:
+        from_attributes = True
+
+
+class IssueGroupedResponse(BaseModel):
+    """날짜별로 그룹화된 이슈 피드 응답"""
+    data: Dict[str, List[IssueFeedItem]]  # 키: YYYY-MM-DD, 값: 해당 날짜의 이슈 리스트
 
     class Config:
         from_attributes = True
 
 
 class IssueFeedResponse(BaseModel):
-    """30개 이슈를 두 섹션으로 나눈 피드 응답"""
-    top_issues: List[IssueFeedItem]       # 최신 생성 순 10개
-    chart_out_issues: List[IssueFeedItem] # 차트아웃 20개
+    """날짜별 이슈 피드 응답 (단일 리스트)"""
+    date: str                             # 조회된 날짜 (YYYY-MM-DD)
+    issues: List[IssueFeedItem]           # 해당 날짜의 이슈 목록
 
     class Config:
         from_attributes = True
