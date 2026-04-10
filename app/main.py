@@ -5,7 +5,6 @@ from app.core.database import engine, Base
 from app.domains.users import router as users_router
 from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
-from app.scroller import router as scroller_router
 from app.domains.drafts.router import router as drafts_router
 from tests import db_api as db_test_router
 
@@ -41,7 +40,6 @@ app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
-app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
 
 @app.get("/")
