@@ -4,6 +4,7 @@ import gc
 import time
 import json
 import logging
+from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
@@ -88,7 +89,7 @@ class ClusterAgent:
         try:
             prompt = f"""
             당신은 뉴스 분석 및 이슈 프레임 추출 전문가입니다. 
-            [현재 시점: 2026년 3월 / 현직 대통령: 이재명]
+            [현직 대통령: 이재명]
             
             다음은 동일한 뉴스 사건에 대한 기사 제목들입니다:
             {titles[:15]} (총 {len(titles)}건)

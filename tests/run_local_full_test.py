@@ -95,7 +95,7 @@ def run_local_full_test():
         app = create_comparison_graph(db)
         
         initial_state = {
-            "llm_mode": "gemini_only",
+            "llm_mode": "local_only",
             "issue_id": None,
             "all_issue_ids": [],
             "raw_articles": [],
