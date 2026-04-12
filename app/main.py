@@ -7,6 +7,7 @@ from app.domains.articles import router as articles_router
 from app.domains.issues import router as issues_router
 from app.domains.drafts.router import router as drafts_router
 from tests import db_api as db_test_router
+from app.domains.system import router as system_router
 
 # 인증 의존성 임포트
 from app.core.security import get_current_user
@@ -17,6 +18,7 @@ from app.domains.publishers import models as pub_models
 from app.domains.articles import models as art_models
 from app.domains.issues import models as issue_models
 from app.domains.drafts import models as draft_models
+from app.domains.system import models as system_models
 
 Base.metadata.create_all(bind=engine)
 
@@ -41,7 +43,7 @@ app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
-
+app.include_router(system_router.router, prefix="/system", tags=["system"])
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "백엔드 서버 실행중"}

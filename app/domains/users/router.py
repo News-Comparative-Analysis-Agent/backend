@@ -132,12 +132,3 @@ async def google_login(id_token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/llm-mode")
-async def get_llm_mode(db: Session = Depends(get_db)):
-    """
-    현재 플랫폼의 시스템 전역 LLM 작동 모드를 조회합니다.
-    (gemini_only, local_priority, local_only 등)
-    """
-    from app.domains.system.models import SystemSettings
-    settings = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
-    return {"llm_mode": settings.llm_mode if settings else "gemini_only"}
