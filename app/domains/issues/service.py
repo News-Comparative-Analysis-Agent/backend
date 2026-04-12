@@ -301,3 +301,11 @@ class IssueService:
             chart_out_issues=chart_out_issues,
         )
 
+    def delete_issue(self, issue_id: int):
+        """이슈 삭제 및 연쇄 데이터 삭제"""
+        issue = self.repo.get_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
+        
+        self.repo.delete_issue(issue_id)
+

@@ -106,3 +106,19 @@ def get_issue_timeline(
     service = IssueService(db)
     return service.get_issue_timeline(issue_id)
 
+
+@router.delete("/{issue_id}",
+               status_code=204,
+               summary="이슈 삭제 (연관 데이터 연쇄 삭제)",
+               description="특정 이슈와 그에 속한 모든 기사, 기사 본문, 분석 데이터를 영구적으로 삭제합니다.")
+def delete_issue(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    이슈 삭제 API
+    """
+    service = IssueService(db)
+    service.delete_issue(issue_id)
+    return None
+
