@@ -6,7 +6,8 @@ from app.domains.issues.repository import IssueRepository
 from app.domains.issues.schemas import (
     IssueFeedItem, IssueFeedResponse, IssueAnalysisResponse, 
     IssueDraftResponse, ClaimCardResponse, IssueGroupedResponse,
-    IssueTimelineItem, IssueTimelineResponse
+    IssueTimelineItem, IssueTimelineResponse,
+    IssueFeedLegacyItem, IssueFeedLegacyResponse
 )
 from collections import defaultdict
 
@@ -227,3 +228,76 @@ class IssueService:
             target_issue_name=target_issue.name,
             timeline=timeline_items
         )
+
+    def get_issue_feed_legacy(self, top_count: int = 10, chart_out_count: int = 20) -> IssueFeedLegacyResponse:
+        """
+        피드용 30개 이슈 조회 (레거시 버전)
+        - top_issues     : 가장 최근 생성된 top_count개
+        - chart_out_issues: 그 이후 chart_out_count개 (차트아웃 시간 계산 포함)
+        """
+        total = top_count + chart_out_count
+        # repository의 get_feed_issues를 사용하여 날짜 필터 없이 가져옴 (target_date=None)
+        issues = self.repo.get_feed_issues(target_date=None, total=total)
+
+        # 랭킹 경계 기준 시각 (10번째 이슈의 시각)
+        boundary_time = None
+        if len(issues) >= top_count:
+            bt = issues[top_count - 1].created_at
+            if hasattr(bt, 'tzinfo') and bt.tzinfo is not None:
+                bt = bt.replace(tzinfo=None)
+            boundary_time = bt
+
+        now = datetime.utcnow() + timedelta(hours=9)
+        top_issues: List[IssueFeedLegacyItem] = []
+        chart_out_issues: List[IssueFeedLegacyItem] = []
+
+        # 이미지 URL 일괄 조회
+        issue_ids = [issue.id for issue in issues]
+        image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
+
+        for idx, issue in enumerate(issues):
+            rank_in_feed = idx + 1
+            created_at = issue.created_at
+            if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
+                created_at = created_at.replace(tzinfo=None)
+
+            image_urls = image_urls_map.get(issue.id, [])
+
+            if idx < top_count:
+                # TOP 이슈 (최신 10개)
+                top_issues.append(IssueFeedLegacyItem(
+                    id=issue.id,
+                    name=issue.name,
+                    description=issue.description,
+                    article_count=issue.total_count,
+                    rank=rank_in_feed,
+                    created_at=created_at,
+                    is_chart_out=False,
+                    image_urls=image_urls,
+                ))
+            else:
+                # 차트아웃 이슈 (그 다음 20개)
+                peak_rank = rank_in_feed
+                if boundary_time is not None:
+                    diff_minutes = int((boundary_time - created_at).total_seconds() / 60)
+                else:
+                    diff_minutes = int((now - created_at).total_seconds() / 60)
+
+                chart_out_issues.append(IssueFeedLegacyItem(
+                    id=issue.id,
+                    name=issue.name,
+                    description=issue.description,
+                    article_count=issue.total_count,
+                    rank=rank_in_feed,
+                    created_at=created_at,
+                    is_chart_out=True,
+                    peak_rank=peak_rank,
+                    chart_out_minutes=max(0, diff_minutes),
+                    image_urls=image_urls,
+                ))
+
+        return IssueFeedLegacyResponse(
+            top_issues=top_issues,
+            chart_out_issues=chart_out_issues,
+        )
+

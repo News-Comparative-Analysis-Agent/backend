@@ -107,3 +107,32 @@ class IssueTimelineResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class IssueFeedLegacyItem(BaseModel):
+    """레거시 피드용 이슈 응답 스키마"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    article_count: int
+    rank: Optional[int] = None
+    created_at: datetime
+    image_urls: List[str] = []
+    
+    # 레거시 전용 필드
+    is_chart_out: bool = False
+    peak_rank: Optional[int] = None
+    chart_out_minutes: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class IssueFeedLegacyResponse(BaseModel):
+    """레거시 이슈 피드 응답 (TOP 10 + 차트아웃 20)"""
+    top_issues: List[IssueFeedLegacyItem]
+    chart_out_issues: List[IssueFeedLegacyItem]
+
+    class Config:
+        from_attributes = True
+
