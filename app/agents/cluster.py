@@ -97,7 +97,7 @@ class ClusterAgent:
             이 뉴스 제목들을 철저히 분석하여 '미디어 비평'의 기초가 될 이슈 상세 정보를 작성해주세요.
             
             [작성 규칙]
-            1. title: 단순히 사건명을 적지 말고, '갈등의 본질'이나 '언론의 보도 태도'가 드러나는 날카로운 제목을 작성할 것. (예: "XX 사건을 둘러싼 언론의 프레임 전쟁" 등)
+            1. title: 단순히 사건명을 적지 말고, '갈등의 본질'이나 '언론의 보도 태도'가 드러나는 날카로운 제목을 작성할 것.
             2. description: 사건 요약과 함께, 현재 언론이 이 사건을 얼마나 편향되게 다루고 있는지 1~2문장 포함할 것.
             3. background: 사건의 물리적 발생 원인뿐만 아니라, 이것이 왜 정치적 쟁점이 되었는지 배경을 기술할 것.
             4. core_contentions: 단순히 'A와 B가 싸운다'가 아니라, 'A 매체가 사용하는 프레임 vs B 매체가 숨기려는 팩트'의 구도로 쟁점을 기술할 것.
@@ -208,7 +208,7 @@ class ClusterAgent:
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=0.8
+                distance_threshold=1.1
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
