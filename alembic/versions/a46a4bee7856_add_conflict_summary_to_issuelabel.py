@@ -26,11 +26,8 @@ def upgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_execution_logs_status")
     op.execute("DROP TABLE IF EXISTS execution_logs")
     
-    # 컬럼 존재 여부 체크 후 추가 (PostgreSQL용)
-    conn = op.get_bind()
-    res = conn.execute(sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='issue_labels' AND column_name='conflict_summary'"))
-    if not res.fetchone():
-        op.add_column('issue_labels', sa.Column('conflict_summary', sa.Text(), nullable=True))
+    # 컬럼 존재 여부 체크 후 추가 (PostgreSQL의 IF NOT EXISTS 구문 사용)
+    op.execute(sa.text("ALTER TABLE issue_labels ADD COLUMN IF NOT EXISTS conflict_summary TEXT"))
     # ### end Alembic commands ###
 
 

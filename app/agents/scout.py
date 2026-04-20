@@ -21,6 +21,9 @@ TARGET_PRESS_DICT = {
 }
 DAYS_TO_CRAWL = 2
 
+# 사설/오피니언 섹션을 나타내는 섹션명 집합 (언론사마다 표기가 다를 수 있음)
+EDITORIAL_SECTIONS = {"오피니언", "사설", "칼럼", "opinion", "editorial", "社說"}
+
 class ScoutAgent:
     """
     뉴스 크롤링 전담 에이전트
@@ -32,8 +35,8 @@ class ScoutAgent:
         self.repo = ScrollerRepository(db)
         # 봇 차단 방지를 위한 여러 개의 User-Agent 풀을 사용하면 더 좋습니다.
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-        # 🔥 네이버 차단 방지: 한 번에 최대 5개의 동시 요청만 허용
-        self.semaphore = asyncio.Semaphore(5)
+        # 🔥 네이버 차단 방지: 서버 딜레이(타임아웃)를 막기 위해 안정적으로 15개 동시 요청
+        self.semaphore = asyncio.Semaphore(15)
 
     def _get_kst_now(self) -> datetime:
         """현재 KST(한국 표준시) 기준 일시 반환"""
@@ -53,12 +56,12 @@ class ScoutAgent:
 
     async def _fetch_html(self, session: aiohttp.ClientSession, url: str, max_retries=3) -> str:
         """단일 URL에 비동기 GET 요청 수행 (세마포어 적용)"""
-        async with self.semaphore: # 🔥 동시에 5개만 실행됨
+        async with self.semaphore: 
             for attempt in range(max_retries):
                 try:
                     # 봇처럼 보이지 않기 위해 요청 전에 아주 짧은 난수 딜레이를 줌 (선택 사항)
                     # await asyncio.sleep(random.uniform(0.1, 0.5))
-                    async with session.get(url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    async with session.get(url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                         if response.status == 200:
                             return await response.text()
                         elif response.status == 429:
@@ -72,15 +75,27 @@ class ScoutAgent:
                 await asyncio.sleep(1) # 실패 시 1초 대기 후 재시도
             return None
 
-    async def _parse_article_detail(self, session: aiohttp.ClientSession, link: str, title: str, press_name: str) -> dict:
-        """기사 상세 페이지를 비동기로 파싱"""
+    async def _parse_article_detail(
+        self,
+        session: aiohttp.ClientSession,
+        link: str,
+        title: str,
+        press_name: str,
+        article_mode: str = "politics"
+    ) -> dict:
+        """
+        기사 상세 페이지를 비동기로 파싱
+
+        Args:
+            article_mode: "politics" (정치 섹션만) 또는 "editorial" (사설/오피니언 섹션만)
+        """
         html = await self._fetch_html(session, link)
         if not html:
             return None
             
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, 'lxml')
         
-        # 섹션 파싱
+        # 섹션 파싱 (meta 태그 우선, 없으면 카테고리 태그)
         section = ""
         meta_section = soup.select_one('meta[property="article:section"]')
         if meta_section:
@@ -90,11 +105,21 @@ class ScoutAgent:
             if cat_tag:
                 section = cat_tag.get_text(strip=True)
         
-        # 정치 섹션 필터링
-        if section != "정치":
+        # 2. 섹션 매칭을 부분 문자열로 보완
+        is_editorial_section = any(s in section for s in EDITORIAL_SECTIONS) if section else False
+        
+        # 제목 기반 보조 필터 추가
+        EDITORIAL_TITLE_KEYWORDS = ["[사설]", "[칼럼]", "[시평]", "[논설]", "[오피니언]", "[사론]"]
+        is_editorial_title = any(kw in title for kw in EDITORIAL_TITLE_KEYWORDS)
+        
+        if article_mode == "editorial" and not (is_editorial_section or is_editorial_title):
             return None
+        elif article_mode != "editorial":
+            # 기본: 정치 섹션만 수집
+            if section != "정치":
+                return None
             
-        # 🔥 본문 파싱 셀렉터 강화 (포토뉴스 등 방어)
+        #  본문 파싱 셀렉터 강화 (포토뉴스 등 방어)
         content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
         content = ""
         image_urls = []
@@ -118,11 +143,12 @@ class ScoutAgent:
         if len(content) < 50: # 너무 짧은 기사(사진만 있는 경우 등) 방어
             return None
             
-        # ✅ 속보 및 짧은 기사 필터링 (클러스터링 품질 향상)
+        # 3. 속보 필터 모드 분기
         NOISE_PREFIXES = ("[속보]", "[긴급]", "[단독]", "【속보】", "《속보》", "[포착]")
-        if any(title.strip().startswith(prefix) for prefix in NOISE_PREFIXES) and len(content) < 300:
-            logger.info(f"⚡ [ScoutAgent] 속보/단신 필터링 제외: {title[:40]}")
-            return None
+        if article_mode != "editorial":
+            if any(title.strip().startswith(prefix) for prefix in NOISE_PREFIXES) and len(content) < 300:
+                logger.info(f"⚡ [ScoutAgent] 속보/단신 필터링 제외: {title[:40]}")
+                return None
             
         # 날짜
         date_tag = soup.select_one('.media_end_head_info_datestamp span')
@@ -144,14 +170,22 @@ class ScoutAgent:
             "link": link
         }
 
-    async def _crawl_ranking_page(self, session: aiohttp.ClientSession, press_name: str, oid: str, date_str: str, existing_hashes: set) -> list:
+    async def _crawl_ranking_page(
+        self,
+        session: aiohttp.ClientSession,
+        press_name: str,
+        oid: str,
+        date_str: str,
+        existing_hashes: set,
+        article_mode: str = "politics"
+    ) -> list:
         """특정 언론사의 특정 날짜 랭킹 페이지 수집 및 본문 긁어오기"""
         url = f"https://news.naver.com/main/ranking/office.naver?officeId={oid}&date={date_str}"
         html = await self._fetch_html(session, url, max_retries=2)
         if not html:
             return []
             
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, 'lxml')
         list_items = soup.select('.rankingnews_list li')
         
         tasks = []
@@ -176,7 +210,7 @@ class ScoutAgent:
             existing_hashes.add(link_hash)
             
             title = link_tag.get_text(strip=True)
-            tasks.append(self._parse_article_detail(session, link, title, press_name))
+            tasks.append(self._parse_article_detail(session, link, title, press_name, article_mode=article_mode))
             collected_count += 1
             
         # 상세 파싱 병렬(비동기) 실행
@@ -188,15 +222,29 @@ class ScoutAgent:
         valid_results = [res for res in results if res and not isinstance(res, Exception)]
         return valid_results
 
-    async def _crawl_headline_news(self, session: aiohttp.ClientSession, existing_hashes: set) -> list:
-        """정치 섹션 메인 헤드라인 뉴스 수집 (많이 본 뉴스 랭킹에 오르기 전 실시간/주요 기사 포착)"""
-        url = "https://news.naver.com/section/100"
+    async def _crawl_headline_news(
+        self,
+        session: aiohttp.ClientSession,
+        existing_hashes: set,
+        article_mode: str = "politics"
+    ) -> list:
+        """
+        메인 헤드라인 뉴스 수집 (많이 본 뉴스 랭킹에 오르기 전 실시간/주요 기사 포착)
+        - politics: 정치 섹션 (section/100)
+        - editorial: 오피니언 섹션 (section/110)
+        """
+        # 사설 모드일 때는 오피니언 섹션 페이지 사용
+        if article_mode == "editorial":
+            url = "https://news.naver.com/section/110"  # 오피니언 섹션
+        else:
+            url = "https://news.naver.com/section/100"  # 정치 섹션
+
         html = await self._fetch_html(session, url, max_retries=2)
         if not html:
             return []
             
-        soup = BeautifulSoup(html, 'html.parser')
-        # 네이버 뉴스 정치 메인 헤드라인 영역
+        soup = BeautifulSoup(html, 'lxml')
+        # 네이버 뉴스 메인 헤드라인 영역
         items = soup.select('.as_headline .sa_text, .sa_list .sa_text')
         
         tasks = []
@@ -224,7 +272,7 @@ class ScoutAgent:
             existing_hashes.add(link_hash)
             title = title_tag.get_text(strip=True)
             
-            tasks.append(self._parse_article_detail(session, link, title, press_name))
+            tasks.append(self._parse_article_detail(session, link, title, press_name, article_mode=article_mode))
             
         if not tasks:
             return []
@@ -232,28 +280,116 @@ class ScoutAgent:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return [res for res in results if res and not isinstance(res, Exception)]
 
-    async def run_async_crawl(self) -> list:
-        """비동기 크롤러 실행 엔트리"""
-        logger.info("⚡ In-memory URL Hash 캐싱 로드 중...")
+    async def _crawl_daily_list_page(
+        self,
+        session: aiohttp.ClientSession,
+        press_name: str,
+        oid: str,
+        date_str: str,
+        existing_hashes: set,
+        article_mode: str
+    ) -> list:
+        """언론사별 일일 기사 목록(LPOD) 전체 수집 (사설 등 랭킹에 안 뜨는 기사용)"""
+        # 1. 사설 모드는 페이지 수 줄이기
+        max_pages = 4 if article_mode == "editorial" else 14
+        
+        tasks = []
+        collected_links = set()
+        for page in range(1, max_pages + 1): 
+            url = f"https://news.naver.com/main/list.naver?mode=LPOD&mid=sec&oid={oid}&listType=title&date={date_str}&page={page}"
+            html = await self._fetch_html(session, url, max_retries=2)
+            if not html:
+                break
+                
+            soup = BeautifulSoup(html, 'lxml')
+            items = soup.select('.list_body.newsflash_body li a')
+            if not items:
+                break
+                
+            for item in items:
+                link = item.get('href')
+                if not link or link in collected_links: continue
+                collected_links.add(link)
+                
+                link_hash = hashlib.sha256(link.encode('utf-8')).hexdigest()
+                if link_hash in existing_hashes: continue
+                
+                # 임시 캐시 추가
+                existing_hashes.add(link_hash)
+                
+                title = item.get_text(strip=True)
+                if not title: continue
+                
+                # 🔥 스마트 필터링: 사설일 확률이 0%인 기사는 본문 접속 시도조차 하지 않고 스킵 (네이버 서버 부하/속도 최적화)
+                if any(keyword in title for keyword in ["[사진]", "[포토]", "[그림]", "[부고]", "[인사]", "[동정]", "[게시판]", "[날씨]", "오늘의 날씨"]):
+                    continue
+                
+                tasks.append(self._parse_article_detail(session, link, title, press_name, article_mode=article_mode))
+                
+        if not tasks:
+            return []
+            
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [res for res in results if res and not isinstance(res, Exception)]
+
+    async def run_async_crawl(
+        self,
+        article_mode: str = "politics",
+        custom_dates: list = None
+    ) -> list:
+        """
+        비동기 크롤러 실행 엔트리
+
+        Args:
+            article_mode: "politics" (정치 섹션) 또는 "editorial" (사설/오피니언 섹션)
+            custom_dates: 수집할 날짜 목록 (YYYYMMDD 문자열 리스트).
+                          None이면 오늘 기준 DAYS_TO_CRAWL일치 자동 계산.
+        """
+        mode_label = "사설(오피니언)" if article_mode == "editorial" else "정치"
+        logger.info(f"⚡ In-memory URL Hash 캐싱 로드 중... [섹션: {mode_label}]")
         existing_hashes = self._get_existing_url_hashes()
         logger.info(f"⚡ {len(existing_hashes)}개의 URL Hash 로드 완료.")
         
         today = self._get_kst_now()
         tasks = []
         
+        # 수집할 날짜 목록 결정
+        if custom_dates:
+            date_list = custom_dates
+            logger.info(f"📅 지정 날짜 모드: {date_list}")
+        else:
+            date_list = [
+                (today - timedelta(days=offset)).strftime("%Y%m%d")
+                for offset in range(DAYS_TO_CRAWL)
+            ]
+            logger.info(f"📅 자동 날짜 모드 (최근 {DAYS_TO_CRAWL}일): {date_list}")
+        
         # aiohttp ClientSession 생성 및 동시 요청
         async with aiohttp.ClientSession() as session:
-            # 1. 정치 섹션 메인 헤드라인 뉴스 수집 태스크 추가 (실시간 주요 뉴스 포착)
-            tasks.append(self._crawl_headline_news(session, existing_hashes))
+            # 1. 헤드라인 뉴스 수집 (custom_dates가 없을 때만 실행 - 과거 날짜엔 의미 없음)
+            if not custom_dates:
+                tasks.append(self._crawl_headline_news(session, existing_hashes, article_mode=article_mode))
             
-            for day_offset in range(DAYS_TO_CRAWL):
-                target_date = today - timedelta(days=day_offset)
-                date_str = target_date.strftime("%Y%m%d")
-                
+            # 2. 날짜별 언론사 랭킹/전체목록 페이지 수집
+            for date_str in date_list:
                 for press_name, oid in TARGET_PRESS_DICT.items():
-                    tasks.append(self._crawl_ranking_page(session, press_name, oid, date_str, existing_hashes))
+                    if article_mode == "editorial":
+                        # 사설은 랭킹에 안 뜨므로 일간 전체목록 스크래핑 이용
+                        tasks.append(
+                            self._crawl_daily_list_page(
+                                session, press_name, oid, date_str,
+                                existing_hashes, article_mode=article_mode
+                            )
+                        )
+                    else:
+                        tasks.append(
+                            self._crawl_ranking_page(
+                                session, press_name, oid, date_str,
+                                existing_hashes, article_mode=article_mode
+                            )
+                        )
             
-            logger.info(f"⚡ {len(tasks)}개의 수집 태스크(헤드라인+랭킹) 병렬 실행 시작...")
+            logger.info(f"⚡ {len(tasks)}개의 수집 태스크 병렬 실행 시작...")
             results = await asyncio.gather(*tasks)
             
         # 2차원 리스트 플래튼
@@ -262,9 +398,11 @@ class ScoutAgent:
             all_news.extend(res_list)
             
         if all_news:
-            logger.info("📄 [ScoutAgent:Crawl] 수집된 기사 리스트:")
+            logger.info(f"📄 [ScoutAgent:Crawl] 수집된 {mode_label} 기사 리스트:")
             for i, art in enumerate(all_news, 1):
                 logger.info(f"   {i}. [{art['press']}] {art['title']}")
+        else:
+            logger.warning(f"⚠️ [ScoutAgent:Crawl] 수집된 {mode_label} 기사가 없습니다. (날짜: {date_list})")
                 
         return all_news
 
@@ -278,8 +416,12 @@ class ScoutAgent:
     def node_crawl(self, state: CrawlState) -> dict:
         """
         [Node] LangGraph에서 호출하는 엔트리 포인트 (동기 래퍼)
+        state에 'article_mode' 키가 있으면 해당 모드로, 없으면 기본 'politics' 모드로 실행합니다.
         """
         log_llm_event("ScoutAgent", "비동기 크롤러 노드 시작")
+        
+        article_mode = state.get("article_mode", "politics")
+        custom_dates = state.get("custom_dates", None)
         
         # 과거 데이터 삭제
         cleanup_res = self.cleanup_old_data(state)
@@ -291,9 +433,12 @@ class ScoutAgent:
         nest_asyncio.apply()
         
         loop = asyncio.get_event_loop()
-        all_news = loop.run_until_complete(self.run_async_crawl())
+        all_news = loop.run_until_complete(
+            self.run_async_crawl(article_mode=article_mode, custom_dates=custom_dates)
+        )
         
-        msg = f"비동기 크롤링 완료: 총 {len(all_news)}건의 유효한 정치 기사 수집됨"
+        mode_label = "사설(오피니언)" if article_mode == "editorial" else "정치"
+        msg = f"비동기 크롤링 완료: 총 {len(all_news)}건의 유효한 {mode_label} 기사 수집됨"
         logger.success(f"⚡ [ScoutAgent:Crawl] {msg}")
         
         return {

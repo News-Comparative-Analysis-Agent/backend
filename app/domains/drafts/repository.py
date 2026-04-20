@@ -20,7 +20,7 @@ class DraftRepository:
         query = self.db.query(Article).join(Publisher).filter(Article.issue_label_id == issue_id)
         if limit:
             query = query.limit(limit)
-        return query.all()
+        return query.distinct().all()
 
     def get_articles_by_issue(self, issue_id: int) -> List[Article]:
         """특정 이슈에 속한 기사들만 단순 조회합니다."""

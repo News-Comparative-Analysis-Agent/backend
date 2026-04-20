@@ -158,6 +158,19 @@ class DraftService:
             logger.error(f"❌ Gemini Chat Error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"AI 응답 생성 중 오류가 발생했습니다: {str(e)}")
 
+    def _normalize_image_url(self, url: str) -> str:
+        """
+        이미지 URL을 정규화하여 동일 이미지의 중복 노출을 방지합니다.
+        (예: Naver News의 ?type=w800, ?type=w860 등을 동일 이미지로 간주)
+        """
+        if not url:
+            return ""
+        # 쿼리 파라미터 제거 (단, 일부 사이트에서 쿼리 자체가 이미지 ID인 경우 주의가 필요할 수 있으나 뉴스 사이트 특성상 대부분 해상도임)
+        base_url = url.split('?')[0]
+        if base_url.startswith('//'):
+            base_url = 'https:' + base_url
+        return base_url.strip()
+
     # ==========================================
     # 3. 이미지 추출 로직
     # ==========================================
@@ -166,43 +179,57 @@ class DraftService:
         import aiohttp
         from bs4 import BeautifulSoup
 
-        articles = self.repo.get_articles_by_issue_with_publisher(issue_id)
-        if not articles:
+        # 1. 이슈 관련 기사 조회 (중복 제거된 리스트 확보)
+        raw_articles = self.repo.get_articles_by_issue_with_publisher(issue_id)
+        if not raw_articles:
             return []
+            
+        # ID 기준 중복 기사 제거 (레포지토리 distinct가 있지만 서비스 단에서도 한번 더 보장)
+        articles = []
+        seen_article_ids = set()
+        for art in raw_articles:
+            if art.id not in seen_article_ids:
+                articles.append(art)
+                seen_article_ids.add(art.id)
 
         images = []
-        seen_urls = set()
+        seen_normalized_urls = set()
 
-        # 1. DB에 이미 저장된 이미지들을 1차로 로드
+        # 2. DB에 이미 저장된 이미지들을 1차로 로드
         for art in articles:
             if art.image_urls:
                 for url in art.image_urls:
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
+                    norm_url = self._normalize_image_url(url)
+                    if norm_url and norm_url not in seen_normalized_urls:
+                        seen_normalized_urls.add(norm_url)
                         pub_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없음"
                         images.append(ImageItem(
-                            url=url,
+                            url=url, # 원본 URL 유지 (또는 정규화된 URL 사용 선택 가능)
                             title=art.title,
                             publisher=pub_name,
                             published_at=art.published_at.strftime("%Y-%m-%d") if art.published_at else ""
                         ))
                         
-        # 2. 충분한 이미지가 없거나 과거 데이터 보정 위해, 비동기 온더플라이 스크래핑 시도
+        # 3. 추가 이미지 동적 스크래핑 (최대 10개 기사)
         async def fetch_article_images_dynamically(session, art):
             try:
-                headers = {"User-Agent": "Mozilla/5.0"}
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
                 async with session.get(art.url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as response:
                     if response.status == 200:
                         html = await response.text()
                         soup = BeautifulSoup(html, 'html.parser')
+                        # 뉴스 본문 영역 셀렉터들
                         content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
                         
                         if content_area:
                             pub_name = art.publisher.name if getattr(art, "publisher", None) else "알 수 없음"
                             for img in content_area.select('img'):
                                 src = img.get('data-src') or img.get('src')
-                                if src and src not in seen_urls and not src.startswith('data:'):
-                                    seen_urls.add(src)
+                                if not src: continue
+                                
+                                norm_src = self._normalize_image_url(src)
+                                if norm_src and norm_src not in seen_normalized_urls and not src.startswith('data:'):
+                                    seen_normalized_urls.add(norm_src)
                                     images.append(ImageItem(
                                         url=src,
                                         title=art.title,
@@ -212,7 +239,7 @@ class DraftService:
             except Exception as e:
                 logger.warning(f"추가 이미지 동적 스크래핑 실패 ({art.url}): {e}")
 
-        # 제한적인 기사 수에 대해서 동시 스크래핑 진행 (모든 기사는 너무 오래 걸리므로 limit 10)
+        # 제한적인 기사 수에 대해서 동시 스크래핑 진행
         async with aiohttp.ClientSession() as session:
             tasks = [fetch_article_images_dynamically(session, art) for art in articles[:10]]
             if tasks:
