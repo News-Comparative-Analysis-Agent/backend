@@ -19,7 +19,7 @@ class IssueAgent:
         """
         [Node] 추출된 매체별 주장들을 종합하여 전체적인 대립 구도(conflict_summary)를 생성합니다.
         """
-        # 1. 전달받은 분석 데이터 확인 
+        # 1. 전달받은 분석 데이터 확인
         media_items = state.get("media_views", []) or []
         msg_start = f"Agent 2 (Issue): {len(media_items)}개 매체 데이터 기반 통합 갈등 분석 시작"
         log_llm_event("agent_issue", msg_start)
@@ -28,34 +28,42 @@ class IssueAgent:
             return {"messages": ["분석할 매체 뷰가 없습니다."], "media_views": [], "conflict_summary": ""}
 
         # 2. 대립 구도 분석을 위한 LLM 호출
-        media_json = json.dumps(media_items, ensure_ascii=False, indent=2)
+        # 언론사별 블록으로 포매팅 (media_json 덩어리 대신 명시적 레이블 사용)
+        media_blocks = ""
+        for i, mv in enumerate(media_items, 1):
+            media_blocks += f"""
+--- [{i}번 언론사: {mv.get('press', '알수없음')}] ---
+핵심주장(claim): {mv.get('claim', '')}
+원문 근거(evidence): {mv.get('evidence', '')}
+보도 프레임(narrative): {mv.get('narrative', '')}
+"""
+
         prompt = f"""
-            당신은 기득권 언론의 위선적인 프레임을 파헤치는 **미디어 비평지 편집국장**입니다. 
-            아래 [매체별 분석 데이터]에는 각 언론사가 사건을 어떻게 '가공'했는지에 대한 분석(`narrative`)이 담겨 있습니다.
+            당신은 여러 언론사의 보도를 비교·분석하여 대립 구도를 정리하는 미디어 비평 기사 작성자입니다.
+            아래 [언론사별 분석 데이터]를 바탕으로, 이 사안을 두고 언론사 간에 어떤 시각 차이가 있는지 요약하십시오.
 
-            [매체별 분석 데이터]
-            {media_json}
+            [언론사별 분석 데이터]
+            {media_blocks}
 
-            요청:
-            1) 모든 응답은 **한국어로만 작성**하십시오.
-            2) `conflict_summary`: 단순히 입장을 나열하지 마십시오. **어느 매체가 본질을 은폐하고 있으며, 어떤 매체가 실체적 진실을 추적하고 있는지 그 '전선(Battle line)'을 명확히 규정하십시오.** - 특히 보수/진보 매체가 같은 팩트를 두고 사용하는 '단어의 비대칭성'을 비판적으로 요약하십시오.
-            
-            [비평적 지침]
-            - "~라고 엇갈립니다" 대신 **"~라는 프레임으로 본질을 흐리고 있습니다"**와 같은 확정적 표현을 사용하십시오.
-            - 매체들이 공통적으로 침묵하고 있는 지점이 있다면 이를 날카롭게 지적하십시오.
+            [작성 규칙]
+            1. 모든 응답은 한국어로만 작성하십시오.
+            2. 기자 자신의 의견이나 판단을 쓰지 마십시오. 각 언론사가 한 말을 바탕으로 서술하십시오.
+            3. 각 언론사의 `핵심주장(claim)`과 `보도 프레임(narrative)` 문장을 최대한 그대로 활용하십시오.
+            4. 대립하는 시각은 "반면"으로 구분하십시오.
 
-            [응답 예시 - 이 정도의 날카로움을 유지하십시오]
+            [conflict_summary 작성 지침]
+            - 어떤 언론사가 어떤 입장을 취했는지 사실 중심으로 서술한다.
+            - 이 문장은 기사의 리드(두 번째 문장)와 결론에 그대로 사용된다.
+            - 아래 형식을 따른다:
+              "주요 일간지의 반응은 '[A 언론사 군의 입장 요약]'과 '[B 언론사 군의 입장 요약]'으로 엇갈렸다.
+               [A언론사]는 [A 입장을 원문 그대로]. 반면 [B언론사]는 [B 입장을 원문 그대로]."
+
+            [출력 JSON 예시]
             {{
-                "conflict_summary": "검찰의 수사 거래 의혹이라는 본질을 두고, 보수 언론은 '녹취록 공개의 불순한 의도'를 부각하며 메신저 공격에 화력을 집중하는 반면, 진보 언론은 '사법 정의의 타락'을 경고하며 정면 돌파를 선택했습니다. 언론이 감시자가 아닌 진영의 호위무사로 전락한 공론장의 비극이 이 갈등의 핵심입니다."
-            }}
-
-            아래 JSON만 출력하십시오.
-            {{
-                "conflict_summary": "매체 간 프레임 전쟁의 본질과 기만성을 폭로하는 요약문"
+                "conflict_summary": "주요 일간지의 반응은 '전체 녹취록을 우선 공개해야 한다'와 '국정조사에서 진상을 규명해야 한다'로 엇갈렸다. 조선일보는 '이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다'고 했다. 반면 경향신문은 '검사가 야당 대표를 옭아매기 위해 형량거래를 시도하고 거짓 진술을 압박했다면 두말할 것도 없이 검찰권을 남용한 중대 범죄'라고 했다."
             }}
         """
 
-        
         try:
             schema = {
                 "type": "OBJECT",
@@ -64,12 +72,12 @@ class IssueAgent:
                 },
                 "required": ["conflict_summary"]
             }
-            
+
             result, usage = call_llm(prompt, "local", state, schema=schema)
             total_tokens = update_total_tokens(state, usage, "IssueAgent")
-            
+
             conflict_summary = result.get("conflict_summary", "") if isinstance(result, dict) else ""
-            
+
             msg = "통합 갈등 분석(conflict_summary) 생성 완료"
             log_llm_event("agent_issue", msg, details=conflict_summary)
 
@@ -80,7 +88,7 @@ class IssueAgent:
                 "messages": [msg],
                 "total_tokens": total_tokens,
             }
-            
+
         except Exception as e:
             logger.error(f"IssueAgent 분석 실패: {e}")
             return {"messages": [f"분석 오류: {e}"], "conflict_summary": "", "media_views": media_items}
