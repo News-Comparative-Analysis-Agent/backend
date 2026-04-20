@@ -7,15 +7,15 @@ services:
     container_name: api_server
     ports:
       - "8000:8000" 
-    extra_hosts:
-      - "host.docker.internal:host-gateway"  
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"  
     volumes:
       - .:/app # 코드 수정 시 즉시 반영 (Hot Reload)
     environment:
       # 컨테이너 내부에서는 'localhost' 대신 서비스 이름 'db_server'를 씁니다.
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_server:5432/${POSTGRES_DB}
       - TZ=Asia/Seoul
-      - LOCAL_LLM_URL=http://host.docker.internal:8081/v1
+      # - LOCAL_LLM_URL=http://host.docker.internal:8081/v1
     env_file:
       - .env
     depends_on:
