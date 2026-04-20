@@ -27,7 +27,7 @@ LOCAL_LLM_SERVERS = {
 }
 
 # 로컬 모델 이름 설정
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct").strip()
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "Qwen3-8B-Instruct").strip()
 
 def parse_llm_json(text: str) -> any:
     """
