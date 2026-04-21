@@ -64,6 +64,73 @@ class ClusterAgent:
         logger.info(" ClusterAgent: BERTopic 모델 로드 완료.")
         return ClusterAgent._topic_model
 
+    def _is_noise_cluster(self, titles: List[str], article_mode: str = "politics") -> bool:
+        """비평 기사로서 가치가 떨어지는 노이즈 클러스터(단순 칼럼 묶음 등) 판별"""
+        import re
+        count = len(titles)
+        if count < 2: return True
+
+        # 1. 특정 패턴(브래킷 코너명)이 70% 이상 차지하는지 확인
+        bracket_pattern = r'^\[(.{2,12})\]'
+        matches = [re.match(bracket_pattern, t) for t in titles]
+        bracket_contents = [m.group(1) for m in matches if m]
+        
+        # [사설], [칼럼], [단독], [포토] 등은 노이즈가 아닌 표준 분류이므로 제외
+        ignore_labels = {"사설", "칼럼", "단독", "포토", "오피니언", "사설/칼럼"}
+        valid_bracket_contents = [c for c in bracket_contents if c not in ignore_labels]
+        
+        if len(bracket_contents) / count > 0.7:
+            # 유효한(무시되지 않은) 브래킷 내용들이 모두 동일한지 확인
+            if not valid_bracket_contents: # 모든 브래킷이 [사설] 등인 경우 -> 노이즈 아님!
+                return False
+                
+            prefixes = set(valid_bracket_contents)
+            if len(prefixes) <= 1: # [일요진단] 처럼 특정 코너명만 반복되는 경우
+                logger.info(f" 🚫 노이즈 클러스터 감지(코너명 반복): {list(prefixes)}")
+                return True
+        
+        # 2. 사설 모드에서 제목이 너무 짧거나 정보량이 없는 경우 (추가 가능)
+        return False
+
+    def _post_merge_similar_clusters(self, clustered_topics: list, merge_threshold: float = 0.75) -> list:
+        """유사한 클러스터들을 TF-IDF 코사인 유사도 기반으로 후처리 병합 (과분할 방지)"""
+        if len(clustered_topics) < 2:
+            return clustered_topics
+        
+        # 각 클러스터의 대표 텍스트 (제목들을 모두 합침)
+        cluster_texts = [" ".join(t["titles"]) for t in clustered_topics]
+        
+        # 병합용 TF-IDF 벡터화 (ngram을 활용해 문맥 파악)
+        merge_vectorizer = TfidfVectorizer(max_features=2000, ngram_range=(1, 2))
+        tfidf_matrix = merge_vectorizer.fit_transform(cluster_texts)
+        sim_matrix = cosine_similarity(tfidf_matrix)
+        
+        merged_indices = set()
+        final_topics = []
+        
+        for i in range(len(clustered_topics)):
+            if i in merged_indices:
+                continue
+            
+            current_topic = clustered_topics[i].copy()
+            
+            for j in range(i + 1, len(clustered_topics)):
+                if j in merged_indices:
+                    continue
+                
+                # 유사도가 임계치를 넘으면 병합
+                if sim_matrix[i][j] >= merge_threshold:
+                    logger.info(f" 🔀 클러스터 병합: '{current_topic['titles'][0][:20]}...' ← '{clustered_topics[j]['titles'][0][:20]}...' (유사도: {sim_matrix[i][j]:.2f})")
+                    current_topic["titles"].extend(clustered_topics[j]["titles"])
+                    current_topic["article_ids"].extend(clustered_topics[j]["article_ids"])
+                    current_topic["count"] += clustered_topics[j]["count"]
+                    # 언론사 정보는 나중에 다시 계산하기 위해 리스트 합본 유지 (압축은 최종 단계서)
+                    merged_indices.add(j)
+            
+            final_topics.append(current_topic)
+            
+        return final_topics
+
     def _remove_duplicates_fast(self, df: pd.DataFrame, threshold: float = 0.95) -> pd.DataFrame:
         if df.empty or len(df) < 2: return df
         tfidf = TfidfVectorizer(max_features=1000).fit_transform(df['content'].str[:300].fillna(''))
@@ -169,80 +236,121 @@ class ClusterAgent:
 
     @traceable(name="Agent 0: Cluster (정밀 이슈 군집화) 🧶")
     def node_lexical_cluster(self, state: dict) -> Dict[str, Any]:
-        """[완전 개편] TF-IDF와 계층적 군집화를 이용한 사건 단위(Event-level) 날카로운 클러스터링"""
-        log_llm_event("ClusterAgent", "TF-IDF 기반 날카로운 클러스터링 연산 노드 시작")
+        """[고도화] TF-IDF 가중치 조정 및 후처리 병합을 포함한 정밀 클러스터링"""
+        log_llm_event("ClusterAgent", "TF-IDF 정밀 클러스터링 및 후처리 노드 시작")
         articles = state.get("unclustered_articles", [])
-        logger.info(f" [ClusterAgent:Cluster] 현재 State 키 목록: {list(state.keys())}")
-        logger.info(f" [ClusterAgent:Cluster] 입력 기사 수: {len(articles)}건")
+        article_mode = state.get("article_mode", "politics")
         
         if len(articles) < 2:
-            msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다. (최소 2건 필요)"
-            logger.warning(f"[ClusterAgent:Cluster] {msg}")
+            msg = f"기사 부족({len(articles)}건)으로 클러스터링을 건너뜁니다."
             return {"clustered_topics": [], "messages": [msg]}
 
         df = pd.DataFrame(articles)
         df_clean = self._remove_duplicates_fast(df)
 
         if len(df_clean) < 2:
-            msg = "중복 제거 후 남은 기사가 부족(2건 미만)하여 클러스터링을 건너뜁니다."
-            logger.warning(f"[ClusterAgent:Cluster] {msg}")
+            msg = "중복 제거 후 남은 기사가 부족합니다."
             return {"clustered_topics": [], "messages": [msg]}
             
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.cluster import AgglomerativeClustering
-            from sklearn.metrics.pairwise import cosine_distances
-
-            # docs 조립: 제목(Title) + 본문 앞부분(Content[:500]) 활용
+            # 1. 문서 가중치 조정 (사설은 제목을 3배 반복)
             articles_list = df_clean.to_dict('records')
-            docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
+            if article_mode == "editorial":
+                docs = [f"{str(art['title'])} {str(art['title'])} {str(art['title'])} {str(art['content'][:300])}" for art in articles_list]
+                distance_threshold = 0.92
+            else:
+                docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
+                distance_threshold = 0.88
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
             X = vectorizer.fit_transform(docs)
             
+            # 2. 계층적 군집화 수행
+            from sklearn.metrics.pairwise import cosine_distances
             distance_matrix = cosine_distances(X)
             
+            # [진단 코드 추가] 쌍방울 관련 기사들의 실제 거리값 확인
+            keywords = ["박상용", "쌍방울", "대북송금", "녹취", "이화영"]
+            target_indices = [
+                i for i, art in enumerate(articles_list)
+                if any(kw in art['title'] for kw in keywords)
+            ]
+
+            if len(target_indices) >= 2:
+                logger.info(f"🔍 [Diagnostic] 쌍방울 관련 키워드 기사 {len(target_indices)}건 발견:")
+                for i in target_indices:
+                    logger.info(f"   [{i}] {articles_list[i]['title'][:40]}")
+                logger.info("🔍 [Diagnostic] 상호 거리값 (Threshold: {0})".format(distance_threshold))
+                for i in range(len(target_indices)):
+                    for j in range(i+1, len(target_indices)):
+                        idx_i, idx_j = target_indices[i], target_indices[j]
+                        dist = distance_matrix[idx_i][idx_j]
+                        match_symbol = "✔️ (In)" if dist <= distance_threshold else "❌ (Out)"
+                        logger.info(f"   [{idx_i}] ↔ [{idx_j}] 거리: {dist:.4f} {match_symbol}")
+                        logger.info(f"     ㄴ {articles_list[idx_i]['title'][:25]}...")
+                        logger.info(f"     ㄴ {articles_list[idx_j]['title'][:25]}...")
+            elif len(target_indices) == 1:
+                logger.info(f"⚠️ [Diagnostic] 쌍방울 키워드 기사가 1건뿐입니다: {articles_list[target_indices[0]]['title']}")
+            else:
+                logger.info("⚠️ [Diagnostic] 쌍방울 키워드 기사를 찾지 못했습니다.")
+
+            from sklearn.cluster import AgglomerativeClustering
             clustering_model = AgglomerativeClustering(
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=1.1
+                distance_threshold=distance_threshold
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
             df_clean['topic_id'] = cluster_labels
             
-            clustered_topics = []
-            unique_labels = set(cluster_labels)
-            
-            for topic_id in unique_labels:
+            # 3. 1차 클러스터 조립 및 품질 필터링
+            intermediate_topics = []
+            for topic_id in set(cluster_labels):
                 if topic_id == -1: continue
                 
                 topic_articles = df_clean[df_clean['topic_id'] == topic_id]
                 count = len(topic_articles)
-                unique_press_count = topic_articles['press'].nunique()
                 
-                if count >= 3 and unique_press_count >= 2:
-                    clustered_topics.append({
+                # 언론사 다양성 및 집중도 체크
+                media_counts = topic_articles['press'].value_counts()
+                unique_press = len(media_counts)
+                max_press_ratio = media_counts.iloc[0] / count if count > 0 else 1.0
+                
+                # 품질 조건 (사설 모드는 더 엄격하게)
+                min_articles = 3
+                min_press = 3 if article_mode == "editorial" else 2
+                
+                # 노이즈 체크 (코너명 반복 등)
+                is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
+                
+                if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= 0.6:
+                    intermediate_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),
-                        "press_count": int(unique_press_count),
+                        "press_count": int(unique_press),
                         "titles": topic_articles['title'].tolist(),
-                        "article_ids": topic_articles['article_id'].tolist()
+                        "article_ids": topic_articles['article_id'].tolist(),
+                        "presses": topic_articles['press'].tolist() # 병합 후 재계산용
                     })
 
-            msg = f"{len(clustered_topics)}개의 정밀한 이슈 군집 도출 완료"
-            logger.info(f"[ClusterAgent:Cluster] {msg}")
+            # 4. 유사 클러스터 후처리 병합
+            clustered_topics = self._post_merge_similar_clusters(intermediate_topics, merge_threshold=0.75)
             
-            for i, t in enumerate(clustered_topics, 1):
-                logger.info(f"   Issue {i} ({t['count']}건, {t['press_count']}개 언론사):")
-                for title in t['titles'][:5]:
-                    logger.info(f"      - {title}")
-                    
+            # 5. 최종 통계 업데이트
+            for t in clustered_topics:
+                t["press_count"] = len(set(t["presses"]))
+                del t["presses"] # 불필요한 메모리 방지
+
+            msg = f"{len(clustered_topics)}개의 고품질 이슈 군집 도출 완료 (병합 및 노이즈 제거 반영)"
+            logger.info(f"[ClusterAgent:Cluster] {msg}")
             return {"clustered_topics": clustered_topics, "messages": [msg]}
         except Exception as e:
             logger.error(f"[ClusterAgent:Cluster] 치명적 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return {"clustered_topics": [], "messages": [f"클러스터링 중단됨: {e}"]}
 
     @traceable(name="Agent 0: Cluster (이슈 생성 및 최적 이슈 선정) 💾")
@@ -308,16 +416,17 @@ class ClusterAgent:
             if not outliers:
                 return {"messages": ["정리할 노이즈 기사 없음"]}
             
-            outlier_ids = [a.id for a in outliers]
-            from app.domains.articles.models import ArticleBody, Article
+            # [안전장치] 테스트 기간 동안 노이즈 기사 자동 삭제 일시 중단
+            # outlier_ids = [a.id for a in outliers]
+            # from app.domains.articles.models import ArticleBody, Article
             
-            # 본문 먼저 삭제
-            self.db.query(ArticleBody).filter(ArticleBody.article_id.in_(outlier_ids)).delete(synchronize_session=False)
-            # 기사 삭제
-            deleted_count = self.db.query(Article).filter(Article.id.in_(outlier_ids)).delete(synchronize_session=False)
+            # # 본문 먼저 삭제
+            # self.db.query(ArticleBody).filter(ArticleBody.article_id.in_(outlier_ids)).delete(synchronize_session=False)
+            # # 기사 삭제
+            # deleted_count = self.db.query(Article).filter(Article.id.in_(outlier_ids)).delete(synchronize_session=False)
             
-            self.db.commit()
-            msg = f"이슈 미지정 노이즈 기사 {deleted_count}건 삭제 완료"
+            # self.db.commit()
+            msg = "정리할 노이즈 기사가 있으나, 테스트를 위해 삭제하지 않고 보존합니다."
             log_llm_event("ClusterAgent", msg)
             return {"messages": [msg]}
         except Exception as e:
