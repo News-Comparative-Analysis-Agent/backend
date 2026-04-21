@@ -44,6 +44,9 @@ TARGET_PRESS_DICT = {
 }
 DAYS_TO_CRAWL = 4
 
+# Gemini 모델 이름 설정 (기본값 gemini-2.0-flash, .env에서 변경 가능)
+GEMINI_MODEL_NAME = env.get("GEMINI_MODEL_NAME", "gemini-2.0-flash").strip()
+
 # 온프레미스 LLM 서버 설정 (OpenAI 호환 API 구조)
 LOCAL_LLM_SERVERS = {
     # 기사 요약 및 정치 성향 판단 모델 
@@ -166,8 +169,8 @@ class ScrollerNodes:
         제미나이 API를 호출합니다.
         """
         try:
-            log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            log_llm_event("Gemini", f"Requesting {GEMINI_MODEL_NAME}", details=prompt)
+            model = genai.GenerativeModel(GEMINI_MODEL_NAME)
             response = model.generate_content(prompt)
             
             # 토큰 정보 추출 (Gemini 포맷)
@@ -284,7 +287,7 @@ class ScrollerNodes:
                         "required": ["publisher", "claim", "evidence", "link"]
                     }
                     gen_model = genai.GenerativeModel(
-                        model_name='gemini-2.0-flash',
+                        model_name=GEMINI_MODEL_NAME,
                         generation_config={
                             "response_mime_type": "application/json",
                             "response_schema": response_schema
@@ -360,7 +363,7 @@ class ScrollerNodes:
         
         try:
             if state.get("llm_mode") == "gemini_only":
-                gen_model = genai.GenerativeModel('gemini-2.0-flash')
+                gen_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
                 response = gen_model.generate_content(prompt)
                 final_text = response.text
             else:
