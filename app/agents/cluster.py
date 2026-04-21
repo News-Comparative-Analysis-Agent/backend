@@ -207,7 +207,7 @@ class ClusterAgent:
                 n_clusters=None, 
                 metric='precomputed',
                 linkage='average',
-                distance_threshold=0.88
+                distance_threshold=1.1
             )
             
             cluster_labels = clustering_model.fit_predict(distance_matrix)
