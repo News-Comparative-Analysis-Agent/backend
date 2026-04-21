@@ -117,23 +117,34 @@ class IssueRepository:
             .all()
 
     def delete_issue(self, issue_id: int):
-        """이슈 및 연관된 모든 데이터(기사, 본문, 주장 카드) 연쇄 삭제"""
+        """이슈 및 연관된 모든 데이터(기사, 본문, 주장 카드, 초안 참조) 연쇄 삭제"""
         from app.domains.articles.models import Article, ArticleBody, ArticleClaim
+        from app.domains.drafts.models import DraftReference
         
         # 1. 연관된 기사 ID 조회 (튜플 형태 (id,)로 반환되므로 언패킹 필요)
         query_results = self.db.query(Article.id).filter(Article.issue_label_id == issue_id).all()
         article_ids = [r[0] for r in query_results]
         
-        # 2. 연관된 주장 카드 삭제 (이슈와 기사 모두를 참조하므로 먼저 삭제)
+        # 2. 연관된 주장 카드 삭제
+        # 이슈 ID 기준 삭제
         self.db.query(ArticleClaim).filter(ArticleClaim.issue_id == issue_id).delete(synchronize_session=False)
         
         if article_ids:
-            # 3. 기사 본문 삭제
+            # 3. 기사 ID 기준으로 연관된 데이터들 삭제
+            
+            # 3-1. 주장 카드 (기사 ID 기준 - 이슈 ID가 불일치하는 경우 대비)
+            self.db.query(ArticleClaim).filter(ArticleClaim.article_id.in_(article_ids)).delete(synchronize_session=False)
+            
+            # 3-2. 초안 참조(DraftReference) 삭제
+            self.db.query(DraftReference).filter(DraftReference.article_id.in_(article_ids)).delete(synchronize_session=False)
+            
+            # 3-3. 기사 본문 삭제
             self.db.query(ArticleBody).filter(ArticleBody.article_id.in_(article_ids)).delete(synchronize_session=False)
-            # 4. 기사 삭제
+            
+            # 3-4. 기사 삭제
             self.db.query(Article).filter(Article.id.in_(article_ids)).delete(synchronize_session=False)
         
-        # 5. 이슈 삭제
+        # 4. 이슈 레이블 삭제
         issue = self.get_by_id(issue_id)
         if issue:
             self.db.delete(issue)
