@@ -48,7 +48,7 @@ def run_local_full_test():
             # 언론사 확인 및 생성
             publisher = db.query(Publisher).filter(Publisher.name == item["press"]).first()
             if not publisher:
-                publisher = Publisher(name=item["press"], type="etc")
+                publisher = Publisher(name=item["press"], code=item["press"])
                 db.add(publisher)
                 db.flush()
             
@@ -95,7 +95,7 @@ def run_local_full_test():
         app = create_comparison_graph(db)
         
         initial_state = {
-            "llm_mode": "local_only",
+            "llm_mode": "gemini_only",
             "issue_id": None,
             "all_issue_ids": [],
             "raw_articles": [],

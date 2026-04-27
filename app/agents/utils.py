@@ -28,6 +28,8 @@ LOCAL_LLM_SERVERS = {
 
 # 로컬 모델 이름 설정
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "Qwen3-8B-Instruct").strip()
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash").strip()
+
 
 def parse_llm_json(text: str) -> any:
     """
@@ -204,11 +206,11 @@ def get_gemini_client():
 def call_gemini(prompt: str, schema: dict = None) -> dict:
     """제미나이 API를 호출합니다."""
     try:
-        log_llm_event("Gemini", "Requesting gemini-2.0-flash", details=prompt)
+        log_llm_event("Gemini", f"Requesting {GEMINI_MODEL_NAME}", details=prompt)
         client = get_gemini_client()
         
         generate_kwargs = {
-            "model": 'gemini-2.0-flash',
+            "model": GEMINI_MODEL_NAME,
             "contents": prompt
         }
         
@@ -222,8 +224,8 @@ def call_gemini(prompt: str, schema: dict = None) -> dict:
         
         usage = response.usage_metadata
         token_info = {
-            'prompt_tokens': usage.prompt_token_count,
-            'completion_tokens': usage.candidates_token_count
+            'prompt_tokens': usage.prompt_token_count or 0,
+            'completion_tokens': usage.candidates_token_count or 0
         }
         
         # log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
@@ -260,17 +262,17 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
             
     if mode == "gemini_only":
         try:
-            log_llm_event("GeminiText", "Requesting gemini-2.0-flash (Text Mode)", details=prompt)
+            log_llm_event("GeminiText", f"Requesting {GEMINI_MODEL_NAME} (Text Mode)", details=prompt)
             client = get_gemini_client()
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=GEMINI_MODEL_NAME,
                 contents=prompt
             )
             
             usage = response.usage_metadata
             token_info = {
-                'prompt_tokens': usage.prompt_token_count,
-                'completion_tokens': usage.candidates_token_count
+                'prompt_tokens': usage.prompt_token_count or 0,
+                'completion_tokens': usage.candidates_token_count or 0
             }
             # log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
             return response.text.strip(), token_info
@@ -287,16 +289,16 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
         except Exception as e:
             logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
             try:
-                log_llm_event("GeminiText", "Fallback: Requesting gemini-2.0-flash (Text Mode)", details=prompt)
+                log_llm_event("GeminiText", f"Fallback: Requesting {GEMINI_MODEL_NAME} (Text Mode)", details=prompt)
                 client = get_gemini_client()
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model=GEMINI_MODEL_NAME,
                     contents=prompt
                 )
                 usage_meta = response.usage_metadata
                 token_info = {
-                    'prompt_tokens': usage_meta.prompt_token_count,
-                    'completion_tokens': usage_meta.candidates_token_count
+                    'prompt_tokens': usage_meta.prompt_token_count or 0,
+                    'completion_tokens': usage_meta.candidates_token_count or 0
                 }
                 # log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
                 return response.text.strip(), token_info
