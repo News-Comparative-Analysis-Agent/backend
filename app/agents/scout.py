@@ -173,16 +173,17 @@ class ScoutAgent:
         # 2. 섹션 매칭을 부분 문자열로 보완
         is_editorial_section = any(s in section for s in EDITORIAL_SECTIONS) if section else False
         
-        # 제목 기반 보조 필터 추가 (대폭 확대)
+        # 제목 기반 사설 전용 필터 (오피니언 섹션 내 [포럼], [시론] 등 일반 칼럼 제외)
+        # ✅ 허용 패턴: 제목 앞/뒤에 [사설] 또는 한자 표기(社說)가 붙는 기사만 수집
         EDITORIAL_TITLE_KEYWORDS = [
-            "[사설]", "[칼럼]", "[시평]", "[논설]", "[오피니언]", "[사론]",
-            "[朝鮮칼럼]", "[태평로]", "[횡설수설]", "[광화문에서]", "[동아광장]",
-            "[중앙시평]", "[여적]", "[경제직필]", "[아침햇발]", "사설]",
-            "[데스크에서]", "[오늘과 내일]", "[포럼]", "[시론]", "[뉴스와 시각]"
+            "[사설]",   # 표준 표기: [사설] 제목...
+            "사설]",    # 불완전 태그 방어: 사설] 제목... (일부 언론사 오표기 대응)
+            "[社說]",   # 한자 표기: [社說] 제목...
+            "社說]",    # 한자 불완전 태그 방어
         ]
         is_editorial_title = any(kw in title for kw in EDITORIAL_TITLE_KEYWORDS)
         
-        if article_mode == "editorial" and not (is_editorial_section or is_editorial_title):
+        if article_mode == "editorial" and not is_editorial_title:
             return None
         elif article_mode != "editorial":
             # 기본: 정치 섹션만 수집
@@ -683,15 +684,17 @@ class ScoutAgent:
                                     existing_hashes, date_str
                                 )
                             )
-                else:
-                    # 정치 등 일반 기사 모드
-                    for press_name, oid in TARGET_PRESS_DICT.items():
-                        tasks.append(
-                            self._crawl_ranking_page(
-                                session, press_name, oid, date_str,
-                                existing_hashes, article_mode=article_mode
-                            )
-                        )
+                # else:
+                #     # ⚠️ [비활성화] 정치 일반 기사 수집 모드
+                #     # 현재는 사설(editorial) 모드만 운영하므로 임시 비활성화.
+                #     # 복원 시 아래 주석을 해제하고 'else:'와 들여쓰기를 원복하세요.
+                #     for press_name, oid in TARGET_PRESS_DICT.items():
+                #         tasks.append(
+                #             self._crawl_ranking_page(
+                #                 session, press_name, oid, date_str,
+                #                 existing_hashes, article_mode=article_mode
+                #             )
+                #         )
                 
                 if tasks:
                     logger.info(f"   ⚡ [{date_str}] {len(tasks)}개 태스크 병렬 실행...")
