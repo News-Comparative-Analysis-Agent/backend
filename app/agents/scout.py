@@ -23,7 +23,7 @@ TARGET_PRESS_DICT = {
     # ⚪ 중도/온건 (Centrist) - 4개
     "한국일보": "469", "국민일보": "005", "서울신문": "081", "세계일보": "022"
 }
-DAYS_TO_CRAWL = 2
+DAYS_TO_CRAWL = 3
 
 # 사설 검색용 복합 쿼리 (특례 기호 사이에 공백 필수: Naver API 제약사항)
 EDITORIAL_SEARCH_QUERIES = {
@@ -617,7 +617,7 @@ class ScoutAgent:
 
     async def run_async_crawl(
         self,
-        article_mode: str = "politics",
+        article_mode: str = "editorial",
         custom_dates: list = None
     ) -> list:
         """
@@ -727,7 +727,7 @@ class ScoutAgent:
         """
         log_llm_event("ScoutAgent", "비동기 크롤러 노드 시작")
         
-        article_mode = state.get("article_mode", "politics")
+        article_mode = state.get("article_mode", "editorial")
         custom_dates = state.get("custom_dates", None)
         
         # 과거 데이터 삭제
