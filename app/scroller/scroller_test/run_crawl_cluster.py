@@ -45,7 +45,7 @@ def seed_settings():
 
 
 def run_crawl_and_cluster(
-    article_mode: str = "politics",
+    article_mode: str = "editorial",
     start_date: str = None,
     end_date: str = None,
     llm_mode: str = None
@@ -133,8 +133,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["politics", "editorial"],
-        default="politics",
-        help="기사 섹션 유형: 'politics'(정치) 또는 'editorial'(사설/오피니언). 기본값: politics"
+        default="editorial",
+        help="기사 섹션 유형: 'politics'(정치) 또는 'editorial'(사설/오피니언). 기본값: editorial"
     )
     parser.add_argument(
         "--start",
