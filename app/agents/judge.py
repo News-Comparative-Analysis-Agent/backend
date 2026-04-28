@@ -49,7 +49,12 @@ class JudgeAgent:
             return {"judge_status": "FAIL_WRITER", "judge_feedback": msg, "retry_count": retry_count + 1, "messages": [msg]}
             
         try:
-            edited_article_str = json.dumps(edited_article, ensure_ascii=False) if isinstance(edited_article, dict) else str(edited_article)
+            # Judge에는 기사 본문(article_body)만 전달 — 전체 JSON은 media_views 등 중복 데이터 포함으로 불필요
+            # 로그 실측: full JSON 사용 시 edited_article_str만 ~5,000 tokens 차지
+            if isinstance(edited_article, dict):
+                edited_article_str = edited_article.get("article_body", json.dumps(edited_article, ensure_ascii=False))
+            else:
+                edited_article_str = str(edited_article)
             
             full_issue_context_str = f"""
             [논란의 주제]: {issue_context.get('title', '')}

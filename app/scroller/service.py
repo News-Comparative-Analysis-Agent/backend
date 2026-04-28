@@ -32,6 +32,9 @@ TARGET_PRESS_DICT = {
 }
 DAYS_TO_CRAWL = 2
 
+# Gemini 모델 이름 설정 (기본값 gemini-2.0-flash, .env에서 변경 가능)
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash").strip()
+
 class ScrollerService:
     def __init__(self, db: Session):
         self.repo = ScrollerRepository(db)
@@ -283,7 +286,7 @@ class NLPSearchService:
 
     def generate_briefing(self, query, articles_data):
         try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            model = genai.GenerativeModel(GEMINI_MODEL_NAME)
             context_text = ""
             for i, art in enumerate(articles_data):
                 content = art.get('full_text', art['description']) 
@@ -309,7 +312,7 @@ class NLPSearchService:
                 "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
             }}
             """
-            log_llm_event("NLPSearch", "Requesting gemini-2.0-flash for briefing", details=prompt)
+            log_llm_event("NLPSearch", f"Requesting {GEMINI_MODEL_NAME} for briefing", details=prompt)
             response = model.generate_content(prompt)
             log_llm_event("NLPSearch", "Response received", details=response.text)
             parsed = self.nodes._parse_llm_json(response.text)

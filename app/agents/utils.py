@@ -10,7 +10,8 @@ from langsmith import traceable
 from app.core.logger import logger, log_llm_event
 
 # 로컬 LLM 서버 부하 방지를 위해 요청을 최대 2개씩 병렬 처리
-llm_semaphore = threading.Semaphore(1)
+# Evidence workers=2와 맞춰야 실제 병렬 효과 있음 (1이면 workers=2여도 직렬 실행됨)
+llm_semaphore = threading.Semaphore(2)
 
 
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
@@ -30,6 +31,9 @@ LOCAL_LLM_SERVERS = {
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "Qwen3-8B-Instruct").strip()
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash").strip()
 
+
+# Gemini 모델 이름 설정 (기본값 gemini-2.0-flash, .env에서 변경 가능)
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash-8b").strip()
 
 def parse_llm_json(text: str) -> any:
     """
@@ -133,7 +137,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
         "model": LLM_MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
-        "max_tokens": 32768
+        "max_tokens": 8192  # Qwen3 시리즈 기준: Writer 최대 출력(~1500 tok) 커버, 불필요한 VRAM 예약 방지
     }
     
     # JSON 모드 혹은 스키마가 제공된 경우 response_format 추가 지원 (vLLM, Ollama, MLX 등 OpenAI 호환 서버 대응)
