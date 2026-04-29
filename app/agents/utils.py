@@ -125,9 +125,22 @@ def parse_llm_json(text: str) -> any:
 def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다 (재시도 및 예외 전파 포함)."""
         
-    url = LOCAL_LLM_SERVERS.get(model_size)
-    if not url:
-        raise ValueError(f"정의되지 않은 LLM 크기입니다: {model_size}")
+    use_deepinfra = os.getenv("LLM_USE_DEEPINFRA", "false").lower() == "true"
+    deepinfra_api_key = os.getenv("DEEPINFRA_API_KEY")
+
+    if use_deepinfra and deepinfra_api_key:
+        url = "https://api.deepinfra.com/v1/openai/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {deepinfra_api_key}"
+        }
+        target_name = "DeepInfra"
+    else:
+        url = LOCAL_LLM_SERVERS.get(model_size)
+        headers = {"Content-Type": "application/json"}
+        target_name = "LocalLLM"
+        if not url:
+            raise ValueError(f"정의되지 않은 LLM 크기입니다: {model_size}")
 
     payload = {
         "model": LLM_MODEL_NAME,
@@ -143,12 +156,12 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            log_llm_event("LocalLLM", f"Requesting {model_size} (Attempt {attempt+1})", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
-            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=300)
+            log_llm_event(target_name, f"Requesting {model_size} (Attempt {attempt+1})", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
+            res = requests.post(url, json=payload, headers=headers, timeout=300)
             
             if res.status_code == 400:
                 error_detail = res.text
-                logger.error(f"❌ [LocalLLM] 400 Bad Request 발생: {error_detail}")
+                logger.error(f"❌ [{target_name}] 400 Bad Request 발생: {error_detail}")
                 logger.error(f"   Payload Preview: {json.dumps(payload, ensure_ascii=False)[:300]}...")
                 # 400 에러는 재시도해도 의미가 없는 경우가 많음 (컨텍스트 초과 등)
                 res.raise_for_status()
@@ -186,8 +199,8 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
                 logger.warning(f"로컬 LLM 호출 실패 (시도 {attempt+1}): {e}. {wait_time}초 후 재시도...")
                 time.sleep(wait_time)
             else:
-                log_llm_event("LocalLLM", f"Error after {max_retries} attempts: {e}")
-                logger.error(f"로컬 LLM({model_size}) 최종 호출 실패: {e}")
+                log_llm_event(target_name, f"Error after {max_retries} attempts: {e}")
+                logger.error(f"{target_name}({model_size}) 최종 호출 실패: {e}")
                 raise e # 최종 실패 시 예외를 던져서 상위(Gemini Fallback)에서 처리하게 함
 
 # Gemini 클라이언트 초기화 코드 (지연 로딩)
