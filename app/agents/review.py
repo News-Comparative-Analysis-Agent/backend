@@ -62,7 +62,6 @@ class ReviewAgent:
                 "issue_name": issue.name,
                 "issue_description": issue.description or "",
                 "issue_background": issue.background or "",
-                "core_contentions": issue.core_contentions or "",
                 "conflict_summary": issue.conflict_summary or "",
                 "pre_generated_draft": parsed_draft,
                 "articles_meta": articles_meta,
@@ -87,7 +86,6 @@ class ReviewAgent:
         pre_generated_draft = state.get("pre_generated_draft", "")
         issue_name = state.get("issue_name", "")
         issue_background = state.get("issue_background", "")
-        core_contentions = state.get("core_contentions", "")
         conflict_summary = state.get("conflict_summary", "")
         
         # 기사 원문(상위 3건 정도만 제한)을 포맷팅하여 프롬프트에 포함
@@ -108,7 +106,6 @@ class ReviewAgent:
             [원본 기사 및 이슈 데이터]
             이슈명: {issue_name}
             배경: {issue_background}
-            핵심 쟁점: {core_contentions}
             갈등 요약: {conflict_summary}
             ---
             {sources_text}

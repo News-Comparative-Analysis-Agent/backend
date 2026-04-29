@@ -32,7 +32,6 @@ def generate_draft_for_issue(issue: IssueLabel) -> str:
 * 이슈명: {issue.name}
 * 배경 설명: {issue.description or '정보 없음'}
 * 핵심 발단/배경: {issue.background or '정보 없음'}
-* 주요 쟁점: {issue.core_contentions or '정보 없음'}
 
 [작성 가이드]
 1. 도입부: 사건의 핵심 요약

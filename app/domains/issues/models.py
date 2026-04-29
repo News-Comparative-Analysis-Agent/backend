@@ -17,7 +17,6 @@ class IssueLabel(Base):
     
     # 추가 필드 (Repository에서 사용 중)
     background = Column(Text, nullable=True) # 이슈의 배경 정보
-    core_contentions = Column(Text, nullable=True) # 핵심 쟁점
     conflict_summary = Column(Text, nullable=True) # 갈등 요약
     
     total_count = Column(Integer, default=0) # 해당 이슈에 속한 기사 수

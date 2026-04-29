@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import time
+from datetime import datetime
 from typing import List, Dict, Any
 from langsmith import Client, evaluate
 from dotenv import load_dotenv
@@ -24,10 +25,17 @@ def sync_test_data(db: Session, test_articles: List[Dict[str, Any]]):
             db.flush()
         existing_article = db.query(Article).filter(Article.url == item["url"]).first()
         if not existing_article:
+            pub_date = None
+            if item.get("published_at"):
+                try:
+                    pub_date = datetime.strptime(item["published_at"], "%Y-%m-%d")
+                except ValueError:
+                    pass
             new_article = Article(
                 title=item["title"],
                 url=item["url"],
                 publisher_id=publisher.id,
+                published_at=pub_date,
                 issue_label_id=None
             )
             db.add(new_article)
@@ -83,7 +91,6 @@ async def multi_agent_target(inputs: dict) -> dict:
             "title": agent_draft.get("title", "") if isinstance(agent_draft, dict) else "",
             "description": agent_draft.get("description", "") if isinstance(agent_draft, dict) else "",
             "background": agent_draft.get("background", "") if isinstance(agent_draft, dict) else "",
-            "core_contentions": agent_draft.get("core_contentions", "") if isinstance(agent_draft, dict) else "",
             "conflict_summary": agent_draft.get("conflict_summary", "") if isinstance(agent_draft, dict) else "",
             "media_views": agent_draft.get("media_views", []) if isinstance(agent_draft, dict) else [],
             "tokens": final_state.get("total_tokens", {})
@@ -119,7 +126,6 @@ async def single_pass_target(inputs: dict) -> dict:
   "title": "통찰력 있는 기사 제목",
   "description": "배경과 갈등을 한눈에 보여주는 심층 요약",
   "background": "구조적 배경 설명",
-  "core_contentions": "대립하는 핵심 가치",
   "conflict_summary": "매체 간의 시각 차이를 '대조'와 '대립'의 관점에서 요약",
   "media_views": [
     {{
@@ -145,7 +151,6 @@ async def single_pass_target(inputs: dict) -> dict:
         title = result_data.get("title", "")
         description = result_data.get("description", "")
         background = result_data.get("background", "")
-        core_contentions = result_data.get("core_contentions", "")
         conflict_summary = result_data.get("conflict_summary", "")
     else:
         result_text = str(result_data)
@@ -153,7 +158,6 @@ async def single_pass_target(inputs: dict) -> dict:
         title = ""
         description = ""
         background = ""
-        core_contentions = ""
         conflict_summary = ""
 
     return {
@@ -161,7 +165,6 @@ async def single_pass_target(inputs: dict) -> dict:
         "title": title,
         "description": description,
         "background": background,
-        "core_contentions": core_contentions,
         "conflict_summary": conflict_summary,
         "media_views": media_views,
         "duration": duration,
@@ -185,7 +188,6 @@ def precision_evaluator(run, example) -> dict:
         "title": run.outputs.get("title", ""),
         "description": run.outputs.get("description", ""),
         "background": run.outputs.get("background", ""),
-        "core_contentions": run.outputs.get("core_contentions", ""),
         "conflict_summary": run.outputs.get("conflict_summary", ""),
         "media_views": media_views,
         "article_body": output_body
@@ -223,8 +225,7 @@ def precision_evaluator(run, example) -> dict:
     2. title_score: 기사의 통찰력이 담긴 압축적이고 매력적인 제목인가?
     3. description_score: 사안의 배경과 갈등의 요지를 한눈에 파악할 수 있게 심층 요약되었는가?
     4. background_score: 사건 이면의 구조적 배경이 풍부하게 잘 서술되었는가?
-    5. contentions_score: 양 진영 간에 대립하는 핵심 가치 기준이 정확히 도출되었는가?
-    6. conflict_score: 매체 간의 논조 차이가 '대조'와 '대립'의 관점에서 적확하게 요약되었는가?
+    4. conflict_score: 매체 간의 논조 차이가 '대조'와 '대립'의 관점에서 적확하게 요약되었는가?
     7. extraction_score: 'media_views' 내에 각 매체의 주장(claim)과 근거가 원본에서 올바르게 추출되었는가?
     8. body_score: 본문(article_body) 문장 간 논리 전개가 매끄럽고 전반적인 완성도가 뛰어난가?
     
@@ -234,7 +235,6 @@ def precision_evaluator(run, example) -> dict:
       "title_score": "[0.0 ~ 10.0 사이의 소수점]",
       "description_score": "[0.0 ~ 10.0 사이의 소수점]",
       "background_score": "[0.0 ~ 10.0 사이의 소수점]",
-      "contentions_score": "[0.0 ~ 10.0 사이의 소수점]",
       "conflict_score": "[0.0 ~ 10.0 사이의 소수점]",
       "extraction_score": "[0.0 ~ 10.0 사이의 소수점]",
       "body_score": "[0.0 ~ 10.0 사이의 소수점]",
@@ -266,7 +266,6 @@ def precision_evaluator(run, example) -> dict:
         {"key": "title_score", "score": float(judge_res.get("title_score",0)) / 10.0},
         {"key": "description_score", "score": float(judge_res.get("description_score",0)) / 10.0},
         {"key": "background_score", "score": float(judge_res.get("background_score",0)) / 10.0},
-        {"key": "contentions_score", "score": float(judge_res.get("contentions_score",0)) / 10.0},
         {"key": "conflict_score", "score": float(judge_res.get("conflict_score",0)) / 10.0},
         {"key": "extraction_score", "score": float(judge_res.get("extraction_score",0)) / 10.0},
         {"key": "body_score", "score": float(judge_res.get("body_score",0)) / 10.0}

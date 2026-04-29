@@ -63,10 +63,11 @@ class EvidenceAgent:
         당신은 미디어 비평 기사 작성을 위한 원문 문장 추출 전문가입니다.
         아래 [뉴스 원문]에서 기사 작성에 그대로 사용할 수 있는 문장들을 추출하세요.
         추출한 문장은 기사에서 다음과 같이 사용됩니다:
-        → "[{art['press']}]는 사설에서 '[{{추출한 문장}}]'이라고 했다."
+        → "[{art['press']}]는 {art['published_at']} 사설 <{art['title']}>에서 '...'라고 했다."
 
         [뉴스 원문]
         언론사: {art['press']}
+        발행일: {art['published_at']}
         제목: {art['title']}
         내용: {art['content'][:2500]}
 
@@ -80,19 +81,18 @@ class EvidenceAgent:
         1. "claim": 이 언론사가 가장 강조하는 핵심 주장을 원문에서 1문장 그대로 가져온다.
            → 기사에서 가장 선명하게 입장이 드러나는 문장 1개를 그대로 복사한다.
 
-        2. "evidence": 이 기사의 사실관계(누가, 언제, 무엇을 했는지)를 보여주는 원문 문장들을 최대한 많이 그대로 가져온다.
-           → 사건 경위, 뀌에서 직접 인용한 발언, 수치, 날짜 등이 포함된 문장을 우선 선택한다.
-           → 여러 문장이면 공백 한 칸으로 이어 붙인다.
-
-        3. "narrative": 이 언론사의 판단·입장·논조가 드러나는 원문 문장들을 3문장 이상 그대로 가져온다.
-           → 해당 언론사가 직접 평가하거나 주장하는 문장(사설 문장, 기자 의견 등)을 선택한다.
-           → 이 문장들이 기사에서 "[{art['press']}]는 '이 문장'이라고 했다" 형식으로 직접 인용된다.
+        2. "evidence": 사실관계 문장 2~3개와 언론사 판단·논조 문장 2~3개를 합쳐
+        정확히 4~5문장만 원문 그대로 가져온다.
+        → 사실관계 우선 선택 기준: 사건 경위, 직접 인용 발언, 수치, 날짜가 포함된 문장
+        → 판단·논조 우선 선택 기준: 언론사가 직접 평가하거나 주장하는 문장
+        → 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
+        → 4문장 미만이거나 6문장 이상이면 규칙 위반이다.
+        → 여러 문장이면 공백 한 칸으로 이어 붙인다.
 
         [출력 JSON 예시]
         {{
             "claim": "정치적 이유가 있는 것 아니냐는 의구심이 생길 수밖에 없다.",
-            "evidence": "민주당은 29일 국회 기자간담회를 열고 2023년 6월 19일 박 검사와 서민석 변호사의 통화 녹취 일부를 공개했다. 박 검사는 서 변호사에게 '이재명 씨가 완전히 주범이 되고 이 사람이 종범이 되는 식의 자백이 있어야 저희가 그거를 할 수가 있고'라고 말했다.",
-            "narrative": "그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
+            "evidence": "민주당은 29일 국회 기자간담회를 열고 2023년 6월 19일 박 검사와 서민석 변호사의 통화 녹취 일부를 공개했다. 박 검사는 서 변호사에게 '이재명 씨가 완전히 주범이 되고 이 사람이 종범이 되는 식의 자백이 있어야 저희가 그거를 할 수가 있고'라고 말했다. 이 전 부지사는 이 사건으로 징역 7년 8개월이 확정됐고, 이 대통령은 공범으로 기소된 상태다. 그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
         }}
         """
         
@@ -103,10 +103,9 @@ class EvidenceAgent:
                 "type": "OBJECT",
                 "properties": {
                     "claim": {"type": "STRING"},
-                    "evidence": {"type": "STRING"},
-                    "narrative": {"type": "STRING"}
+                    "evidence": {"type": "STRING"}
                 },
-                "required": ["claim", "evidence", "narrative"]
+                "required": ["claim", "evidence"]
             }
             
             # call_llm이 내부적으로 llm_mode 판단 후 제미나이/로컬 분기 및 JSON 파싱을 모두 수행함!
@@ -117,6 +116,7 @@ class EvidenceAgent:
                 card_data['article_id'] = art['article_id']
                 card_data['url'] = art['url']
                 card_data['press'] = art['press']
+                card_data['title'] = art['title'] 
                 card_data['published_at'] = art.get('published_at')
                 return card_data, usage
         except Exception as e:
@@ -138,7 +138,7 @@ class EvidenceAgent:
             
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
-        workers = 5 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
+        workers = 1 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
         
         msg_start = f"Agent 1 (Evidence): {len(articles)}개 기사 병렬 주장 카드 추출 시작 (Mode: {llm_mode})"
         logger.info(f"🔍 [EvidenceAgent:Extract] {msg_start}")
@@ -160,8 +160,8 @@ class EvidenceAgent:
                     claim_cards.append(card_data)
                     media_views.append({
                         "press": card_data.get("press", ""),
+                        "title": card_data.get("title", ""),
                         "published_at": card_data.get("published_at", ""),
-                        "narrative": card_data.get("narrative", ""),
                         "claim": card_data.get("claim", ""),
                         "evidence": card_data.get("evidence", ""),
                         "url": card_data.get("url", "")

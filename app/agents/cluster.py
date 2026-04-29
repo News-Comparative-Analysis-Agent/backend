@@ -150,8 +150,8 @@ class ClusterAgent:
         return df.drop(index=list(duplicates)).copy()
 
     @traceable(name="Agent 0: Cluster (이슈 라벨링 LLM) 🏷️")
-    def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, str, dict]:
-        """이슈 그룹에 대해 제목과 배경 등을 생성. (title, desc, background, core, usage) 5-tuple 반환"""
+    def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, dict]:
+        """이슈 그룹에 대해 제목과 배경 등을 생성. (title, desc, background, usage) 4-tuple 반환"""
         empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         try:
             prompt = f"""
@@ -163,18 +163,31 @@ class ClusterAgent:
             {titles[:15]} (총 {len(titles)}건)
 
             [작성 규칙]
-            1. title: 이 사건을 한눈에 알 수 있는 구체적인 제목을 작성하라. 제목에 나온 핵심 단어(인물명, 사건명, 의혹명 등)를 반드시 포함하라.
-            2. description: 무슨 사건인지, 누가 관련되었는지, 어떤 주장이 제기되었는지를 사실 중심으로 2~3문장으로 서술하라. 언론사 간 반응이 엇갈리는 경우 그 구도를 한 문장으로 덧붙여라.
-            3. background: 이 사건이 왜 발생했는지, 어떤 맥락에서 불거졌는지 배경을 1~2문장으로 서술하라. 사실에 기반하고 기사 제목에 없는 내용을 추측하지 마라.
-            4. core_contentions: 이 사건을 둘러싸고 어떤 주장이 충돌하고 있는지 1문장으로 서술하라. 'A 측은 ~라고 주장하고, B 측은 ~라고 반박한다' 형식으로 작성하라.
-            5. 할루시네이션 방지: 제공된 제목에 없는 사실을 추가하지 마라. 제목에 나타난 단어(예: '조작', '회유', '가짜뉴스')는 그대로 활용하라.
+            1. title: 반드시 아래 형식을 따른다.
+               형식: "[사건명/의혹명], '[A 진영 핵심 입장]'-'[B 진영 핵심 입장]' [대립 강도]"
+               → 앞부분: 인물명·사건명·의혹명 등 핵심 키워드를 명사형으로 압축한다. (10자 내외)
+               → 따옴표 안: 각 진영의 입장을 명사형 또는 짧은 동사구로 압축한다. (8자 내외)
+               → 대립 강도: '팽팽', '엇갈려', '충돌' 중 문맥에 맞는 단어를 선택한다.
+               → 예시: "쌍방울 진술회유 의혹, '녹취록 공개'-'국정조사' 팽팽"
+               → 예시: "채상병 특검 거부, '위헌'-'정치수사 방지' 충돌"
+
+            2. description: 무슨 사건인지, 누가 관련되었는지, 어떤 주장이 제기되었는지를
+               사실 중심으로 2~3문장으로 서술하라.
+               → 첫 문장은 반드시 행위 주체를 주어로 쓴다. (예: "더불어민주당이 ~했다")
+               → 언론사 간 반응이 엇갈리는 경우 그 구도를 한 문장으로 덧붙여라.
+
+            3. background: 이 사건의 배경을 1~2문장으로 서술하라.
+               → 반드시 행위 주체(누가 무엇을 했는지)를 주어로 쓴다.
+               → 수동형("~이 제기되었다", "~이 공개되면서") 대신 능동형("~가 공개했다", "~가 제기했다")을 사용한다.
+               → 사실에 기반하고 기사 제목에 없는 내용을 추측하지 마라.
+
+            4. 할루시네이션 방지: 제공된 제목에 없는 사실을 추가하지 마라. 제목에 나타난 단어(예: '조작', '회유', '가짜뉴스')는 그대로 활용하라.
 
             [응답 예시]
             {{
-                "title": "박상용 검사 '이재명 주범 자백' 발언 녹취 공개 파문",
+                "title": "쌍방울 진술회유 의혹, '녹취록 공개'-'국정조사' 팽팽",
                 "description": "더불어민주당이 쌍방울 대북송금 사건을 수사한 박상용 검사가 변호인에게 '이재명이 주범이 되는 자백이 있어야 한다'고 말한 녹취를 공개해 파문이 일고 있다. 주요 언론사들은 '전체 녹취를 공개해야 한다'는 입장과 '국정조사에서 진상을 규명해야 한다'는 입장으로 엇갈렸다.",
-                "background": "쌍방울 대북송금 사건 수사 과정에서 검사가 피의자 측 변호인에게 특정 진술을 유도했다는 의혹이 제기됐으며, 민주당은 이를 표적 수사의 증거로 주장하고 있다.",
-                "core_contentions": "민주당은 검사의 발언이 진술 회유의 증거라고 주장하고, 검찰은 해당 녹취가 편집·왜곡됐다고 반박한다."
+                "background": "더불어민주당이 쌍방울 대북송금 사건 수사 과정에서 검사가 피의자 측 변호인에게 특정 진술을 유도했다는 녹취록을 공개하며 진술 회유 의혹을 제기했다."
             }}
             """
             
@@ -183,28 +196,25 @@ class ClusterAgent:
                 "properties": {
                     "title": {"type": "string"},
                     "description": {"type": "string"},
-                    "background": {"type": "string"},
-                    "core_contentions": {"type": "string"}
+                    "background": {"type": "string"}
                 },
-                "required": ["title", "description", "background", "core_contentions"]
+                "required": ["title", "description", "background"]
             }
             
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
             parsed, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema)
-            # ✅ state 직접 변이 제거 — usage만 반환하여 호출부에서 누적 처리
             
             if parsed:
                 return (
                     parsed.get("title", titles[0]), 
                     parsed.get("description", "이슈 요약 부재"),
                     parsed.get("background", "배경 정보 부재"),
-                    parsed.get("core_contentions", "주요 쟁점 부재"),
                     usage
                 )
-            return titles[0], "요약 생성 실패", "배경 부재", "쟁점 부재", empty_usage
+            return titles[0], "요약 생성 실패", "배경 부재", empty_usage
         except Exception as e:
             logger.error(f"Issue LLM labeling failed: {e}")
-            return titles[0], "에러 발생", "배경 부재", "쟁점 부재", empty_usage
+            return titles[0], "에러 발생", "배경 부재", empty_usage
 
     # ==========================================
     # Graph Nodes
@@ -260,7 +270,7 @@ class ClusterAgent:
                 distance_threshold = 0.92
             else:
                 docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
-                distance_threshold = 0.8 # TODO 배포시 0.8로 변경
+                distance_threshold = 1.1 # TODO 배포시 0.8로 변경
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
@@ -374,8 +384,8 @@ class ClusterAgent:
         try:
             for t in topics:
                 time.sleep(0.5)
-                # ✅ 5-tuple로 usage까지 받아서 로컬에서 누적
-                ai_label, desc, bg, core, usage = self._generate_issue_details_with_llm(t["titles"], state)
+                # ✅ 4-tuple로 usage까지 받아서 로컬에서 누적
+                ai_label, desc, bg, usage = self._generate_issue_details_with_llm(t["titles"], state)
                 node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
                 
@@ -384,8 +394,7 @@ class ClusterAgent:
                     description=desc,
                     count=t["count"],
                     article_ids_to_update=t["article_ids"],
-                    background=bg,
-                    core_contentions=core
+                    background=bg
                 )
                 saved_ids.append(issue.id)
             

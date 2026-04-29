@@ -32,7 +32,6 @@ class JudgeAgent:
             "title": state.get("title", ""),
             "description": state.get("description", ""),
             "background": state.get("background", ""),
-            "core_contentions": state.get("core_contentions", ""),
             "conflict_summary": state.get("conflict_summary", "")
         }
         
@@ -55,7 +54,6 @@ class JudgeAgent:
             [논란의 주제]: {issue_context.get('title', '')}
             [이슈 설명]: {issue_context.get('description', '')}
             [배경 지식]: {issue_context.get('background', '')}
-            [핵심 쟁점]: {issue_context.get('core_contentions', '')}
             [갈등 요약]: {issue_context.get('conflict_summary', '')}
             """.strip()
             
@@ -87,8 +85,8 @@ class JudgeAgent:
 
             [평가 기준 (Rubric)]
             1. 팩트 정합성 (40점): 기사 본문의 인용 문장이 위 [언론사별 원문 근거]의 문장과 한 글자도 틀리지 않고 일치하는가? 원문에 없는 사실을 추가하거나 요약·변형하지 않았는가?
-            2. 형식 준수 (30점): 각 언론사 소개가 "[언론사]는 [기사/사설]에서 '...'라고 했다." 형식을 따르는가? 대립하는 시각은 "반면"으로 전환했는가? 같은 언론사 추가 인용은 "이어"로 연결했는가?
-            3. 구조 완결성 (30점): 리드(사건 요약 + 갈등 구도) → 사건 경위 → 언론사별 입장 → 마무리 순서를 지켰는가? 기자 자신의 의견이나 해석("이처럼", "결국", "이는 ~을 의미한다" 등)이 없는가?
+            2. 형식 준수 (30점): 각 언론사 소개가 "{{언론사}}는 {{날짜}} 사설 <{{제목}}>에서 '...'라고 했다." 형식을 따르는가? 대립하는 시각은 "반면"으로 전환했는가? 같은 언론사 추가 인용은 "이어"로 연결했는가?
+            3. 구조 완결성 (30점): 리드(행위 주체 명시 + 갈등 요약 원문 그대로) → 사건 경위(반박 포함) → 언론사별 입장 순서를 지켰는가? 마무리 문단 없이 마지막 언론사 인용으로 끝맺었는가? 기자 해석·논평 문장("이처럼", "결국", "이는 ~을 의미한다" 등)이 없는가?
 
             [작업 지침]
             - 총점이 70점 미만이면 반드시 `redo_instruction`에 **어떤 문장을 어떻게 수정해야 하는지 구체적으로** 작성하십시오.
@@ -171,14 +169,12 @@ class JudgeAgent:
                     e_art = edited_article if isinstance(edited_article, dict) else {}
                     final_desc = e_art.get("description") or state.get("description") or ""
                     final_bg = e_art.get("background") or state.get("background") or ""
-                    final_core = e_art.get("core_contentions") or state.get("core_contentions") or ""
                     final_conflict = e_art.get("conflict_summary") or state.get("conflict_summary") or ""
 
                     repo.update_issue_analysis_results(
                         issue_id=issue_id,
                         description=final_desc,
                         background=final_bg,
-                        core_contentions=final_core,
                         conflict_summary=final_conflict
                     )
                     self.db.commit()

@@ -69,13 +69,12 @@ class ComparisonState(TypedDict):
     conflict_summary: str
 
     # EvidenceAgent가 추출하고 IssueAgent가 분석에 참여하며 Writer가 사용하는 최종 media 뷰
-    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url, narrative}, ...]
+    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url}, ...]
 
     # 최종 이슈 프레임(최상단 메타)
     title: str
     description: str
     background: str
-    core_contentions: str
 
     # Writer/Editor 체인에서 전달되는 초안/최종 결과
     draft_article: Dict[str, Any]
@@ -103,7 +102,6 @@ class ReviewState(TypedDict):
     issue_name: str                            # 이슈명
     issue_description: str                     # 이슈 요약 설명
     issue_background: str                      # 이슈 배경 상세
-    core_contentions: str                      # 핵심 쟁점
     conflict_summary: str                      # 갈등 요약
 
     # 이슈에 속한 기사 목록 (제목, URL, 언론사만 사용)

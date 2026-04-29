@@ -149,4 +149,19 @@ class IssueRepository:
         if issue:
             self.db.delete(issue)
             
-        self.db.commit()
+    def update_issue_analysis_results(self, issue_id: int, 
+                                     description: str = None,
+                                     background: str = None,
+                                     conflict_summary: str = None):
+        """이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다."""
+        issue = self.get_by_id(issue_id)
+        if issue:
+            if description is not None:
+                issue.description = description
+            if background is not None:
+                issue.background = background
+            if conflict_summary is not None:
+                issue.conflict_summary = conflict_summary
+            self.db.commit()
+            return True
+        return False

@@ -147,7 +147,6 @@ def create_comparison_graph(db: Session):
                 "title": issue.name if issue else "",
                 "description": issue.description if issue else "",
                 "background": issue.background if issue else "",
-                "core_contentions": issue.core_contentions if issue else "",
                 "messages": [],
                 "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
             }

@@ -40,7 +40,7 @@ def test_editor_agent_integration(editor_input):
     assert isinstance(edited, dict)
     
     # 필수 필드 체크 (짧게 출력)
-    required = {"issue_id", "title", "description", "background", "core_contentions", "conflict_summary", "media_views", "article_body"}
+    required = {"issue_id", "title", "description", "background", "conflict_summary", "media_views", "article_body"}
     actual = set(edited.keys())
     missing = required - actual
     

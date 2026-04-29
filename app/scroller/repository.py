@@ -157,8 +157,7 @@ class ScrollerRepository:
                                     description: str, 
                                     count: int, 
                                     article_ids_to_update: list, 
-                                    background: str = None, 
-                                    core_contentions: str = None) -> IssueLabel:
+                                    background: str = None) -> IssueLabel:
         """
         AI가 식별한 새로운 이슈(토픽)를 생성하고, 관련 기사들을 이 이슈에 매핑합니다.
         
@@ -168,7 +167,6 @@ class ScrollerRepository:
             count (int): 포함된 기사 수
             article_ids_to_update (list): 이 이슈에 소속될 기사 ID 리스트
             background (str): 이슈 배경 상세
-            core_contentions (str): 핵심 쟁점
             media_ratio (str): 언론 분포 비중 데이터
             
         Returns:
@@ -180,7 +178,6 @@ class ScrollerRepository:
             description=description,
             total_count=int(count),
             background=background,
-            core_contentions=core_contentions,
             created_at=datetime.utcnow() + timedelta(hours=9) # KST 강제 적용
         )
         self.db.add(issue)
@@ -266,7 +263,6 @@ class ScrollerRepository:
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
                                      background: str = None,
-                                     core_contentions: str = None,
                                      conflict_summary: str = None):
         """
         이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다.
@@ -277,8 +273,6 @@ class ScrollerRepository:
                 issue.description = description
             if background is not None:
                 issue.background = background
-            if core_contentions is not None:
-                issue.core_contentions = core_contentions
             if conflict_summary is not None:
                 issue.conflict_summary = conflict_summary
             self.db.flush()

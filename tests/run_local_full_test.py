@@ -55,9 +55,18 @@ def run_local_full_test():
             # 기사 생성 (Get or Create 패턴)
             existing_article = db.query(Article).filter(Article.url == item["url"]).first()
             
+            # 날짜 파싱
+            pub_date = datetime.now()
+            if item.get("published_at"):
+                try:
+                    pub_date = datetime.strptime(item["published_at"], "%Y-%m-%d")
+                except ValueError:
+                    pass
+
             if existing_article:
                 new_article = existing_article
                 new_article.title = item["title"]
+                new_article.published_at = pub_date
                 new_article.issue_label_id = None # 초기화
                 db.flush()
             else:
@@ -65,7 +74,7 @@ def run_local_full_test():
                     title=item["title"],
                     url=item["url"],
                     publisher_id=publisher.id,
-                    published_at=datetime.now(),
+                    published_at=pub_date,
                     issue_label_id=None
                 )
                 db.add(new_article)
