@@ -89,7 +89,6 @@ class EditorAgent:
                 "title": final_title,
                 "description": state.get("description") or (draft.get("description") if isinstance(draft, dict) else "설명 없음"),
                 "background": state.get("background") or (draft.get("background") if isinstance(draft, dict) else ""),
-                "core_contentions": state.get("core_contentions") or (draft.get("core_contentions") if isinstance(draft, dict) else ""),
                 "conflict_summary": state.get("conflict_summary") or (draft.get("conflict_summary") if isinstance(draft, dict) else ""),
                 "media_views": state.get("media_views") or (draft.get("media_views") if isinstance(draft, dict) else []),
                 "article_body": final_body

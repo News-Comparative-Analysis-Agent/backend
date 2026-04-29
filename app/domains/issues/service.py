@@ -48,7 +48,6 @@ class IssueService:
             name=issue.name,
             description=issue.description,
             background=issue.background,
-            core_contentions=issue.core_contentions,
             created_at=issue.created_at,
             claim_cards=claim_cards,
             image_urls=image_urls
@@ -86,7 +85,6 @@ class IssueService:
             name=issue.name,
             description=issue.description,
             background=issue.background,
-            core_contentions=issue.core_contentions,
             pre_generated_draft=issue.pre_generated_draft,
             created_at=issue.created_at,
             claim_cards=claim_cards,
