@@ -20,6 +20,7 @@ class IssueAnalysisResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    core_contentions: Optional[str] = None
     background: Optional[str] = None
     created_at: datetime
 
