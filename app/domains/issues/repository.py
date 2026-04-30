@@ -20,7 +20,7 @@ class IssueRepository:
             .all()
         )
 
-    def get_feed_issues(self, target_date: Optional[date] = None, total: int = 30) -> List[IssueLabel]:
+    def get_feed_issues(self, target_date: Optional[date] = None, skip: int = 0, limit: int = 30) -> List[IssueLabel]:
         """피드용 랭킹: (날짜필터) → 언론사 수 → 기사 수 순으로 정렬하여 N개 조회"""
         publisher_count = func.count(func.distinct(Article.publisher_id)).label("publisher_count")
         article_count = func.count(Article.id).label("article_count")
@@ -41,9 +41,19 @@ class IssueRepository:
                 desc(article_count),         # 2순위: 기사 수
                 desc(IssueLabel.created_at), # 3순위: 생성 시각
             )
-            .limit(total)
+            .offset(skip)
+            .limit(limit)
             .all()
         )
+
+    def get_feed_issues_count(self, target_date: Optional[date] = None) -> int:
+        """피드용 날짜별 전체 이슈 개수 조회"""
+        query = self.db.query(func.count(IssueLabel.id))
+        
+        if target_date:
+            query = query.filter(cast(IssueLabel.created_at, Date) == target_date)
+            
+        return query.scalar() or 0
 
     def get_issues_by_date_range(self, days: int = 7) -> List[IssueLabel]:
         """최근 N일간의 이슈 조회"""

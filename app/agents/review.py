@@ -182,16 +182,7 @@ class ReviewAgent:
             # 토큰 업데이트
             total_tokens = update_total_tokens(state, usage, "ReviewAgent")
 
-            if isinstance(result, list):
-                result = result[0] if len(result) > 0 else {}
-            
-            if isinstance(result, str):
-                import json
-                try:
-                    result = json.loads(result)
-                except Exception:
-                    result = {}
-                    
+            # 결과가 dict가 아닌 경우(파싱 실패 등) 빈 딕셔너리로 초기화
             if not isinstance(result, dict):
                 result = {}
                 
