@@ -2,9 +2,12 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from datetime import datetime, timedelta
-from app.domains.articles.models import Article, ArticleBody
+import pytz
+from app.domains.articles.models import Article, ArticleBody, ArticleClaim
 from app.domains.publishers.models import Publisher
 from app.domains.issues.models import IssueLabel
+from app.domains.drafts.models import DraftReference
+from app.domains.users.models import User
 from app.domains.system.models import SystemSettings
 from app.core.logger import logger
 
@@ -32,7 +35,8 @@ class ScrollerRepository:
         Returns:
             int: 삭제된 기사의 총 개수
         """
-        kst_now = datetime.utcnow() + timedelta(hours=9)
+        KST = pytz.timezone('Asia/Seoul')
+        kst_now = datetime.now(pytz.utc).astimezone(KST).replace(tzinfo=None)
         cutoff_date = kst_now - timedelta(days=days)
         # 특정 기간 이전의 기사 조회
         old_articles = self.db.query(Article).filter(Article.published_at < cutoff_date).all()
@@ -40,8 +44,11 @@ class ScrollerRepository:
         
         deleted_count = 0
         if old_article_ids:
-            # 1. 연결된 본문 데이터 선삭제
+            # 1. 연결된 데이터 선삭제 (외래키 제약 조건 준수)
             self.db.query(ArticleBody).filter(ArticleBody.article_id.in_(old_article_ids)).delete(synchronize_session=False)
+            self.db.query(ArticleClaim).filter(ArticleClaim.article_id.in_(old_article_ids)).delete(synchronize_session=False)
+            self.db.query(DraftReference).filter(DraftReference.article_id.in_(old_article_ids)).delete(synchronize_session=False)
+            
             # 2. 기사 메타데이터 삭제
             deleted_count = self.db.query(Article).filter(Article.id.in_(old_article_ids)).delete(synchronize_session=False)
             self.db.flush() # 변경사항 즉시 반영 (Commit 전)
@@ -178,7 +185,7 @@ class ScrollerRepository:
             description=description,
             total_count=int(count),
             background=background,
-            created_at=datetime.utcnow() + timedelta(hours=9) # KST 강제 적용
+            created_at=datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None) # KST 강제 적용
         )
         self.db.add(issue)
         self.db.flush() 

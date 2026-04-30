@@ -20,49 +20,57 @@ from app.agents.utils import parse_llm_json, call_llm, call_llm_text, update_tot
 import concurrent.futures
 from langsmith import traceable
 
+import threading
+
 class ClusterAgent:
     """
     이슈 클러스터링 및 관리를 담당하는 에이전트
     BERTopic을 사용한 군집화 및 LLM을 통한 이슈 명명 기능을 제공합니다.
     """
     _topic_model = None
+    _model_lock = threading.Lock()  # 싱글톤 동시 초기화 방지용 Lock
 
     def __init__(self, db: Session):
         self.db = db
         self.repo = ScrollerRepository(db)
 
     def _get_topic_model(self):
-        """BERTopic 모델 싱글톤 반환 (지연 로딩)"""
+        """BERTopic 모델 싱글톤 반환 (지연 로딩, 스레드 안전)"""
         if ClusterAgent._topic_model is not None:
             return ClusterAgent._topic_model
 
-        logger.info("ClusterAgent: BERTopic 모델 로딩 시작...")
-        
-        korean_stopwords = [
-            "뉴스", "종합", "속보", "기자", "특파원", "위해", "밝혔다", "대해", "관련", 
-            "오늘", "오후", "오전", "것으로", "따르면", "있는", "했다", "말했다",
-            "민주당", "국민의힘", "의원", "대통령", "대표", "정부", "국회", "여야",
-            "국민", "라며", "대한", "상황", "입장", "발언", "논란", "한국", "우리",
-            "이재명", "윤석열", "한동훈", "장관", "수사", "주장", "평가", "문제", "이유",
-            "이날", "예정", "시간", "최근", "다시", "크게", "이후", "통해", "사실", "한동훈",
-            "국민의힘", "더불어민주당", "이재명", "윤석열", "조국"
-        ]
-        
-        vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
-        umap_model = UMAP(n_neighbors=10, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
-        hdbscan_model = HDBSCAN(min_cluster_size=2, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.05)
-        
-        ClusterAgent._topic_model = BERTopic(
-            embedding_model="snunlp/KR-SBERT-V40K-klueNLI-augSTS",
-            vectorizer_model=vectorizer,
-            umap_model=umap_model,
-            hdbscan_model=hdbscan_model,   
-            nr_topics="auto", 
-            calculate_probabilities=True,
-            verbose=False
-        )
-        logger.info(" ClusterAgent: BERTopic 모델 로드 완료.")
-        return ClusterAgent._topic_model
+        with ClusterAgent._model_lock:
+            # Lock 획득 후 재확인 (Double-Checked Locking)
+            if ClusterAgent._topic_model is not None:
+                return ClusterAgent._topic_model
+
+            logger.info("ClusterAgent: BERTopic 모델 로딩 시작...")
+
+            korean_stopwords = [
+                "뉴스", "종합", "속보", "기자", "특파원", "위해", "밝혔다", "대해", "관련",
+                "오늘", "오후", "오전", "것으로", "따르면", "있는", "했다", "말했다",
+                "민주당", "국민의힘", "의원", "대통령", "대표", "정부", "국회", "여야",
+                "국민", "라며", "대한", "상황", "입장", "발언", "논란", "한국", "우리",
+                "이재명", "윤석열", "한동훈", "장관", "수사", "주장", "평가", "문제", "이유",
+                "이날", "예정", "시간", "최근", "다시", "크게", "이후", "통해", "사실",
+                "더불어민주당", "조국"
+            ]
+
+            vectorizer = CountVectorizer(stop_words=korean_stopwords, ngram_range=(1, 2))
+            umap_model = UMAP(n_neighbors=10, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+            hdbscan_model = HDBSCAN(min_cluster_size=2, min_samples=2, metric='euclidean', cluster_selection_method='eom', prediction_data=True, cluster_selection_epsilon=0.05)
+
+            ClusterAgent._topic_model = BERTopic(
+                embedding_model="snunlp/KR-SBERT-V40K-klueNLI-augSTS",
+                vectorizer_model=vectorizer,
+                umap_model=umap_model,
+                hdbscan_model=hdbscan_model,
+                nr_topics="auto",
+                calculate_probabilities=True,
+                verbose=False
+            )
+            logger.info("ClusterAgent: BERTopic 모델 로드 완료.")
+            return ClusterAgent._topic_model
 
     def _is_noise_cluster(self, titles: List[str], article_mode: str = "politics") -> bool:
         """비평 기사로서 가치가 떨어지는 노이즈 클러스터(단순 칼럼 묶음 등) 판별"""
@@ -124,7 +132,8 @@ class ClusterAgent:
                     current_topic["titles"].extend(clustered_topics[j]["titles"])
                     current_topic["article_ids"].extend(clustered_topics[j]["article_ids"])
                     current_topic["count"] += clustered_topics[j]["count"]
-                    # 언론사 정보는 나중에 다시 계산하기 위해 리스트 합본 유지 (압축은 최종 단계서)
+                    # 언론사 정보도 함께 합치어 press_count 정확도 보질
+                    current_topic["presses"].extend(clustered_topics[j]["presses"])
                     merged_indices.add(j)
             
             final_topics.append(current_topic)
@@ -280,31 +289,6 @@ class ClusterAgent:
             from sklearn.metrics.pairwise import cosine_distances
             distance_matrix = cosine_distances(X)
             
-            # [진단 코드 추가] 쌍방울 관련 기사들의 실제 거리값 확인
-            keywords = ["박상용", "쌍방울", "대북송금", "녹취", "이화영"]
-            target_indices = [
-                i for i, art in enumerate(articles_list)
-                if any(kw in art['title'] for kw in keywords)
-            ]
-
-            if len(target_indices) >= 2:
-                logger.info(f"🔍 [Diagnostic] 쌍방울 관련 키워드 기사 {len(target_indices)}건 발견:")
-                for i in target_indices:
-                    logger.info(f"   [{i}] {articles_list[i]['title'][:40]}")
-                logger.info("🔍 [Diagnostic] 상호 거리값 (Threshold: {0})".format(distance_threshold))
-                for i in range(len(target_indices)):
-                    for j in range(i+1, len(target_indices)):
-                        idx_i, idx_j = target_indices[i], target_indices[j]
-                        dist = distance_matrix[idx_i][idx_j]
-                        match_symbol = "✔️ (In)" if dist <= distance_threshold else "❌ (Out)"
-                        logger.info(f"   [{idx_i}] ↔ [{idx_j}] 거리: {dist:.4f} {match_symbol}")
-                        logger.info(f"     ㄴ {articles_list[idx_i]['title'][:25]}...")
-                        logger.info(f"     ㄴ {articles_list[idx_j]['title'][:25]}...")
-            elif len(target_indices) == 1:
-                logger.info(f"⚠️ [Diagnostic] 쌍방울 키워드 기사가 1건뿐입니다: {articles_list[target_indices[0]]['title']}")
-            else:
-                logger.info("⚠️ [Diagnostic] 쌍방울 키워드 기사를 찾지 못했습니다.")
-
             from sklearn.cluster import AgglomerativeClustering
             clustering_model = AgglomerativeClustering(
                 n_clusters=None, 
@@ -376,8 +360,6 @@ class ClusterAgent:
         logger.info(f"[ClusterAgent:Save] 입력 토픽 수: {len(topics)}건")
 
         saved_ids = []
-        max_count = 0
-        target_issue_id = None
         # 노드 내 토큰 누적용 로컬 변수 (state 직접 변이 방지)
         node_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
