@@ -546,8 +546,28 @@ class ScoutAgent:
         title: str,
         press_name: str
     ) -> dict:
-        """자체 사이트 기사 본문 파싱 (네이버 구조와 다름)"""
-        await asyncio.sleep(random.uniform(1.0, 2.0))  # 자체 서버 부하 방지
+        """자체 사이트 기사 본문 파싱 (세마포어 래퍼 적용)"""
+        oid = TARGET_PRESS_DICT.get(press_name)
+        press_sem = self.press_semaphores.get(oid)
+        
+        if press_sem:
+            async with press_sem:
+                async with self.article_semaphore:
+                    return await self._parse_direct_editorial_core(session, link, title, press_name)
+        else:
+            async with self.article_semaphore:
+                return await self._parse_direct_editorial_core(session, link, title, press_name)
+
+    async def _parse_direct_editorial_core(
+        self,
+        session: aiohttp.ClientSession,
+        link: str,
+        title: str,
+        press_name: str
+    ) -> dict:
+        """실제 파싱 로직"""
+        # 자체 서버 부하 및 봇 탐지 완벽 회피를 위해 대기 시간 대폭 증가
+        await asyncio.sleep(random.uniform(3.0, 5.0))  
         
         # 자체 사이트는 네이버 헤더와 속도가 다르므로 fetch 래퍼 안쓰고 직접 때릴수도 있지만, 우선 _fetch_html 재사용
         html = await self._fetch_html(session, link)

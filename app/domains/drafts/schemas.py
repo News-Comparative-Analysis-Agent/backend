@@ -1,6 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+
+# ==========================================
+# Chat (채팅) 관련 Schema
+# ==========================================
+class ChatAIOutputSchema(BaseModel):
+    response: str = Field(description="수정 방향이나 피드백, 안내 멘트 등 사용자에게 전달할 대화 내용")
+    modified_content: Optional[str] = Field(description="사용자가 글 내용 수정을 요구한 경우, 수정이 완료된 기사 초안 전체 텍스트. 전체 길이가 보존되어야 합니다. 수정을 원하지 않고 단순 질문만 한 경우에는 null")
 
 # ==========================================
 # Stream 생성 시 Schema

@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.domains.drafts.repository import DraftRepository
 from app.domains.drafts.schemas import (
-    ChatRequest, ChatResponse, ImageItem, 
+    ChatRequest, ChatResponse, ChatAIOutputSchema, ImageItem, 
     SimilarityRequest, SimilarityResponse,
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
     SaveDraftRequest, SaveDraftResponse,
@@ -30,6 +30,10 @@ def get_draft_genai_client():
         if api_key:
             _draft_genai_client = genai.Client(api_key=api_key)
     return _draft_genai_client
+
+def get_gemini_model_name():
+    """환경 변수에서 Gemini 모델명을 가져오거나 기본값을 반환합니다."""
+    return os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
 
 # 관점 분석용 매핑 단어 딕셔너리
 PUBLISHER_STANCE = {
@@ -76,7 +80,7 @@ class DraftService:
                 return
 
             for chunk in client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=get_gemini_model_name(),
                 contents=prompt,
                 config={'stream': True}
             ):
@@ -106,7 +110,7 @@ class DraftService:
 
             system_prompt = """
 당신은 기사 작성을 돕는 스마트 AI 어시스턴트입니다.
-사용자는 현재 뉴스 기사 초안을 작성하고 있는 기자 또는 작가입니다.
+사용자는 현재 뉴스 기사 초안을 작성하고 있는 기자입니다.
 
 [역할]
 1. 모든 응답은 **반드시 한국어로만 작성**해야 합니다. 절대 중국어나 다른 외국어를 사용하지 마세요.
@@ -114,44 +118,53 @@ class DraftService:
 3. 'draft_content'가 제공되면, 문맥을 파악하여 피드백을 제공하세요.
 4. 제공된 '[우리 시스템에서 생성한 관련 이슈 기사 원본 (참고용)]'이 있다면, 해당 내용을 바탕으로 더 일관성 있고 맥락에 맞는 답변을 제공하세요.
 5. **중요**: 사용자가 초안 수정을 명시적으로 요청하거나 조언을 구하면, 당신은 **반드시 `modified_content` 필드에 처음부터 끝까지 수정 및 완성된 기사 전체 내용(Full Text)을 작성해야 합니다.** 다시 말해, `response` 필드에는 간단한 안내 멘트만 적고 실제 수정본은 모두 `modified_content`에 넣으세요!
-
-[출력 형식]
-반드시 다음 JSON 형식으로만 응답하세요. 마크다운 코드 블록(` ```json `)을 포함하지 마세요.
-
-[응답 예시]
-{
-    "response": "말씀하신 부분의 논조를 보수 언론의 시각을 담아 수정해 보았습니다.",
-    "modified_content": "수정된 기사 본문 전체 텍스트..."
-}
-            """
-            context_message = f"{system_prompt}{pre_generated_context}\n\n[현재 작성 중인 초안 (draft_content)]\n{request.draft_content}\n\n"
+"""
+            # context_message: 현재 작성 중인 내용과 시스템 컨텍스트
+            context_message = f"{pre_generated_context}\n\n[현재 작성 중인 초안 (draft_content)]\n{request.draft_content or '(내용 없음)'}\n\n"
             
             if request.messages:
-                last_user_input = request.messages[-1].content
-                full_prompt = context_message + f"[사용자 질문]\n{last_user_input}"
+                # 1. 대화 히스토리 구성 (멀티턴 지원)
+                history_list = []
+                for m in request.messages[:-1]:
+                    role_label = "사용자" if m.role == "user" else "AI"
+                    history_list.append(f"[{role_label}]: {m.content}")
                 
-                from pydantic import BaseModel, Field
-                class ChatAIOutputSchema(BaseModel):
-                    response: str = Field(description="수정 방향이나 피드백, 안내 멘트 등 사용자에게 전달할 대화 내용")
-                    modified_content: Optional[str] = Field(description="사용자가 글 내용 수정을 요구한 경우, 수정이 완료된 기사 초안 전체 텍스트. 전체 길이가 보존되어야 합니다. 수정을 원하지 않고 단순 질문만 한 경우에는 null")
+                history_text = "\n".join(history_list)
+                last_user_input = request.messages[-1].content
+                
+                # 2. 최종 프롬프트 구성
+                user_prompt = f"{context_message}"
+                if history_text:
+                    user_prompt += f"[이전 대화 히스토리]\n{history_text}\n\n"
+                user_prompt += f"[사용자 질문]\n{last_user_input}"
 
+                # 3. Gemini API 호출 (System Instruction 분리 및 Schema 적용)
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=full_prompt,
+                    model=get_gemini_model_name(),
+                    contents=user_prompt,
                     config={
+                        "system_instruction": system_prompt,
                         "response_mime_type": "application/json",
                         "response_schema": ChatAIOutputSchema
                     }
                 )
                 
                 try:
-                    result = json.loads(response.text)
+                    # [개선] 명확한 JSON 파싱 및 에러 핸들링
+                    if not response.text:
+                         return ChatResponse(response="AI가 응답을 생성하지 못했습니다. 다시 시도해주세요.", modified_content=None)
+                         
+                    result_data = json.loads(response.text)
                     return ChatResponse(
-                        response=result.get("response", ""),
-                        modified_content=result.get("modified_content")
+                        response=result_data.get("response", ""),
+                        modified_content=result_data.get("modified_content")
                     )
-                except json.JSONDecodeError:
-                    return ChatResponse(response=response.text, modified_content=None)
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ JSON 파싱 에러: {str(e)} | Response: {response.text}")
+                    return ChatResponse(
+                        response="AI 응답을 처리하는 중 형식이 맞지 않는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+                        modified_content=None
+                    )
             else:
                 return ChatResponse(response="무엇을 도와드릴까요?", modified_content=None)
         except Exception as e:
