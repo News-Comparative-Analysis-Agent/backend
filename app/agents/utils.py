@@ -156,7 +156,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            log_llm_event(target_name, f"Requesting {model_size} (Attempt {attempt+1})", details=f"URL: {url}\nPayload: {json.dumps(payload, ensure_ascii=False)}")
+            log_llm_event(target_name, f"Requesting {LLM_MODEL_NAME} (Attempt {attempt+1})", details=prompt)
             res = requests.post(url, json=payload, headers=headers, timeout=300)
             
             if res.status_code == 400:

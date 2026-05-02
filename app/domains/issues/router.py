@@ -19,14 +19,15 @@ router = APIRouter()
 """)
 def get_issue_feed(
     date: str = Query(None, description="조회할 날짜 (YYYY-MM-DD)"),
-    limit: int = Query(30, description="최대 조회 개수"),
+    page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
+    page_size: int = Query(10, ge=1, le=100, description="페이지당 개수"),
     db: Session = Depends(get_db)
 ):
     """
-    이슈 피드 조회 (날짜별)
+    이슈 피드 조회 (날짜별 페이징 지원)
     """
     service = IssueService(db)
-    return service.get_issue_feed(date_str=date, total=limit)
+    return service.get_issue_feed(date_str=date, page=page, page_size=page_size)
 
 @router.get("/feed",
             response_model=IssueFeedLegacyResponse,

@@ -377,7 +377,7 @@ class DraftService:
         # 1. 시스템 설정에서 LLM 모드 가져오기
         scroller_repo = ScrollerRepository(self.repo.db)
         settings = scroller_repo.get_system_settings()
-        llm_mode = settings.llm_mode if settings else "gemini_only"
+        llm_mode = settings.llm_mode if settings else "local_only"
 
         # 2. 그래프 생성 및 실행
         app = create_review_graph(self.repo.db)
@@ -418,7 +418,7 @@ class DraftService:
                 name=issue.name,
                 description=issue.description,
                 background=issue.background,
-                core_contentions=issue.core_contentions,
+                core_contentions=issue.conflict_summary,
                 created_at=issue.created_at,
                 updated_at=getattr(issue, "updated_at", issue.created_at), # 신규 필드 (없으면 created_at)
                 pre_generated_draft=issue.pre_generated_draft,

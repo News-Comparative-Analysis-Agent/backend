@@ -20,6 +20,7 @@ class IssueAnalysisResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    core_contentions: Optional[str] = None
     background: Optional[str] = None
     created_at: datetime
 
@@ -78,6 +79,10 @@ class IssueFeedResponse(BaseModel):
     """날짜별 이슈 피드 응답 (단일 리스트)"""
     date: str                             # 조회된 날짜 (YYYY-MM-DD)
     issues: List[IssueFeedItem]           # 해당 날짜의 이슈 목록
+    total_count: int                      # 전체 이슈 수
+    page: int                             # 현재 페이지
+    page_size: int                        # 페이지당 아이템 수
+    total_pages: int                      # 전체 페이지 수
 
     class Config:
         from_attributes = True

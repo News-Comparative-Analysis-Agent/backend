@@ -75,7 +75,7 @@ class ScoutAgent:
 
     def _get_kst_now(self) -> datetime:
         """현재 KST(한국 표준시) 기준 일시 반환"""
-        return datetime.utcnow() + timedelta(hours=9)
+        return datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None)
 
     def _get_existing_url_hashes(self) -> set:
         """최근 데이터의 URL을 로드하여 해시 Set으로 반환 (In-memory Caching)"""
@@ -289,7 +289,10 @@ class ScoutAgent:
             return []
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        # 에러 처리 및 None 필터링
+        # 에러 처리 및 None 필터링 (예외 발생 시 명시적 로깅)
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning(f"⚠️ [ScoutAgent:RankingPage] 기사 파싱 중 예외 발생: {res}")
         valid_results = [res for res in results if res and not isinstance(res, Exception)]
         return valid_results
 
@@ -350,6 +353,9 @@ class ScoutAgent:
             return []
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning(f"⚠️ [ScoutAgent:HeadlineNews] 기사 파싱 중 예외 발생: {res}")
         return [res for res in results if res and not isinstance(res, Exception)]
 
     async def _crawl_daily_list_page(
@@ -413,6 +419,9 @@ class ScoutAgent:
             return []
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning(f"⚠️ [ScoutAgent:DailyListPage] 기사 파싱 중 예외 발생: {res}")
         return [res for res in results if res and not isinstance(res, Exception)]
 
     async def _crawl_editorial_via_search(
@@ -498,11 +507,6 @@ class ScoutAgent:
             if "naver.com" in link and oid and f"/{oid}/" in link:
                 press_match = True
 
-            # 3. 네이버 기사인 경우 OID로 정확하게 판별 (제목에 언론사명이 없을 때 대비)
-            oid = TARGET_PRESS_DICT.get(press_name)
-            if "naver.com" in link and oid and f"/{oid}/" in link:
-                press_match = True
-
             if not press_match:
                 continue
 
@@ -528,6 +532,9 @@ class ScoutAgent:
             return []
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning(f"⚠️ [ScoutAgent:EditorialSearch] 기사 파싱 중 예외 발생: {res}")
         return [r for r in results if r and not isinstance(r, Exception)]
 
 
@@ -556,8 +563,8 @@ class ScoutAgent:
             import json
             for s in soup.find_all('script'):
                 if s.string and 'Fusion.globalContent' in s.string:
-                    # [버그수정] non-greedy (.*?) 대신 중첩 JSON을 끝까지 잡을 수 있도록 수정 (re.DOTALL 포함)
-                    match = re.search(r'Fusion\.globalContent\s*=\s*(.+?);', s.string, re.DOTALL)
+                    # JSON 객체 전체를 greedy하게 매칭 (non-greedy는 중간의 ; 에서 잘리는 버그 있음)
+                    match = re.search(r'Fusion\.globalContent\s*=\s*(\{.+\});', s.string, re.DOTALL)
                     if match:
                         try:
                             data = json.loads(match.group(1))
@@ -700,7 +707,9 @@ class ScoutAgent:
                     logger.info(f"   ⚡ [{date_str}] {len(tasks)}개 태스크 병렬 실행...")
                     day_results = await asyncio.gather(*tasks, return_exceptions=True)
                     for d_res in day_results:
-                        if d_res and not isinstance(d_res, Exception):
+                        if isinstance(d_res, Exception):
+                            logger.warning(f"⚠️ [ScoutAgent:RunCrawl] 날짜 [{date_str}] 태스크 실행 중 예외 발생: {d_res}")
+                        elif d_res:
                             final_results.extend(d_res)
                             
                 # 날짜 간 짧은 휴식 (차단 회피)
@@ -784,7 +793,7 @@ class ScoutAgent:
                     title=art['title'],
                     url=art['link'],
                     image_urls=image_list,
-                    published_at=art.get('pub_date') if art.get('pub_date') else (datetime.utcnow() + timedelta(hours=9)),
+                    published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None),
                     content=art['content'],
                     reporter=art.get('reporter')
                 )
