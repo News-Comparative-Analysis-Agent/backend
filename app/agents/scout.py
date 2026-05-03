@@ -583,11 +583,11 @@ class ScoutAgent:
             import json
             for s in soup.find_all('script'):
                 if s.string and 'Fusion.globalContent' in s.string:
-                    # JSON 객체 전체를 greedy하게 매칭 (non-greedy는 중간의 ; 에서 잘리는 버그 있음)
-                    match = re.search(r'Fusion\.globalContent\s*=\s*(\{.+\});', s.string, re.DOTALL)
+                    # JSONDecoder.raw_decode를 사용하여 후속 자바스크립트 코드를 무시하고 JSON 객체만 정확히 추출
+                    match = re.search(r'Fusion\.globalContent\s*=\s*(\{.*)', s.string, re.DOTALL)
                     if match:
                         try:
-                            data = json.loads(match.group(1))
+                            data, _ = json.JSONDecoder().raw_decode(match.group(1))
                             elements = data.get('content_elements', [])
                             for el in elements:
                                 if el.get('type') == 'text' and el.get('content'):
