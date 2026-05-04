@@ -7,9 +7,11 @@ from app.domains.issues.schemas import (
     IssueFeedItem, IssueFeedResponse, IssueAnalysisResponse, 
     IssueDraftResponse, ClaimCardResponse, IssueGroupedResponse,
     IssueTimelineItem, IssueTimelineResponse,
-    IssueFeedLegacyItem, IssueFeedLegacyResponse
+    IssueFeedLegacyItem, IssueFeedLegacyResponse,
+    HeadlineRecommendationResponse
 )
 from collections import defaultdict
+from app.agents.utils import call_llm
 
 class IssueService:
     def __init__(self, db: Session):
@@ -93,6 +95,44 @@ class IssueService:
             claim_cards=claim_cards,
             image_urls=image_urls
         )
+
+    def recommend_headlines(self, issue_id: int) -> HeadlineRecommendationResponse:
+        """초안 텍스트를 바탕으로 LLM(local_only)을 호출하여 제목 5개를 추천받습니다."""
+        issue = self.repo.get_by_id(issue_id)
+        if not issue or not issue.pre_generated_draft:
+            raise HTTPException(status_code=404, detail="해당 이슈의 초안이 존재하지 않습니다.")
+
+        prompt = f"""
+다음은 작성된 기사 초안입니다. 이 내용에 가장 잘 어울리고 독자의 시선을 끄는 
+기사 헤드라인(제목) 5개를 추천해주세요.
+
+[초안 내용]
+{issue.pre_generated_draft}
+
+반드시 ["제목1", "제목2", "제목3", "제목4", "제목5"] 형태의 JSON 문자열 리스트로만 응답하세요. 다른 부연 설명은 하지 마세요.
+"""
+        # local_only 모드로 강제하여 .env에 설정된 LLM_MODEL_NAME 또는 GEMINI_MODEL_NAME(DeepInfra 환경 등)을 사용하도록 함.
+        # utils.py 의 call_llm 은 state dict 안의 llm_mode 를 참조합니다.
+        state = {"llm_mode": "local_only"}
+        # model_size 파라미터는 여기서는 식별자 목적으로 넘깁니다. (utils.py 에서는 dict lookup 에 쓰이거나 target 식별에 쓰임)
+        # 로컬(DeepInfra)을 쓸 때는 API URL이 고정이므로 'local' 을 줍니다.
+        result, usage = call_llm(prompt, model_size="local", state=state, schema=None)
+        
+        # 만약 LLM이 리스트가 아닌 딕셔너리로 반환했을 경우 복구 시도
+        headlines = []
+        if isinstance(result, list):
+            headlines = [str(x) for x in result if isinstance(x, str)]
+        elif isinstance(result, dict):
+            for k, v in result.items():
+                if isinstance(v, list):
+                    headlines = [str(x) for x in v if isinstance(x, str)]
+                    break
+
+        if not headlines:
+            raise HTTPException(status_code=500, detail="LLM 응답에서 제목 리스트를 파싱하지 못했습니다.")
+
+        # 정확히 5개가 넘어가면 자름
+        return HeadlineRecommendationResponse(headlines=headlines[:5])
 
     def get_issue_feed(self, date_str: Optional[str] = None, page: int = 1, page_size: int = 10, issue_type: Optional[str] = None) -> IssueFeedResponse:
         target_date = None

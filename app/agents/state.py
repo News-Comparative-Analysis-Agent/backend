@@ -6,6 +6,7 @@ class CrawlState(TypedDict):
     뉴스 크롤링 파이프라인 전역 상태 데이터
     """
     llm_mode: str                             # "gemini_only", "local_priority", "local_only"
+    article_mode: str                         # "editorial" 또는 "politics"
     raw_articles: List[Dict[str, Any]]        # 원본 뉴스 기사 리스트
     analyzed_articles: List[Dict[str, Any]]   # AI 분석(요약, 편향성 등)이 완료된 기사 리스트
     saved_count: int                          # DB에 저장된 기사 수
@@ -43,6 +44,7 @@ class OverallState(TypedDict):
       단일 값들은 operator.replace 등을 사용하여 덮어쓰도록 처리합니다.
     """
     llm_mode: str
+    article_mode: str                         # "editorial" 또는 "politics"
     issue_id: int                             # (Optional)
     all_issue_ids: List[int]
     
