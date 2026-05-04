@@ -18,6 +18,7 @@ class ClusterState(TypedDict):
     이슈 클러스터링 파이프라인 전역 상태 데이터
     """
     llm_mode: str                             # "gemini_only", "local_priority", "local_only"
+    article_mode: str                         # "editorial" 또는 "politics" (기사 유형 구분)
     unclustered_articles: List[Dict[str, Any]] # 이슈가 배정되지 않은 기사 리스트
     clustered_topics: List[Dict[str, Any]]     # BERTopic으로 군집화되고 AI로 분석된 토픽 리스트
     saved_issue_count: int                     # DB에 저장된 이슈 라벨 수

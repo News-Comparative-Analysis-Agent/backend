@@ -90,7 +90,7 @@ class ScrollerRepository:
     def save_article_with_body(self, publisher_id: int, 
                                 title: str, url: str, image_urls: list,
                                  published_at: datetime, content: str,
-                                 reporter: str = None) -> Article:
+                                 reporter: str = None, article_type: str = "editorial") -> Article:
         """
         기사 메타데이터와 본문을 각각의 테이블에 연동하여 저장합니다.
         
@@ -102,6 +102,7 @@ class ScrollerRepository:
             published_at (datetime): 발행 일시
             content (str): 기사 원문 (본문)
             reporter (str): 기자 이름
+            article_type (str): 기사 유형 (editorial/politics)
             
         Returns:
             Article: 저장된 기사 객체
@@ -113,7 +114,8 @@ class ScrollerRepository:
             url=url,
             image_urls=image_urls,
             published_at=published_at,
-            reporter=reporter
+            reporter=reporter,
+            article_type=article_type
         )
         self.db.add(article)
         self.db.flush() # article.id를 획득하기 위해 flush 수행
@@ -126,12 +128,13 @@ class ScrollerRepository:
         self.db.add(body)
         return article
 
-    def get_unclustered_articles(self) -> list[Article]:
+    def get_unclustered_articles(self, article_type: str = "editorial") -> list[Article]:
         """
         이슈 라벨이 아직 할당되지 않은(None) 기사 리스트를 조회합니다.
+        지정된 article_type(editorial 또는 politics)에 해당하는 기사만 가져옵니다.
         클러스터링 파이프라인의 시작 데이터로 사용됩니다.
         """
-        return self.db.query(Article).filter(Article.issue_label_id == None).all()
+        return self.db.query(Article).filter(Article.issue_label_id == None, Article.article_type == article_type).all()
         
     def search_articles_by_keyword(self, keyword: str, limit: int = 15) -> list[Article]:
         """
@@ -164,7 +167,8 @@ class ScrollerRepository:
                                     description: str, 
                                     count: int, 
                                     article_ids_to_update: list, 
-                                    background: str = None) -> IssueLabel:
+                                    background: str = None,
+                                    issue_type: str = "editorial") -> IssueLabel:
         """
         AI가 식별한 새로운 이슈(토픽)를 생성하고, 관련 기사들을 이 이슈에 매핑합니다.
         
@@ -174,7 +178,7 @@ class ScrollerRepository:
             count (int): 포함된 기사 수
             article_ids_to_update (list): 이 이슈에 소속될 기사 ID 리스트
             background (str): 이슈 배경 상세
-            media_ratio (str): 언론 분포 비중 데이터
+            issue_type (str): 이슈 유형 (editorial/politics)
             
         Returns:
             IssueLabel: 생성된 이슈 객체
@@ -185,6 +189,7 @@ class ScrollerRepository:
             description=description,
             total_count=int(count),
             background=background,
+            issue_type=issue_type,
             created_at=datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None) # KST 강제 적용
         )
         self.db.add(issue)
