@@ -5,7 +5,8 @@ from app.core.database import get_db
 from app.domains.issues.service import IssueService
 from app.domains.issues.schemas import (
     IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse, 
-    IssueTimelineResponse, IssueGroupedResponse, IssueFeedLegacyResponse
+    IssueTimelineResponse, IssueGroupedResponse, IssueFeedLegacyResponse,
+    HeadlineRecommendationResponse
 )
 
 router = APIRouter()
@@ -84,6 +85,21 @@ def get_issue_draft(
     """
     service = IssueService(db)
     return service.get_issue_draft(issue_id)
+
+
+@router.get("/{issue_id}/headlines/recommend",
+            response_model=HeadlineRecommendationResponse,
+            summary="초안 기반 헤드라인 5개 추천 (로컬 LLM)",
+            description="DB에 저장된 초안을 바탕으로 gemma-4-31b-it (로컬 LLM) 모델을 사용하여 가장 잘 어울리는 제목 5개를 추천합니다.")
+def recommend_issue_headlines(
+    issue_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 이슈의 초안을 읽고 헤드라인 5개를 LLM으로 생성하여 반환합니다.
+    """
+    service = IssueService(db)
+    return service.recommend_headlines(issue_id)
 
 
 @router.get("/{issue_id}/timeline",

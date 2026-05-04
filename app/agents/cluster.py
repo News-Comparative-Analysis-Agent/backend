@@ -318,10 +318,13 @@ class ClusterAgent:
                 min_articles = 3 if article_mode == "politics" else 2
                 min_press = 2 if article_mode == "editorial" else 3
                 
+                # 사설의 경우 언론사 쏠림 방지 조건을 느슨하게 하거나 없앱니다 (1.0 = 제한 없음).
+                max_ratio_limit = 0.6 if article_mode == "politics" else 1.0
+                
                 # 노이즈 체크 (코너명 반복 등)
                 is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
                 
-                if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= 0.6:
+                if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= max_ratio_limit:
                     intermediate_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),

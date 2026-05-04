@@ -144,3 +144,7 @@ class IssueFeedLegacyResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class HeadlineRecommendationResponse(BaseModel):
+    """초안 기반 헤드라인 추천 응답"""
+    headlines: List[str]
+
