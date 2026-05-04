@@ -14,6 +14,7 @@ class IssueLabel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False) # 이슈명 (예: 전공의 집단 사직)
     description = Column(Text) # 이슈 배경 설명
+    issue_type = Column(String, nullable=False, default="editorial", server_default="editorial") # 이슈 유형 (editorial 또는 politics)
     
     # 추가 필드 (Repository에서 사용 중)
     background = Column(Text, nullable=True) # 이슈의 배경 정보

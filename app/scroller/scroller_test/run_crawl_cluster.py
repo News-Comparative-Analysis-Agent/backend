@@ -3,14 +3,17 @@
 크롤링 → 저장 → 클러스터링 순서로 통합 실행합니다.
 
 실행 예시:
-  # 기본 (오늘~2일치 정치 기사)
-  python run_crawl_cluster.py
+  # 사설 + 정치 기사 모두 수집 및 클러스터링 (분리 실행)
+  python run_crawl_cluster.py --both
 
-  # 2026-03-30 ~ 2026-03-31 사설 기사 크롤링 후 클러스터링
+  # 사설만
+  python run_crawl_cluster.py --mode editorial
+
+  # 정치만
+  python run_crawl_cluster.py --mode politics
+
+  # 특정 날짜 사설
   python run_crawl_cluster.py --mode editorial --start 20260330 --end 20260331
-
-  # 특정 날짜 정치 기사
-  python run_crawl_cluster.py --start 20260330 --end 20260331
 """
 import sys
 import os
@@ -49,7 +52,7 @@ def run_crawl_and_cluster(
     start_date: str = None,
     end_date: str = None,
     llm_mode: str = None
-):
+) -> dict:
     """
     크롤링 + 클러스터링 통합 실행
 
@@ -58,9 +61,15 @@ def run_crawl_and_cluster(
         start_date: 수집 시작일 (YYYYMMDD). None이면 오늘 기준 기본 범위
         end_date: 수집 종료일 (YYYYMMDD). None이면 start_date와 동일
         llm_mode: LLM 모드 (None이면 DB 설정값 사용)
+
+    Returns:
+        {"saved_count": int, "issue_count": int}
     """
-    logger.info("🚀 [Pipeline] 뉴스 크롤링 및 이슈 클러스터링 자동화 파이프라인 시작합니다...")
-    logger.info(f"   - 기사 유형: {'사설(오피니언)' if article_mode == 'editorial' else '정치'}")
+    mode_label = "사설(오피니언)" if article_mode == "editorial" else "정치"
+    result = {"saved_count": 0, "issue_count": 0}
+
+    logger.info(f"🚀 [Pipeline:{mode_label}] 뉴스 크롤링 및 이슈 클러스터링 파이프라인 시작...")
+    logger.info(f"   - 기사 유형: [{mode_label}]")
     logger.info(f"   - 날짜 범위: {start_date or '기본(오늘~DAYS_TO_CRAWL)'} ~ {end_date or ''}")
 
     seed_settings()
@@ -73,7 +82,7 @@ def run_crawl_and_cluster(
         logger.info(f"📡 [Settings] 현재 LLM 모드: {active_mode}")
 
         # --- 1단계: 크롤링 ---
-        logger.info(f"=== 1단계: 크롤링 (Mode: {active_mode}, 섹션: {article_mode}) ===")
+        logger.info(f"=== [{mode_label}] 1단계: 크롤링 (LLM: {active_mode}) ===")
 
         from app.agents.scout import ScoutAgent
         import asyncio
@@ -102,30 +111,37 @@ def run_crawl_and_cluster(
                 custom_dates=date_range
             )
         )
-        logger.success(f"✅ 크롤링 완료: {len(all_news)}건 수집")
+        logger.success(f"✅ [{mode_label}] 크롤링 완료: {len(all_news)}건 수집")
 
         if all_news:
             save_result = agent.node_save_articles({"raw_articles": all_news})
             saved_count = save_result.get("saved_count", 0)
-            logger.success(f"💾 DB 저장 완료: {saved_count}건 신규 저장")
+            result["saved_count"] = saved_count
+            logger.success(f"💾 [{mode_label}] DB 저장 완료: {saved_count}건 신규 저장")
         else:
-            logger.warning("⚠️ 수집된 기사가 없어 클러스터링을 건너뜁니다.")
-            return
+            logger.warning(f"⚠️ [{mode_label}] 수집된 기사가 없어 클러스터링을 건너뜁니다.")
+            return result
 
         # --- 2단계: 클러스터링 ---
-        logger.info("=== 2단계: 미분류 기사 이슈 클러스터링 ===")
+        logger.info(f"=== [{mode_label}] 2단계: 미분류 기사 이슈 클러스터링 ===")
         service = ScrollerService(db)
-        cluster_result = service.execute_clustering(mode=active_mode)
-        logger.success(f"✅ 클러스터링 완료: {cluster_result.message}")
+        cluster_result = service.execute_clustering(mode=active_mode, article_mode=article_mode)
 
-        logger.success("🎉 [Pipeline] 수집 및 분류 파이프라인이 성공적으로 종료되었습니다.")
+        # saved_issue_count 필드 직접 사용 (정규식 파싱 오류 방지)
+        issue_count = cluster_result.saved_issue_count if cluster_result else 0
+        result["issue_count"] = issue_count
+
+        logger.success(f"✅ [{mode_label}] 클러스터링 완료: 이슈 {issue_count}건 생성")
+        logger.success(f"🎉 [{mode_label}] 파이프라인 성공 종료! (신규 기사 {saved_count}건 → 이슈 {issue_count}건)")
 
     except Exception as e:
-        logger.critical(f"❌ [Pipeline] 파이프라인 치명적 오류 발생: {e}")
+        logger.critical(f"❌ [{mode_label}] 파이프라인 치명적 오류 발생: {e}")
         import traceback
         traceback.print_exc()
     finally:
         db.close()
+
+    return result
 
 
 if __name__ == "__main__":
@@ -133,8 +149,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         choices=["politics", "editorial"],
-        default="editorial",
-        help="기사 섹션 유형: 'politics'(정치) 또는 'editorial'(사설/오피니언). 기본값: editorial"
+        default=None,
+        help="기사 섹션 유형: 'politics'(정치) 또는 'editorial'(사설/오피니언). --both 사용 시 무시됨"
+    )
+    parser.add_argument(
+        "--both",
+        action="store_true",
+        help="사설(editorial) → 정치(politics) 순서로 두 파이프라인을 모두 순차 실행합니다."
     )
     parser.add_argument(
         "--start",
@@ -154,9 +175,42 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    run_crawl_and_cluster(
-        article_mode=args.mode,
-        start_date=args.start,
-        end_date=args.end,
-        llm_mode=args.llm
-    )
+    # 인자 없이 실행(F5)할 때는 --both 모드를 기본으로 동작
+    if not args.mode and not args.both:
+        args.both = True
+
+    if args.both:
+        # 사설 → 정치 순서로 파이프라인을 분리하여 순차 실행
+        logger.info("🔄 [Both Mode] 사설 + 정치 파이프라인을 순차적으로 실행합니다.")
+        logger.info("━" * 60)
+        logger.info("📰 [1/2] 사설(Editorial) 파이프라인 시작")
+        logger.info("━" * 60)
+        editorial_result = run_crawl_and_cluster(
+            article_mode="editorial",
+            start_date=args.start,
+            end_date=args.end,
+            llm_mode=args.llm
+        )
+        logger.info("━" * 60)
+        logger.info("🗞️  [2/2] 정치(Politics) 파이프라인 시작")
+        logger.info("━" * 60)
+        politics_result = run_crawl_and_cluster(
+            article_mode="politics",
+            start_date=args.start,
+            end_date=args.end,
+            llm_mode=args.llm
+        )
+        logger.info("━" * 60)
+        logger.success("🎉 [Both Mode] 전체 파이프라인 완료! 결과 요약:")
+        logger.success(f"   📰 사설(Editorial): 신규 기사 {editorial_result.get('saved_count', 0)}건 → 이슈 {editorial_result.get('issue_count', 0)}건 생성")
+        logger.success(f"   🗞️  정치(Politics):  신규 기사 {politics_result.get('saved_count', 0)}건 → 이슈 {politics_result.get('issue_count', 0)}건 생성")
+        logger.info("━" * 60)
+    else:
+        # 단일 모드 (기본값: editorial)
+        mode = args.mode or "editorial"
+        run_crawl_and_cluster(
+            article_mode=mode,
+            start_date=args.start,
+            end_date=args.end,
+            llm_mode=args.llm
+        )

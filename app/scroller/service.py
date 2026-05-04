@@ -115,10 +115,11 @@ class ScrollerService:
     # ==========================================
     # 클러스터링 비즈니스 로직 (LangGraph 연동)
     # ==========================================
-    def execute_clustering(self, mode: str = None) -> ClusterResponse:
+    def execute_clustering(self, mode: str = None, article_mode: str = "editorial") -> ClusterResponse:
         """
         미분류 기사들을 군집화하고 이슈 이름을 생성하는 워크플로우를 실행합니다.
         - mode: 제공되지 않을 경우 DB의 SystemSettings 값을 따름.
+        - article_mode: 'editorial' 또는 'politics'
         """
         if not mode:
             setting = self.db.query(SystemSettings).first()
@@ -132,6 +133,7 @@ class ScrollerService:
 
         initial_state = {
             "llm_mode": mode,
+            "article_mode": article_mode,
             "unclustered_articles": [],
             "clustered_topics": [],
             "saved_issue_count": 0,
@@ -139,8 +141,8 @@ class ScrollerService:
             "error": ""
         }
         
-        # 체크포인팅을 위한 설정 (고유 스레드 ID 부여)
-        config = {"configurable": {"thread_id": "scroller_cluster_session"}}
+        # 체크포인팅을 위한 설정 (article_mode 별로 다른 thread_id 사용하여 캐시 충돌 방지)
+        config = {"configurable": {"thread_id": f"scroller_cluster_{article_mode}"}}
         try:
             final_state = self.cluster_app.invoke(initial_state, config=config)
         except Exception as e:

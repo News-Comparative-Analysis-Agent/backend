@@ -238,7 +238,8 @@ class ScoutAgent:
             "image_urls": image_urls,
             "pub_date": pub_date,
             "reporter": reporter,
-            "link": link
+            "link": link,
+            "article_type": article_mode
         }
 
     async def _crawl_ranking_page(
@@ -583,11 +584,11 @@ class ScoutAgent:
             import json
             for s in soup.find_all('script'):
                 if s.string and 'Fusion.globalContent' in s.string:
-                    # JSON 객체 전체를 greedy하게 매칭 (non-greedy는 중간의 ; 에서 잘리는 버그 있음)
-                    match = re.search(r'Fusion\.globalContent\s*=\s*(\{.+\});', s.string, re.DOTALL)
+                    # JSONDecoder.raw_decode를 사용하여 후속 자바스크립트 코드를 무시하고 JSON 객체만 정확히 추출
+                    match = re.search(r'Fusion\.globalContent\s*=\s*(\{.*)', s.string, re.DOTALL)
                     if match:
                         try:
-                            data = json.loads(match.group(1))
+                            data, _ = json.JSONDecoder().raw_decode(match.group(1))
                             elements = data.get('content_elements', [])
                             for el in elements:
                                 if el.get('type') == 'text' and el.get('content'):
@@ -639,7 +640,8 @@ class ScoutAgent:
             "image_urls": image_urls,
             "pub_date": pub_date,
             "reporter": "",
-            "link": link
+            "link": link,
+            "article_type": "editorial"
         }
 
     async def run_async_crawl(
@@ -711,17 +713,15 @@ class ScoutAgent:
                                     existing_hashes, date_str
                                 )
                             )
-                # else:
-                #     # ⚠️ [비활성화] 정치 일반 기사 수집 모드
-                #     # 현재는 사설(editorial) 모드만 운영하므로 임시 비활성화.
-                #     # 복원 시 아래 주석을 해제하고 'else:'와 들여쓰기를 원복하세요.
-                #     for press_name, oid in TARGET_PRESS_DICT.items():
-                #         tasks.append(
-                #             self._crawl_ranking_page(
-                #                 session, press_name, oid, date_str,
-                #                 existing_hashes, article_mode=article_mode
-                #             )
-                #         )
+                else:
+                    # 정치 일반 기사 수집 모드
+                    for press_name, oid in TARGET_PRESS_DICT.items():
+                        tasks.append(
+                            self._crawl_ranking_page(
+                                session, press_name, oid, date_str,
+                                existing_hashes, article_mode=article_mode
+                            )
+                        )
                 
                 if tasks:
                     logger.info(f"   ⚡ [{date_str}] {len(tasks)}개 태스크 병렬 실행...")
@@ -815,7 +815,8 @@ class ScoutAgent:
                     image_urls=image_list,
                     published_at=art.get('pub_date') if art.get('pub_date') else datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None),
                     content=art['content'],
-                    reporter=art.get('reporter')
+                    reporter=art.get('reporter'),
+                    article_type=art.get('article_type', 'editorial')
                 )
                 
                 if new_art:

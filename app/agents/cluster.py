@@ -233,8 +233,9 @@ class ClusterAgent:
         """미분류 기사 로드"""
         log_llm_event("ClusterAgent", "미분류 기사 로드 노드 시작")
         try:
+            article_mode = state.get("article_mode", "editorial")
             self.db.rollback()
-            unclustered = self.repo.get_unclustered_articles()
+            unclustered = self.repo.get_unclustered_articles(article_type=article_mode)
             data = []
             for a in unclustered:
                 content = a.body.raw_content if hasattr(a, 'body') and a.body else ""
@@ -313,9 +314,9 @@ class ClusterAgent:
                 unique_press = len(media_counts)
                 max_press_ratio = media_counts.iloc[0] / count if count > 0 else 1.0
                 
-                # 품질 조건 (사설 모드는 더 엄격하게)
-                min_articles = 3
-                min_press = 3 if article_mode == "editorial" else 2
+                # 품질 조건 (정치 기사는 3곳 이상, 사설은 2곳 이상)
+                min_articles = 3 if article_mode == "politics" else 2
+                min_press = 2 if article_mode == "editorial" else 3
                 
                 # 노이즈 체크 (코너명 반복 등)
                 is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
@@ -357,6 +358,7 @@ class ClusterAgent:
             logger.info(f"[ClusterAgent:Save] {msg}")
             return {"issue_id": None, "messages": [msg]}
 
+        article_mode = state.get("article_mode", "editorial")
         logger.info(f"[ClusterAgent:Save] 입력 토픽 수: {len(topics)}건")
 
         saved_ids = []
@@ -376,7 +378,8 @@ class ClusterAgent:
                     description=desc,
                     count=t["count"],
                     article_ids_to_update=t["article_ids"],
-                    background=bg
+                    background=bg,
+                    issue_type=article_mode
                 )
                 saved_ids.append(issue.id)
             
@@ -402,8 +405,9 @@ class ClusterAgent:
         """이슈에 할당되지 않은(Outlier) 기사들 DB에서 삭제"""
         log_llm_event("ClusterAgent", "미분류 노이즈 기사 정리 노드 시작")
         try:
+            article_mode = state.get("article_mode", "editorial")
             # issue_label_id가 여전히 NULL인 기사들 조회
-            outliers = self.repo.get_unclustered_articles()
+            outliers = self.repo.get_unclustered_articles(article_type=article_mode)
             if not outliers:
                 return {"messages": ["정리할 노이즈 기사 없음"]}
             
