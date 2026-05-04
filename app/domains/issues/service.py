@@ -49,6 +49,7 @@ class IssueService:
             description=issue.description,
             background=issue.background,
             core_contentions=issue.conflict_summary,
+            issue_type=issue.issue_type,
             created_at=issue.created_at,
             claim_cards=claim_cards,
             image_urls=image_urls
@@ -87,19 +88,13 @@ class IssueService:
             description=issue.description,
             background=issue.background,
             pre_generated_draft=issue.pre_generated_draft,
+            issue_type=issue.issue_type,
             created_at=issue.created_at,
             claim_cards=claim_cards,
             image_urls=image_urls
         )
 
-    def get_issue_feed(self, date_str: Optional[str] = None, page: int = 1, page_size: int = 10) -> IssueFeedResponse:
-        """
-        날짜별 이슈 조회 (단일 리스트 형식, 페이징 지원)
-        - date_str: YYYY-MM-DD 형식의 문자열 (없으면 현재 KST 날짜)
-        - page: 페이지 번호 (1부터 시작)
-        - page_size: 페이지당 개수
-        """
-        # 1. 대상 날짜 설정
+    def get_issue_feed(self, date_str: Optional[str] = None, page: int = 1, page_size: int = 10, issue_type: Optional[str] = None) -> IssueFeedResponse:
         target_date = None
         if date_str:
             try:
@@ -107,23 +102,18 @@ class IssueService:
             except ValueError:
                 raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
         else:
-            # 기본값: 현재 KST (UTC+9)
             target_date = (datetime.utcnow() + timedelta(hours=9)).date()
 
-        # 2. 페이지네이션 계산
         skip = (page - 1) * page_size
         limit = page_size
 
-        # 3. 데이터 및 전체 개수 조회
-        issues = self.repo.get_feed_issues(target_date=target_date, skip=skip, limit=limit)
-        total_count = self.repo.get_feed_issues_count(target_date=target_date)
+        issues = self.repo.get_feed_issues(target_date=target_date, skip=skip, limit=limit, issue_type=issue_type)
+        total_count = self.repo.get_feed_issues_count(target_date=target_date, issue_type=issue_type)
         total_pages = (total_count + page_size - 1) // page_size
 
-        # 4. 이미지 URL 일괄 조회
         issue_ids = [issue.id for issue in issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
 
-        # 5. 변환
         issue_items: List[IssueFeedItem] = []
         for idx, issue in enumerate(issues):
             created_at = issue.created_at
@@ -134,8 +124,9 @@ class IssueService:
                 id=issue.id,
                 name=issue.name,
                 description=issue.description,
+                issue_type=issue.issue_type,
                 article_count=issue.total_count,
-                rank=skip + idx + 1, # 페이지 오프셋을 고려한 랭킹 계산
+                rank=skip + idx + 1,
                 created_at=created_at,
                 image_urls=image_urls_map.get(issue.id, [])
             ))
@@ -149,41 +140,33 @@ class IssueService:
             total_pages=total_pages
         )
 
-    def get_grouped_issues(self, days: int = 7) -> IssueGroupedResponse:
-        """
-        최근 N일간의 이슈를 날짜별로 그룹화하여 조회
-        """
-        # 1. 데이터 조회
-        issues = self.repo.get_issues_by_date_range(days=days)
-        
-        # 2. 이미지 URL 일괄 조회
+    def get_grouped_issues(self, days: int = 7, issue_type: Optional[str] = None) -> IssueGroupedResponse:
+        issues = self.repo.get_issues_by_date_range(days=days, issue_type=issue_type)
+
         issue_ids = [issue.id for issue in issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
 
-        # 3. 날짜별 그룹화
         grouped_data: Dict[str, List[IssueFeedItem]] = defaultdict(list)
-        
+
         for issue in issues:
             created_at = issue.created_at
             if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
                 created_at = created_at.replace(tzinfo=None)
-            
+
             date_key = created_at.date().isoformat()
-            
-            # 랭킹(순위)은 해당 날짜 그룹 내에서의 순서로 부여
             rank_in_day = len(grouped_data[date_key]) + 1
-            
+
             grouped_data[date_key].append(IssueFeedItem(
                 id=issue.id,
                 name=issue.name,
                 description=issue.description,
+                issue_type=issue.issue_type,
                 article_count=issue.total_count,
                 rank=rank_in_day,
                 created_at=created_at,
                 image_urls=image_urls_map.get(issue.id, [])
             ))
 
-    
         return IssueGroupedResponse(data=dict(grouped_data))
 
     def get_issue_timeline(self, issue_id: int):
@@ -229,6 +212,7 @@ class IssueService:
             timeline_items.append(IssueTimelineItem(
                 id=issue.id,
                 name=issue.name,
+                issue_type=issue.issue_type,
                 article_count=issue.total_count,
                 created_at=created_at,
                 image_urls=image_urls,
@@ -280,6 +264,7 @@ class IssueService:
                     id=issue.id,
                     name=issue.name,
                     description=issue.description,
+                    issue_type=issue.issue_type,
                     article_count=issue.total_count,
                     rank=rank_in_feed,
                     created_at=created_at,
@@ -298,6 +283,7 @@ class IssueService:
                     id=issue.id,
                     name=issue.name,
                     description=issue.description,
+                    issue_type=issue.issue_type,
                     article_count=issue.total_count,
                     rank=rank_in_feed,
                     created_at=created_at,

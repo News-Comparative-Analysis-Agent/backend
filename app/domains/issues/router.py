@@ -13,21 +13,16 @@ router = APIRouter()
 @router.get("/daily-issues",
             response_model=IssueFeedResponse,
             summary="날짜별 이슈 피드 조회",
-            description="""
-지정된 날짜에 생성된 이슈들을 중요도(언론사 수, 기사 수) 순으로 정렬하여 반환합니다.
-날짜가 지정되지 않으면 현재 날짜(KST)의 이슈를 반환합니다.
-""")
+            description="지정된 날짜에 생성된 이슈들을 중요도(언론사 수, 기사 수) 순으로 정렬하여 반환합니다. issue_type으로 사설/정치 필터링이 가능합니다.")
 def get_issue_feed(
     date: str = Query(None, description="조회할 날짜 (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
     page_size: int = Query(10, ge=1, le=100, description="페이지당 개수"),
+    issue_type: str = Query(None, description="이슈 유형 필터: 'editorial'(사설) 또는 'politics'(정치). 생략 시 전체 조회"),
     db: Session = Depends(get_db)
 ):
-    """
-    이슈 피드 조회 (날짜별 페이징 지원)
-    """
     service = IssueService(db)
-    return service.get_issue_feed(date_str=date, page=page, page_size=page_size)
+    return service.get_issue_feed(date_str=date, page=page, page_size=page_size, issue_type=issue_type)
 
 @router.get("/feed",
             response_model=IssueFeedLegacyResponse,
@@ -52,16 +47,14 @@ def get_issue_feed_legacy(
 @router.get("/grouped",
             response_model=IssueGroupedResponse,
             summary="최근 N일간의 이슈 날짜별 그룹화 조회",
-            description="최근 N일 동안 발생한 이슈들을 날짜별로 묶어서 반환합니다. 메인 타임라인 구성에 적합합니다.")
+            description="최근 N일 동안 발생한 이슈들을 날짜별로 묶어서 반환합니다. issue_type으로 사설/정치 필터링이 가능합니다.")
 def get_grouped_issues(
     days: int = Query(7, description="조회할 기간 (일 단위)"),
+    issue_type: str = Query(None, description="이슈 유형 필터: 'editorial'(사설) 또는 'politics'(정치). 생략 시 전체 조회"),
     db: Session = Depends(get_db)
 ):
-    """
-    이슈 그룹화 조회 (최근 N일)
-    """
     service = IssueService(db)
-    return service.get_grouped_issues(days=days)
+    return service.get_grouped_issues(days=days, issue_type=issue_type)
 
 @router.get("/{issue_id}/analysis",
             response_model=IssueAnalysisResponse,
