@@ -20,8 +20,7 @@ class IssueRepository:
             .all()
         )
 
-    def get_feed_issues(self, target_date: Optional[date] = None, skip: int = 0, limit: int = 30) -> List[IssueLabel]:
-        """피드용 랭킹: (날짜필터) → 언론사 수 → 기사 수 순으로 정렬하여 N개 조회"""
+    def get_feed_issues(self, target_date: Optional[date] = None, skip: int = 0, limit: int = 30, issue_type: Optional[str] = None) -> List[IssueLabel]:
         publisher_count = func.count(func.distinct(Article.publisher_id)).label("publisher_count")
         article_count = func.count(Article.id).label("article_count")
 
@@ -31,33 +30,35 @@ class IssueRepository:
         )
 
         if target_date:
-            # PostgreSQL/SQLite 모두에서 동작하도록 cast 사용 (created_at은 DateTime)
             query = query.filter(cast(IssueLabel.created_at, Date) == target_date)
+
+        if issue_type:
+            query = query.filter(IssueLabel.issue_type == issue_type)
 
         return (
             query.group_by(IssueLabel.id)
             .order_by(
-                desc(publisher_count),       # 1순위: 참여 언론사 수
-                desc(article_count),         # 2순위: 기사 수
-                desc(IssueLabel.created_at), # 3순위: 생성 시각
+                desc(publisher_count),
+                desc(article_count),
+                desc(IssueLabel.created_at),
             )
             .offset(skip)
             .limit(limit)
             .all()
         )
 
-    def get_feed_issues_count(self, target_date: Optional[date] = None) -> int:
-        """피드용 날짜별 전체 이슈 개수 조회"""
+    def get_feed_issues_count(self, target_date: Optional[date] = None, issue_type: Optional[str] = None) -> int:
         query = self.db.query(func.count(IssueLabel.id))
-        
+
         if target_date:
             query = query.filter(cast(IssueLabel.created_at, Date) == target_date)
-            
+
+        if issue_type:
+            query = query.filter(IssueLabel.issue_type == issue_type)
+
         return query.scalar() or 0
 
-    def get_issues_by_date_range(self, days: int = 7) -> List[IssueLabel]:
-        """최근 N일간의 이슈 조회"""
-        # KST 기준 현재 시각에서 N일 전의 시작 시각 계산
+    def get_issues_by_date_range(self, days: int = 7, issue_type: Optional[str] = None) -> List[IssueLabel]:
         now_kst = datetime.utcnow() + timedelta(hours=9)
         cutoff_date = (now_kst - timedelta(days=days-1)).date()
         cutoff_dt = datetime.combine(cutoff_date, datetime.min.time())
@@ -65,13 +66,19 @@ class IssueRepository:
         publisher_count = func.count(func.distinct(Article.publisher_id)).label("publisher_count")
         article_count = func.count(Article.id).label("article_count")
 
-        return (
+        query = (
             self.db.query(IssueLabel)
             .outerjoin(Article, Article.issue_label_id == IssueLabel.id)
             .filter(IssueLabel.created_at >= cutoff_dt)
-            .group_by(IssueLabel.id)
+        )
+
+        if issue_type:
+            query = query.filter(IssueLabel.issue_type == issue_type)
+
+        return (
+            query.group_by(IssueLabel.id)
             .order_by(
-                desc(IssueLabel.created_at), # 시간순 정렬 (그룹화 용이)
+                desc(IssueLabel.created_at),
                 desc(publisher_count),
                 desc(article_count),
             )

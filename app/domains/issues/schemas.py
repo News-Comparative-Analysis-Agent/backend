@@ -22,6 +22,7 @@ class IssueAnalysisResponse(BaseModel):
     description: Optional[str] = None
     core_contentions: Optional[str] = None
     background: Optional[str] = None
+    issue_type: Optional[str] = None
     created_at: datetime
 
     # 해당 이슈와 관련된 모든 주장 카드 리스트
@@ -39,6 +40,7 @@ class IssueDraftResponse(BaseModel):
     name: str
     description: Optional[str] = None
     background: Optional[str] = None
+    issue_type: Optional[str] = None
     created_at: datetime
     pre_generated_draft: Optional[str] = None
     # 해당 이슈와 관련된 모든 주장 카드 리스트
@@ -56,6 +58,7 @@ class IssueFeedItem(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    issue_type: Optional[str] = None
     article_count: int
     rank: Optional[int] = None           # 중요도(기사 수 등)에 따른 순위
     created_at: datetime
@@ -92,6 +95,7 @@ class IssueTimelineItem(BaseModel):
     """타임라인 내 개별 이슈 아이템"""
     id: int
     name: str # 이슈명
+    issue_type: Optional[str] = None
     article_count: int # 관련 기사 수
     created_at: datetime
     
@@ -117,6 +121,7 @@ class IssueFeedLegacyItem(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    issue_type: Optional[str] = None
     article_count: int
     rank: Optional[int] = None
     created_at: datetime
