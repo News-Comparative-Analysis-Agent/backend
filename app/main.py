@@ -42,7 +42,7 @@ app.include_router(db_test_router.router, prefix="/api/test/db", tags=["test"])
 
 app.include_router(articles_router.router, prefix="/articles", tags=["articles"])
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
-app.include_router(drafts_router, prefix="/api/draft", tags=["drafts"])
+app.include_router(drafts_router, prefix="/draft", tags=["drafts"])
 app.include_router(system_router.router, prefix="/system", tags=["system"])
 @app.get("/")
 def health_check():
