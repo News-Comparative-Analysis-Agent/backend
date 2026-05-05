@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, joinedload
-from app.domains.articles.models import Article
+from app.domains.articles.models import Article, ArticleBody
 from app.domains.issues.models import IssueLabel
 from app.domains.publishers.models import Publisher
 from typing import List, Optional
@@ -45,3 +45,51 @@ class DraftRepository:
         return self.db.query(ArticleClaim)\
             .filter(ArticleClaim.issue_id == issue_id)\
             .all()
+
+    def get_media_views_by_issue(self, issue_id: int) -> List[dict]:
+        """
+        ArticleClaim 테이블에서 citation 생성용 media_views 배열을 조회합니다.
+        WriterAgent가 사용하는 media_views 구조와 동일한 형태로 반환합니다.
+        """
+        from app.domains.articles.models import ArticleClaim
+        from sqlalchemy.orm import joinedload
+
+        claims = (
+            self.db.query(ArticleClaim)
+            .options(joinedload(ArticleClaim.article))
+            .filter(ArticleClaim.issue_id == issue_id)
+            .all()
+        )
+
+        media_views = []
+        for c in claims:
+            article = c.article
+            pub_date = ""
+            url = ""
+            title = ""
+            article_id = None
+            if article:
+                pub_date = article.published_at.strftime("%Y-%m-%d") if article.published_at else ""
+                url = article.url or ""
+                title = article.title or ""
+                article_id = article.id
+
+            media_views.append({
+                "press":        c.press,
+                "title":        title,
+                "url":          url,
+                "published_at": pub_date,
+                "claim":        c.claim or "",
+                "evidence":     c.evidence or "",
+                "article_id":   article_id,  # 💡 lazy-load용 article ID
+            })
+
+        return media_views
+
+    def get_article_body(self, article_id: int) -> Optional[str]:
+        """기사 원문(ArticleBody.raw_content)을 조회합니다."""
+        from app.domains.articles.models import ArticleBody
+        body = self.db.query(ArticleBody).filter(ArticleBody.article_id == article_id).first()
+        return body.raw_content if body else None
+
+

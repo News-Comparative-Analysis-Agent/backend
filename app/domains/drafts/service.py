@@ -16,7 +16,8 @@ from app.domains.drafts.schemas import (
     ArticleInfo, PerspectiveItem, PerspectivesResponse,
     SaveDraftRequest, SaveDraftResponse,
     FinalReviewResponse, WorkspaceDraftSummary,
-    GuidelineCheck, ArticleSourceItem
+    GuidelineCheck, ArticleSourceItem,
+    CitationItem, DraftWithCitationsResponse
 )
 from app.core.logger import logger
 
@@ -430,3 +431,54 @@ class DraftService:
         except Exception as e:
             logger.error(f"❌ [FinalReview Graph] 실행 중 오류: {e}")
             raise HTTPException(status_code=500, detail=f"품질 검토 중 오류가 발생했습니다: {str(e)}")
+
+    # ==========================================
+    # 8. 인용 출처 조회 (Citation Feature)
+    # ==========================================
+    def get_draft_with_citations(self, issue_id: int) -> DraftWithCitationsResponse:
+        """
+        DB에 저장된 pre_generated_draft와 ArticleClaim을 바탕으로
+        [N] citation 마커가 삽입된 기사 본문과 출처 배열을 반환합니다.
+        """
+        from app.agents.utils import annotate_citations
+
+        issue = self.repo.get_issue_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
+
+        article_body = issue.pre_generated_draft or ""
+        if not article_body:
+            raise HTTPException(status_code=404, detail="저장된 초안이 없습니다.")
+
+        # ArticleClaim 테이블에서 media_views 형태로 조회
+        media_views = self.repo.get_media_views_by_issue(issue_id)
+
+        # citation 마커 실시간 삽입
+        annotated_body, raw_citations = annotate_citations(article_body, media_views)
+
+        citations = [
+            CitationItem(
+                id=c["id"],
+                press=c["press"],
+                title=c["title"],
+                url=c["url"],
+                published_at=c["published_at"],
+                article_id=c.get("article_id"),  # 💡 lazy-load용
+                quote=c["quote"],
+                full_evidence=c["full_evidence"]
+            )
+            for c in raw_citations
+        ]
+
+        logger.info(f"📎 [DraftService] issue_id={issue_id} citation 언론사 {len(citations)}개 매칭")
+
+        return DraftWithCitationsResponse(
+            issue_id=issue_id,
+            title=issue.name,
+            article_body=annotated_body,
+            citations=citations
+        )
+
+    def get_article_body(self, article_id: int) -> Optional[str]:
+        """기사 원문(raw_content)을 반환합니다. lazy-load API에서 사용합니다."""
+        return self.repo.get_article_body(article_id)

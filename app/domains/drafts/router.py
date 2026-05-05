@@ -8,7 +8,8 @@ from app.domains.users.schemas import TokenResponse, MyPageResponse, MyPageDraft
 from app.domains.drafts.schemas import (
     StreamDraftRequest, ChatRequest, ChatResponse, ImageItem,
     FinalReviewResponse, SimilarityRequest, SimilarityResponse, 
-    PerspectivesResponse, WorkspaceDraftSummary, DraftUpdate
+    PerspectivesResponse, WorkspaceDraftSummary, DraftUpdate,
+    DraftWithCitationsResponse, ArticleBodyResponse
 )
 from app.domains.drafts.service import DraftService
 router = APIRouter()
@@ -70,3 +71,40 @@ async def final_review_api(issue_id: int, db: Session = Depends(get_db)):
     """
     service = DraftService(db)
     return await service.run_final_review(issue_id)
+
+
+# 8. Citation (인용 출처) 조회 API
+@router.get(
+    "/citations/{issue_id}",
+    response_model=DraftWithCitationsResponse,
+    summary="기사 초안 인용 출처 조회",
+    description="""
+저장된 기사 초안 본문에 언론사별 인용 마커 [N]을 삽입하고,
+각 마커에 대응하는 원문 출처 정보(언론사, 제목, URL, 전체 evidence)를 반환합니다.
+
+프론트엔드에서 [N] 마커를 클릭하면 citations[N] 데이터를 팝업으로 표시하여
+할루시네이션 없이 원문에서 그대로 인용했음을 증명할 수 있습니다.
+"""
+)
+def get_draft_citations(issue_id: int, db: Session = Depends(get_db)):
+    """
+    [N] 마커가 삽입된 기사 본문 + 언론사별 citation 배열 반환.
+    DB의 ArticleClaim 테이블을 조회하여 실시간으로 생성합니다. (LLM 미사용)
+    """
+    service = DraftService(db)
+    return service.get_draft_with_citations(issue_id)
+
+
+# 9. 기사 원문 lazy-load API
+@router.get("/article-body/{article_id}", response_model=ArticleBodyResponse, summary="기사 원문 조회 (인용 팝업용)")
+async def get_article_body_api(article_id: int, db: Session = Depends(get_db)):
+    """
+    인용 마커 클릭 시 팝업에 표시할 기사 원문을 반환합니다.
+    응답 크기를 줄이기 위해 citations API와 분리하여 lazy-load 방식으로 호출합니다.
+    """
+    service = DraftService(db)
+    raw_content = service.get_article_body(article_id)
+    if raw_content is None:
+        raise HTTPException(status_code=404, detail="기사 원문을 찾을 수 없습니다.")
+    return ArticleBodyResponse(article_id=article_id, raw_content=raw_content)
+
