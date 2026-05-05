@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from app.agents.state import ComparisonState
-from app.agents.utils import call_llm, update_total_tokens
+from app.agents.utils import call_llm, update_total_tokens, annotate_citations
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 
@@ -163,6 +163,9 @@ class WriterAgent:
 
             llm_body = result.get("article_body") if isinstance(result, dict) else (str(result) if result else "본문 생성 실패")
 
+            # citation 마커 삽입 (evidence 원문 문자열 매칭 기반, LLM 불필요)
+            annotated_body, citations = annotate_citations(llm_body, media_views)
+
             final_data = {
                 "issue_id":         issue_id,
                 "title":            title,
@@ -170,7 +173,8 @@ class WriterAgent:
                 "background":       background,
                 "conflict_summary": conflict_summary,
                 "media_views":      media_views,
-                "article_body":     llm_body,
+                "article_body":     annotated_body,  # [N] 마커 포함 본문
+                "citations":        citations,        # 언론사별 출처 배열
             }
 
             total_tokens = update_total_tokens(state, usage, "WriterAgent")
