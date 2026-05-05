@@ -89,7 +89,16 @@ def create_analysis_subgraph():
     workflow.add_edge(START, "fetch")
     workflow.add_edge("fetch", "evidence")
     workflow.add_edge("evidence", "issue")
-    workflow.add_edge("issue", "writer")
+    
+    # 라우팅: 정치 기사 모드면 작성 단계를 건너뜀
+    def route_after_issue(state: ComparisonState) -> str:
+        if state.get("article_mode") == "politics":
+            logger.info(f"⏭️ [SubGraph] 정치 모드이므로 Writer/Editor를 생략하고 분석을 종료합니다. (Issue: {state.get('issue_id')})")
+            return END
+        return "writer"
+
+    workflow.add_conditional_edges("issue", route_after_issue, {"writer": "writer", END: END})
+    
     workflow.add_edge("writer", "judge")
     
     # 순환 라우팅 (재작성/재교정)
@@ -133,6 +142,7 @@ def create_comparison_graph(db: Session):
         # state는 Send()로부터 전달받은 단일 이슈 처리용 데이터
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode")
+        article_mode = state.get("article_mode", "editorial")
         
         # ✅ DB에서 해당 이슈의 '진짜' 상세 정보를 로드 (OverallState는 이를 들고 있지 않음)
         with SessionLocal() as db:
@@ -144,6 +154,7 @@ def create_comparison_graph(db: Session):
             sub_initial_state = {
                 "issue_id": issue_id,
                 "llm_mode": llm_mode,
+                "article_mode": article_mode,
                 "title": issue.name if issue else "",
                 "description": issue.description if issue else "",
                 "background": issue.background if issue else "",
