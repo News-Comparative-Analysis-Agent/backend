@@ -63,6 +63,7 @@ class ComparisonState(TypedDict):
     개별 이슈 분석 브랜치 전용 상태 (Isolated State)
     """
     llm_mode: str
+    article_mode: str
     issue_id: int
 
     # EvidenceAgent가 LLM 호출을 위해 사용하는 원문 기사 목록
