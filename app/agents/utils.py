@@ -13,6 +13,62 @@ from app.core.logger import logger, log_llm_event
 llm_semaphore = threading.Semaphore(1)
 
 
+# ============================================================
+# 🛡️ agent_guard — 에이전트 내결함성 데코레이터
+# ============================================================
+def agent_guard(agent_name: str, recoverable: bool = True):
+    """
+    에이전트 노드 메서드에 적용하는 에러 처리 데코레이터.
+
+    동작 방식:
+      1. 이미 pipeline_status == "FAILED"인 경우 → 노드 실행을 건너뜀 (조용한 패스)
+      2. 노드 실행 중 예외 발생 시 → State에 구조화된 AgentError 신호를 주입
+         - recoverable=True  → pipeline_status = "DEGRADED" (후속 노드는 계속 실행)
+         - recoverable=False → pipeline_status = "FAILED"   (후속 노드 모두 건너뜀)
+
+    Args:
+        agent_name:  로그 및 에러 리포트에 표시할 에이전트 이름
+        recoverable: 에러 발생 시 파이프라인을 계속 진행할지 여부
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(self, state: dict, *args, **kwargs):
+            # 이미 FAILED 상태면 실행 건너뜀
+            current_status = state.get("pipeline_status", "RUNNING")
+            if current_status == "FAILED":
+                logger.warning(f"⏭️  [{agent_name}] pipeline_status=FAILED → 노드 건너뜀")
+                return {}
+
+            try:
+                return fn(self, state, *args, **kwargs)
+
+            except Exception as e:
+                error_entry = {
+                    "agent":       agent_name,
+                    "code":        type(e).__name__,
+                    "message":     str(e),
+                    "recoverable": recoverable,
+                }
+                new_status = "DEGRADED" if recoverable else "FAILED"
+                existing_errors = state.get("agent_errors") or []
+
+                logger.error(
+                    f"🚨 [{agent_name}] 에러 발생 "
+                    f"(recoverable={recoverable}, status→{new_status}): {e}"
+                )
+                log_llm_event(
+                    agent_name.lower().replace(" ", "_"),
+                    f"[{agent_name}] GUARD 포착: {type(e).__name__}: {e}"
+                )
+
+                return {
+                    "pipeline_status": new_status,
+                    "agent_errors":    existing_errors + [error_entry],
+                    "messages":        [f"[{agent_name}] 실패({type(e).__name__}): {e}"],
+                }
+        return wrapper
+    return decorator
+
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
 LLM_SERVER_IP = os.getenv("LLM_SERVER_IP", os.getenv("HOST_IP", "127.0.0.1")).strip()
 

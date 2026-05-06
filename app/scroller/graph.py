@@ -48,7 +48,6 @@ def create_analysis_subgraph():
     from app.agents.evidence import EvidenceAgent
     from app.agents.issue import IssueAgent
     from app.agents.writer import WriterAgent
-    from app.agents.editor import EditorAgent
     from app.agents.judge import JudgeAgent
     from app.core.database import SessionLocal
     
@@ -56,8 +55,24 @@ def create_analysis_subgraph():
     
     # 병렬 스레드에서 DB 충돌(TransactionClosedError)을 막기 위해 노드 래퍼 함수 정의
     def fetch_wrapper(state):
+        # 🆕 Evidence 재시작 시 에러 상태 리셋 + 재시도 카운터 증가
+        prev_retry = state.get("evidence_retry_count", 0)
+        is_retry = state.get("pipeline_status") in ("FAILED", "DEGRADED")
+        if is_retry:
+            logger.info(f"🔄 [Graph] Evidence 재시작 #{prev_retry + 1}: 에러 상태 초기화 후 재실행")
+
         with SessionLocal() as db:
-            return EvidenceAgent(db).node_fetch_articles(state)
+            result = EvidenceAgent(db).node_fetch_articles(state)
+
+        # 재시작인 경우 상태 리셋 값을 결과에 병합
+        if is_retry:
+            result = {
+                **result,
+                "pipeline_status":      "RUNNING",
+                "agent_errors":         [],
+                "evidence_retry_count": prev_retry + 1,
+            }
+        return result
             
     def evidence_wrapper(state):
         with SessionLocal() as db:
@@ -69,10 +84,6 @@ def create_analysis_subgraph():
             
     def writer_wrapper(state):
         return WriterAgent().node_write_draft(state)
-        
-    def editor_wrapper(state):
-        with SessionLocal() as db:
-            return EditorAgent(db).node_edit_draft(state)
         
     def judge_wrapper(state):
         with SessionLocal() as db:
@@ -92,16 +103,47 @@ def create_analysis_subgraph():
     workflow.add_edge("issue", "writer")
     workflow.add_edge("writer", "judge")
     
-    # 순환 라우팅 (재작성/재교정)
-    def route_from_judge(state: ComparisonState) -> str:
-        status = state.get("judge_status", "")
-        retry = state.get("retry_count", 0)
-        if retry >= 3 or status == "PASS":
-            return END
-        return "writer"
+    # 순환 라우팅 (재작성/재교정 + 에러 시 Evidence 재시작)
+    MAX_WRITER_RETRY = 3      # Judge FAIL 시 Writer 재시도 최대 횟수
+    MAX_EVIDENCE_RETRY = 2    # 에러로 인한 Evidence 재시작 최대 횟수
 
-    workflow.add_conditional_edges("judge", route_from_judge, {"writer": "writer", END: END})
-    
+    def route_after_judge(state: ComparisonState) -> str:
+        """
+        Judge 이후 라우팅 로직.
+        우선순위:
+          1. pipeline_status가 FAILED/DEGRADED → Evidence부터 재시작 (최대 MAX_EVIDENCE_RETRY회)
+          2. Judge가 FAIL 판정       → Writer 재시도 (최대 MAX_WRITER_RETRY회)
+          3. 그 외 (PASS 또는 한계 초과) → END
+        """
+        pipeline_status   = state.get("pipeline_status", "RUNNING")
+        judge_status      = state.get("judge_status", "")
+        writer_retry      = state.get("retry_count", 0)
+        evidence_retry    = state.get("evidence_retry_count", 0)
+        agent_errors      = state.get("agent_errors") or []
+
+        # 1. 파이프라인 에러 감지 → Evidence 재시작
+        if pipeline_status in ("FAILED", "DEGRADED") and evidence_retry < MAX_EVIDENCE_RETRY:
+            failed_agents = [e["agent"] for e in agent_errors]
+            logger.warning(
+                f"🔄 [Graph] 파이프라인 에러 감지 (status={pipeline_status}, "
+                f"실패 에이전트={failed_agents}) → "
+                f"Evidence 재시작 ({evidence_retry + 1}/{MAX_EVIDENCE_RETRY})"
+            )
+            return "fetch"   # Evidence의 node_fetch_articles 노드
+
+        # 2. Judge 품질 실패 → Writer 재시도
+        if judge_status != "PASS" and writer_retry < MAX_WRITER_RETRY:
+            return "writer"
+
+        # 3. 완료
+        return END
+
+    workflow.add_conditional_edges(
+        "judge",
+        route_after_judge,
+        {"fetch": "fetch", "writer": "writer", END: END}
+    )
+
     return workflow.compile()
 
 @log_execution_time("issue_generation_pipeline")
@@ -148,7 +190,11 @@ def create_comparison_graph(db: Session):
                 "description": issue.description if issue else "",
                 "background": issue.background if issue else "",
                 "messages": [],
-                "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
+                "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0},
+                # 🆕 내결함성 초기값
+                "pipeline_status": "RUNNING",
+                "agent_errors": [],
+                "evidence_retry_count": 0,
             }
         
         # invoke로 개별 스레드/프로세스 환경에서 실행

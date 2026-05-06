@@ -1,7 +1,7 @@
 import json
 import os
 from app.agents.state import ComparisonState
-from app.agents.utils import parse_llm_json, update_total_tokens, call_llm
+from app.agents.utils import parse_llm_json, update_total_tokens, call_llm, agent_guard
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 
@@ -14,6 +14,7 @@ class JudgeAgent:
     def __init__(self, db=None):
         self.db = db
 
+    @agent_guard("JudgeAgent", recoverable=True)
     @traceable(name="Agent 5: Judge (최종 검수) ⚖️")
     def node_evaluate_draft(self, state: ComparisonState) -> dict:
         """
@@ -165,7 +166,7 @@ class JudgeAgent:
                     
                     repo.update_issue_draft(issue_id, article_body)
                     
-                    # 나머지 분석 메타데이터 저장 (EditorAgent/WriterAgent 결과 우선, 없으면 State 원본 사용)
+                    # 나머지 분석 메타데이터 저장 (WriterAgent 결과 우선, 없으면 State 원본 사용)
                     # dict.get(f, default)는 키가 있을 때 빈 문자열이라도 그대로 가져오므로 'or'를 사용하여 빈 값 방어
                     e_art = edited_article if isinstance(edited_article, dict) else {}
                     final_desc = e_art.get("description") or state.get("description") or ""

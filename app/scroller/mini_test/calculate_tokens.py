@@ -28,9 +28,6 @@ for i, line in enumerate(lines):
             if "[JudgeAgent]" in next_line or "agent_judge" in next_line:
                 agent_name = "JudgeAgent"
                 break
-            elif "[EditorAgent]" in next_line or "agent_editor" in next_line:
-                agent_name = "EditorAgent"
-                break
             elif "[WriterAgent]" in next_line or "agent_writer" in next_line:
                 agent_name = "WriterAgent"
                 break
@@ -47,9 +44,6 @@ for i, line in enumerate(lines):
                 prev_line = lines[j]
                 if "[JudgeAgent]" in prev_line or "agent_judge" in prev_line:
                     agent_name = "JudgeAgent"
-                    break
-                elif "[EditorAgent]" in prev_line or "agent_editor" in prev_line:
-                    agent_name = "EditorAgent"
                     break
                 elif "[WriterAgent]" in prev_line or "agent_writer" in prev_line:
                     agent_name = "WriterAgent"

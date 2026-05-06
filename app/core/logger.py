@@ -86,7 +86,6 @@ def log_llm_event(node_name: str, message: str, details: str = None, token_info:
         "EvidenceAgent": "<light-blue>",
         "IssueAgent": "<light-yellow>",
         "WriterAgent": "<light-magenta>",
-        "EditorAgent": "<light-cyan>",
         "JudgeAgent": "<light-red>",
         "LocalLLM": "<green>",
         "Gemini": "<blue>",

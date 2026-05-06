@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from app.agents.state import ComparisonState
-from app.agents.utils import call_llm, update_total_tokens, annotate_citations
+from app.agents.utils import call_llm, update_total_tokens, annotate_citations, agent_guard
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 
@@ -23,6 +23,7 @@ class WriterAgent:
         except Exception:
             return published_at
 
+    @agent_guard("WriterAgent", recoverable=False)
     @traceable(name="Agent 3: Writer (비평 기사 본문 작성) ✍️")
     def node_write_draft(self, state: ComparisonState) -> dict:
         """
@@ -46,12 +47,13 @@ class WriterAgent:
         description      = state.get("description", "")
         background       = state.get("background", "")
         conflict_summary = state.get("conflict_summary", "")
-        media_views      = state.get("media_views", [])
+        media_views = state.get("media_views", [])
+
+        # 🛡️ Precondition Check
+        if not media_views:
+            raise ValueError("NO_MEDIA_VIEWS: Writer에 전달된 매체 데이터가 없습니다.")
 
         log_llm_event("agent_writer", f"Agent 3 (Writer): 비평 기사 본문 작성 시작 (Retry: {retry_count})")
-
-        if not title and not media_views:
-            return {"draft_article": {"article_body": "입력 데이터가 부족합니다."}, "messages": ["데이터 부재로 Writer 중단"]}
 
         # 언론사별 블록 포매팅 — 날짜를 Python에서 직접 가공하여 전달
         media_blocks = ""

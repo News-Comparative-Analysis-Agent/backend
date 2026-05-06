@@ -1,6 +1,6 @@
 import json
 from app.agents.state import ComparisonState
-from app.agents.utils import call_llm, update_total_tokens
+from app.agents.utils import call_llm, update_total_tokens, agent_guard
 from app.core.logger import logger, log_llm_event
 from langsmith import traceable
 from app.domains.issues.repository import IssueRepository
@@ -14,6 +14,7 @@ class IssueAgent:
         self.db = db
         self.issue_repo = IssueRepository(db) if db is not None else None
 
+    @agent_guard("IssueAgent", recoverable=True)
     @traceable(name="Agent 2: Issue (갈등 양상 분석) 🧩")
     def node_structure_issues(self, state: ComparisonState) -> dict:
         """
@@ -25,7 +26,7 @@ class IssueAgent:
         log_llm_event("agent_issue", msg_start)
 
         if not media_items:
-            return {"messages": ["분석할 매체 뷰가 없습니다."], "media_views": [], "conflict_summary": ""}
+            raise ValueError("NO_MEDIA_VIEWS: Writer에 전달할 매체 데이터가 없습니다.")
 
         # 2. 대립 구도 분석을 위한 LLM 호출
         # 언론사별 블록으로 포매팅

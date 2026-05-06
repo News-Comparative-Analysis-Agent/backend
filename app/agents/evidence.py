@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from langsmith import traceable
 
 from app.agents.state import ComparisonState
-from app.agents.utils import call_llm, update_total_tokens
+from app.agents.utils import call_llm, update_total_tokens, agent_guard
 from app.core.logger import logger, log_llm_event
 from app.domains.articles.service import ArticleService
 from app.scroller.repository import ScrollerRepository
@@ -25,6 +25,7 @@ class EvidenceAgent:
         self.repo = ScrollerRepository(db)
         self.article_service = ArticleService(db)
 
+    @agent_guard("EvidenceAgent.fetch", recoverable=False)
     def node_fetch_articles(self, state: ComparisonState) -> dict:
         """[Node] DB에서 이슈 ID에 속한 기사 원문을 가져옵니다."""
         issue_id = state.get("issue_id")
@@ -46,6 +47,9 @@ class EvidenceAgent:
                 'published_at': pub_date
             })
             
+        if not data:
+            raise ValueError(f"DB_EMPTY: 이슈 ID {issue_id}에 연결된 기사가 없습니다.")
+
         msg = f"이슈 ID {issue_id}에 대해 기사 {len(data)}건 로드 완료"
         logger.info(f"🔍 [EvidenceAgent:Fetch] {msg}")
         
@@ -124,6 +128,7 @@ class EvidenceAgent:
             
         return None, usage
 
+    @agent_guard("EvidenceAgent.extract", recoverable=True)
     @traceable(name="Agent 1: Evidence (주장 및 근거 추출) 🕵️‍♂️")
     def node_extract_claims(self, state: ComparisonState) -> dict:
         """
@@ -132,9 +137,10 @@ class EvidenceAgent:
         articles = state.get("articles", [])
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode", "local_only")
-        
-        if not articles:
-            return {"messages": ["로드된 기사가 없습니다."]}
+
+        # 🛡️ Precondition Check
+        if not articles or len(articles) < 1:
+            raise ValueError("INSUFFICIENT_ARTICLES: 추출할 기사가 없습니다.")
             
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
@@ -159,12 +165,13 @@ class EvidenceAgent:
                 if card_data:
                     claim_cards.append(card_data)
                     media_views.append({
-                        "press": card_data.get("press", ""),
-                        "title": card_data.get("title", ""),
+                        "article_id":   card_data.get("article_id"),   # lazy-loading용 필수 필드
+                        "press":        card_data.get("press", ""),
+                        "title":        card_data.get("title", ""),
                         "published_at": card_data.get("published_at", ""),
-                        "claim": card_data.get("claim", ""),
-                        "evidence": card_data.get("evidence", ""),
-                        "url": card_data.get("url", "")
+                        "claim":        card_data.get("claim", ""),
+                        "evidence":     card_data.get("evidence", ""),
+                        "url":          card_data.get("url", "")
                     })
                     
         # DB 저장

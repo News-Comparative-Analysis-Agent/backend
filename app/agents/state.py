@@ -76,14 +76,18 @@ class ComparisonState(TypedDict):
     description: str
     background: str
 
-    # Writer/Editor 체인에서 전달되는 초안/최종 결과
+    # Writer 체인에서 전달되는 초안 결과
     draft_article: Dict[str, Any]
-    edited_article: Dict[str, Any]
 
     # Judge 재시도 라우팅에 필요한 값
     judge_status: str
     judge_feedback: str
     retry_count: int
+
+    # 🆕 파이프라인 내결함성 (Fault-Tolerant) 필드
+    pipeline_status: str          # "RUNNING" | "DEGRADED" | "FAILED"
+    agent_errors: List[Dict[str, Any]]  # 누적 에러 목록 [{agent, code, message, recoverable}]
+    evidence_retry_count: int     # Evidence부터 재시작한 횟수
 
     # LangGraph 로그/누적 토큰
     messages: Annotated[List[str], operator.add]
