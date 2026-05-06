@@ -12,6 +12,24 @@ from app.domains.issues.schemas import (
 )
 from collections import defaultdict
 from app.agents.utils import call_llm
+from app.core.logger import logger
+
+# SBERT 모델 싱글톤 (타임라인 후보군 필터링용)
+_sbert_model = None
+
+def get_sbert_model():
+    """클러스터링과 동일한 한국어 SBERT 모델을 싱글톤으로 로드"""
+    global _sbert_model
+    if _sbert_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            # 기존 클러스터링(ClusterAgent)에서 사용하는 것과 동일한 고성능 한국어 모델
+            _sbert_model = SentenceTransformer("snunlp/KR-SBERT-V40K-klueNLI-augSTS")
+            logger.info("✅ [IssueService] Timeline SBERT 모델 로드 완료")
+        except Exception as e:
+            logger.error(f"❌ [IssueService] SBERT 모델 로드 실패: {e}")
+            return None
+    return _sbert_model
 
 class IssueService:
     def __init__(self, db: Session):
@@ -111,14 +129,9 @@ class IssueService:
 
 반드시 ["제목1", "제목2", "제목3", "제목4", "제목5"] 형태의 JSON 문자열 리스트로만 응답하세요. 다른 부연 설명은 하지 마세요.
 """
-        # local_only 모드로 강제하여 .env에 설정된 LLM_MODEL_NAME 또는 GEMINI_MODEL_NAME(DeepInfra 환경 등)을 사용하도록 함.
-        # utils.py 의 call_llm 은 state dict 안의 llm_mode 를 참조합니다.
         state = {"llm_mode": "local_only"}
-        # model_size 파라미터는 여기서는 식별자 목적으로 넘깁니다. (utils.py 에서는 dict lookup 에 쓰이거나 target 식별에 쓰임)
-        # 로컬(DeepInfra)을 쓸 때는 API URL이 고정이므로 'local' 을 줍니다.
         result, usage = call_llm(prompt, model_size="local", state=state, schema=None)
         
-        # 만약 LLM이 리스트가 아닌 딕셔너리로 반환했을 경우 복구 시도
         headlines = []
         if isinstance(result, list):
             headlines = [str(x) for x in result if isinstance(x, str)]
@@ -131,7 +144,6 @@ class IssueService:
         if not headlines:
             raise HTTPException(status_code=500, detail="LLM 응답에서 제목 리스트를 파싱하지 못했습니다.")
 
-        # 정확히 5개가 넘어가면 자름
         return HeadlineRecommendationResponse(headlines=headlines[:5])
 
     def get_issue_feed(self, date_str: Optional[str] = None, page: int = 1, page_size: int = 10, issue_type: Optional[str] = None) -> IssueFeedResponse:
@@ -209,72 +221,143 @@ class IssueService:
 
         return IssueGroupedResponse(data=dict(grouped_data))
 
-    def get_issue_timeline(self, issue_id: int):
-        """특정 이슈와 타이틀이 유사한 이슈들을 찾고 그 중 과거의 이슈들을 타임라인으로 반환합니다."""
-        target_issue = self.repo.get_by_id(issue_id)
-        if not target_issue:
-            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
+    def link_parent_issue(self, new_issue_id: int) -> None:
+        """
+        새로 생성된 이슈가 기존 이슈의 후속인지 LLM으로 판별하고
+        parent_issue_id와 phase를 저장합니다.
+        """
+        new_issue = self.repo.get_by_id(new_issue_id)
+        if not new_issue:
+            logger.warning(f"[Timeline] 이슈 {new_issue_id} 없음, 건너뜀")
+            return
+     
+        # 1. 일단 넓게 후보군을 가져옵니다 (최근 60일치 중 최대 200개)
+        all_candidates = self.repo.get_recent_issues_for_linkage(days=60, exclude_id=new_issue_id, limit=200)
+     
+        if not all_candidates:
+            # 후보 없으면 자기 자신이 루트
+            self.repo.update_issue_linkage(new_issue_id, parent_issue_id=new_issue_id, phase="발생")
+            logger.info(f"[Timeline] 이슈 {new_issue_id} → 후보 없음, 독립 루트로 설정")
+            return
 
-        # 최근 이슈 N개 조회 (성능을 위해 제한)
-        recent_issues = self.repo.get_recent_issues_for_timeline(limit=400)
-
-        import difflib
-        
-        # 유사도 필터링
-        similar_issues = []
-        for issue in recent_issues:
-            # 타임라인에는 과거부터 현재까지 발생한 이슈가 포함됩니다.
-            # difflib.SequenceMatcher 로 글자 기반 유사도 측정 (한국어 텍스트에 효과적임)
-            ratio = difflib.SequenceMatcher(None, target_issue.name, issue.name).ratio()
+        # 2. SBERT를 이용해 의미적으로 유사한 상위 20개만 선별 (토큰 최적화)
+        candidates = self._filter_candidates_by_similarity(new_issue, all_candidates, top_k=20)
+     
+        # 후보군 텍스트 구성
+        candidate_texts = "\n".join([
+            f"[ID:{c.id}] 제목: {c.name}\n갈등구도: {c.conflict_summary or '없음'}\n생성일: {c.created_at.strftime('%m.%d')}"
+            for c in candidates
+        ])
+     
+        prompt = f"""
+당신은 뉴스 이슈의 연속성을 판별하는 전문가입니다.
+ 
+[새로 생성된 이슈]
+제목: {new_issue.name}
+갈등구도: {new_issue.conflict_summary or '없음'}
+배경: {new_issue.background or '없음'}
+ 
+[기존 이슈 후보군 (최근 2개월, 루트 이슈들)]
+{candidate_texts}
+ 
+판단 기준:
+- 동일한 사건/의혹의 후속 보도라면 → 해당 이슈 ID 반환
+- 인물이나 키워드가 겹쳐도 사건 자체가 다르면 → null 반환
+- 확실하지 않으면 → null 반환 (새 루트로 시작하는 게 안전)
+ 
+phase 기준:
+- 발생: 사건이 처음 알려진 단계
+- 확산: 여러 언론/진영으로 반응이 퍼지는 단계
+- 대응: 관련 당사자들이 공식 입장을 내는 단계
+- 교착: 입장 차가 좁혀지지 않고 교착 상태
+- 해소: 결론이 나거나 사건이 일단락된 단계
+ 
+반드시 아래 JSON 형식으로만 응답하세요:
+{{
+    "parent_issue_id": 123 또는 null,
+    "phase": "발생/확산/대응/교착/해소 중 하나",
+    "reason": "판단 근거 한 줄"
+}}
+"""
+     
+        try:
+            from app.scroller.repository import ScrollerRepository
+            scroller_repo = ScrollerRepository(self.db)
+            settings = scroller_repo.get_system_settings()
+            llm_mode = settings.llm_mode if settings else "local_only"
             
-            # 1. 대상 이슈 이름에 부분 문자열이 완전히 포함
-            # 2. 혹은 글자 유사도가 55% 이상인 경우 타임라인으로 간주
-            if (target_issue.name in issue.name or 
-                issue.name in target_issue.name or 
-                ratio >= 0.55):
-                similar_issues.append(issue)
+            result, _ = call_llm(prompt=prompt, model_size="local", state={"llm_mode": llm_mode})
+     
+            if not result:
+                raise ValueError("LLM 응답 없음")
+     
+            parent_id = result.get("parent_issue_id")
+            phase = result.get("phase", "발생")
+            reason = result.get("reason", "")
+     
+            valid_ids = {c.id for c in candidates}
+            if parent_id and parent_id not in valid_ids:
+                logger.warning(f"[Timeline] LLM이 반환한 parent_id={parent_id}가 후보군에 없음 → 독립 루트로 설정")
+                parent_id = None
+     
+            final_parent_id = parent_id if parent_id else new_issue_id
+     
+            self.repo.update_issue_linkage(
+                issue_id=new_issue_id,
+                parent_issue_id=final_parent_id,
+                phase=phase
+            )
+     
+            if parent_id:
+                logger.info(f"[Timeline] 이슈 {new_issue_id} → 루트 {parent_id}의 후속 ({phase}) | {reason}")
+            else:
+                logger.info(f"[Timeline] 이슈 {new_issue_id} → 독립 루트 ({phase}) | {reason}")
+     
+        except Exception as e:
+            logger.error(f"[Timeline] link_parent_issue 실패 (issue_id={new_issue_id}): {e}")
+            self.repo.update_issue_linkage(new_issue_id, parent_issue_id=new_issue_id, phase="발생")
 
-        # 시간순(과거->최신) 정렬
-        similar_issues.sort(key=lambda x: x.created_at)
-
-        # 이미지 URL 일괄 조회
-        issue_ids = [iss.id for iss in similar_issues]
+    def get_issue_timeline(self, issue_id: int):
+        from app.domains.issues.schemas import IssueTimelineItem, IssueTimelineResponse
+     
+        issue = self.repo.get_by_id(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
+     
+        root_id = self.repo.get_root_issue_id(issue_id)
+        timeline_issues = self.repo.get_timeline_by_root(root_id)
+     
+        issue_ids = [iss.id for iss in timeline_issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
-        
+     
         timeline_items = []
-        for issue in similar_issues:
-            created_at = issue.created_at
+        for iss in timeline_issues:
+            created_at = iss.created_at
             if hasattr(created_at, 'tzinfo') and created_at.tzinfo is not None:
                 created_at = created_at.replace(tzinfo=None)
-                
-            image_urls = image_urls_map.get(issue.id, [])
-            
+     
             timeline_items.append(IssueTimelineItem(
-                id=issue.id,
-                name=issue.name,
-                issue_type=issue.issue_type,
-                article_count=issue.total_count,
+                id=iss.id,
+                name=iss.name,
+                phase=iss.phase,
+                issue_type=iss.issue_type,
+                conflict_summary=iss.conflict_summary,
+                article_count=iss.total_count,
                 created_at=created_at,
-                image_urls=image_urls,
+                image_urls=image_urls_map.get(iss.id, []),
             ))
-
+     
         return IssueTimelineResponse(
-            target_issue_id=target_issue.id,
-            target_issue_name=target_issue.name,
+            target_issue_id=issue_id,
+            target_issue_name=issue.name,
+            root_issue_id=root_id,
             timeline=timeline_items
         )
 
     def get_issue_feed_legacy(self, top_count: int = 10, chart_out_count: int = 20) -> IssueFeedLegacyResponse:
-        """
-        피드용 30개 이슈 조회 (레거시 버전)
-        - top_issues     : 가장 최근 생성된 top_count개
-        - chart_out_issues: 그 이후 chart_out_count개 (차트아웃 시간 계산 포함)
-        """
         total = top_count + chart_out_count
-        # repository의 get_feed_issues를 사용하여 날짜 필터 없이 가져옴 (target_date=None)
         issues = self.repo.get_feed_issues(target_date=None, total=total)
 
-        # 랭킹 경계 기준 시각 (10번째 이슈의 시각)
         boundary_time = None
         if len(issues) >= top_count:
             bt = issues[top_count - 1].created_at
@@ -286,7 +369,6 @@ class IssueService:
         top_issues: List[IssueFeedLegacyItem] = []
         chart_out_issues: List[IssueFeedLegacyItem] = []
 
-        # 이미지 URL 일괄 조회
         issue_ids = [issue.id for issue in issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
 
@@ -299,7 +381,6 @@ class IssueService:
             image_urls = image_urls_map.get(issue.id, [])
 
             if idx < top_count:
-                # TOP 이슈 (최신 10개)
                 top_issues.append(IssueFeedLegacyItem(
                     id=issue.id,
                     name=issue.name,
@@ -312,7 +393,6 @@ class IssueService:
                     image_urls=image_urls,
                 ))
             else:
-                # 차트아웃 이슈 (그 다음 20개)
                 peak_rank = rank_in_feed
                 if boundary_time is not None:
                     diff_minutes = int((boundary_time - created_at).total_seconds() / 60)
@@ -339,10 +419,39 @@ class IssueService:
         )
 
     def delete_issue(self, issue_id: int):
-        """이슈 삭제 및 연쇄 데이터 삭제"""
         issue = self.repo.get_by_id(issue_id)
         if not issue:
             raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
-        
         self.repo.delete_issue(issue_id)
 
+    def _filter_candidates_by_similarity(self, target_issue, candidates, top_k=20):
+        """Sentence-BERT 임베딩을 이용해 의미적으로 가장 유사한 후보 이슈들을 선별합니다."""
+        try:
+            from sklearn.metrics.pairwise import cosine_similarity
+            import numpy as np
+            
+            model = get_sbert_model()
+            if model is None:
+                raise ValueError("SBERT 모델을 사용할 수 없습니다.")
+
+            # 비교 텍스트 생성 (제목 + 배경)
+            target_text = f"{target_issue.name} {target_issue.background or ''}"
+            candidate_texts = [f"{c.name} {c.background or ''}" for c in candidates]
+
+            # SBERT 벡터화 (의미 파악)
+            target_emb = model.encode([target_text], show_progress_bar=False)
+            candidate_embs = model.encode(candidate_texts, show_progress_bar=False)
+            
+            # 코사인 유사도 계산
+            cosine_sim = cosine_similarity(target_emb, candidate_embs).flatten()
+
+            # 유사도 높은 순으로 인덱스 정렬
+            top_indices = np.argsort(cosine_sim)[-top_k:][::-1]
+            
+            selected = [candidates[i] for i in top_indices]
+            logger.info(f"🧠 [Timeline:SBERT] {len(candidates)}개 후보 중 의미 유사도 상위 {len(selected)}개 선별 완료")
+            return selected
+            
+        except Exception as e:
+            logger.warning(f"⚠️ [Timeline:SBERT] 유사도 필터링 실패, 최신순으로 대체합니다: {e}")
+            return candidates[:top_k]

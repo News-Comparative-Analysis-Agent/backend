@@ -16,6 +16,13 @@ class IssueLabel(Base):
     description = Column(Text) # 이슈 배경 설명
     issue_type = Column(String, nullable=False, default="editorial", server_default="editorial") # 이슈 유형 (editorial 또는 politics)
     
+    # 타임라인/상태 추적 필드
+    parent_issue_id = Column(Integer, ForeignKey("issue_labels.id", ondelete="SET NULL"), nullable=True)
+    phase = Column(String(10), default="발생", server_default="발생")
+    
+    # ORM에서 부모-자식 관계를 편하게 탐색하기 위한 Self-referencing 설정
+    parent = relationship("IssueLabel", remote_side=[id], backref="children")
+    
     # 추가 필드 (Repository에서 사용 중)
     background = Column(Text, nullable=True) # 이슈의 배경 정보
     conflict_summary = Column(Text, nullable=True) # 갈등 요약

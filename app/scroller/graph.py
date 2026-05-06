@@ -165,6 +165,13 @@ def create_comparison_graph(db: Session):
         # invoke로 개별 스레드/프로세스 환경에서 실행
         final_state = analysis_subgraph.invoke(sub_initial_state)
         
+        # ✅ 타임라인 연결 (이슈 갈등 구도 및 Evidence 분석이 완료되어 DB에 저장된 시점)
+        with SessionLocal() as db:
+            from app.domains.issues.service import IssueService
+            issue_service = IssueService(db)
+            logger.info(f"⏳ [Graph:Timeline] 이슈 {issue_id}의 분석이 완료되어 타임라인(상태 전개)을 분석합니다...")
+            issue_service.link_parent_issue(issue_id)
+        
         # ✅ 메인 그래프(OverallState)로 돌려보낼 데이터 추출 (저장 및 후속 처리를 위해 필드 확장)
         return {
             "conflict_summary": final_state.get("conflict_summary", ""),
