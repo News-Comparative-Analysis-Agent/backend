@@ -9,8 +9,9 @@ from google import genai
 from langsmith import traceable
 from app.core.logger import logger, log_llm_event
 
-# 로컬 LLM 서버 부하 방지를 위해 요청을 최대 2개씩 병렬 처리
+# 로컬 LLM 및 Gemini 서버 부하 방지를 위해 요청을 제어
 llm_semaphore = threading.Semaphore(1)
+gemini_semaphore = threading.Semaphore(1) # TPM 제한이 엄격하므로 순차 처리 권장
 
 
 # 로컬 LLM 서버 설정 (nodes.py 설정 및 .env 연동 유지)
@@ -216,37 +217,47 @@ def get_gemini_client():
     return _gemini_client
 
 @traceable(run_type="llm", name="Gemini Call")
-def call_gemini(prompt: str, schema: dict = None) -> dict:
-    """제미나이 API를 호출합니다."""
-    try:
-        log_llm_event("Gemini", f"Requesting {GEMINI_MODEL_NAME}", details=prompt)
-        client = get_gemini_client()
-        
-        generate_kwargs = {
-            "model": GEMINI_MODEL_NAME,
-            "contents": prompt
-        }
-        
-        if schema:
-            generate_kwargs["config"] = {
-                "response_mime_type": "application/json",
-                "response_schema": schema
-            }
+def call_gemini(prompt: str, schema: dict = None) -> tuple:
+    """제미나이 API를 호출합니다 (429 재시도 및 동시성 제어 포함)."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with gemini_semaphore: # 💡 동시 요청을 제한하여 분당 토큰 제한(TPM) 초과 방지
+                log_llm_event("Gemini", f"Requesting {GEMINI_MODEL_NAME} (Attempt {attempt+1})", details=prompt)
+                client = get_gemini_client()
+                
+                generate_kwargs = {
+                    "model": GEMINI_MODEL_NAME,
+                    "contents": prompt
+                }
+                
+                if schema:
+                    generate_kwargs["config"] = {
+                        "response_mime_type": "application/json",
+                        "response_schema": schema
+                    }
 
-        response = client.models.generate_content(**generate_kwargs)
-        
-        usage = response.usage_metadata
-        token_info = {
-            'prompt_tokens': usage.prompt_token_count or 0,
-            'completion_tokens': usage.candidates_token_count or 0
-        }
-        
-        # log_llm_event("Gemini", "Response received", details=response.text, token_info=token_info)
-        return parse_llm_json(response.text), token_info
-    except Exception as e:
-        log_llm_event("Gemini", f"Error: {e}", details=str(e))
-        logger.error(f"Gemini 호출 실패: {e}")
-        return None, {"prompt_tokens": 0, "completion_tokens": 0}
+                response = client.models.generate_content(**generate_kwargs)
+                
+                usage = response.usage_metadata
+                token_info = {
+                    'prompt_tokens': usage.prompt_token_count or 0,
+                    'completion_tokens': usage.candidates_token_count or 0
+                }
+                
+                return parse_llm_json(response.text), token_info
+                
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str and attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5 # 429 발생 시 대기 시간 확보
+                logger.warning(f"⚠️ Gemini 429 에러(할당량 초과). {wait_time}초 후 재시도합니다... ({attempt+1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+                
+            log_llm_event("Gemini", f"Error: {e}", details=str(e))
+            logger.error(f"Gemini 호출 실패: {e}")
+            return None, {"prompt_tokens": 0, "completion_tokens": 0}
 
 def update_total_tokens(state: dict, new_usage: dict, agent_name: str = "Unknown") -> dict:
     """기존 상태의 total_tokens에 새로운 토큰 사용량을 합산하여 반환합니다."""

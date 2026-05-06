@@ -290,3 +290,72 @@ class ScrollerRepository:
             self.db.flush()
             return True
         return False
+
+    # =====================================================
+    # 타임라인 관련 Repository 함수
+    # =====================================================
+
+    def get_recent_issues_for_linkage(self, days: int = None, exclude_id: int = None):
+        """
+        최근 N일 이내 또는 전체 이슈 조회 (후속 판별 후보군)
+        - exclude_id: 새로 생성된 이슈 자신은 제외
+        - parent_issue_id = 자기 자신인 것만 (루트 이슈들만 비교)
+        """
+        from app.domains.issues.models import IssueLabel
+        
+        query = self.db.query(IssueLabel).filter(IssueLabel.parent_issue_id == IssueLabel.id)
+        
+        if days is not None:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            query = query.filter(IssueLabel.created_at >= cutoff)
+        
+        if exclude_id:
+            query = query.filter(IssueLabel.id != exclude_id)
+        
+        return query.order_by(IssueLabel.created_at.desc()).all()
+
+    def update_issue_linkage(self, issue_id: int, parent_issue_id: int, phase: str):
+        """
+        이슈의 parent_issue_id와 phase 업데이트
+        기존 이슈는 절대 건드리지 않고, 해당 issue_id만 업데이트
+        """
+        from app.domains.issues.models import IssueLabel
+        
+        self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).update({
+            "parent_issue_id": parent_issue_id,
+            "phase": phase
+        })
+        self.db.commit()
+
+    def get_timeline_by_root(self, root_issue_id: int):
+        """
+        root_issue_id 기준으로 전체 타임라인 조회
+        parent_issue_id = root_issue_id 인 것들 + 루트 자신
+        시간순(과거→최신) 정렬
+        """
+        from app.domains.issues.models import IssueLabel
+        
+        return (
+            self.db.query(IssueLabel)
+            .filter(IssueLabel.parent_issue_id == root_issue_id)
+            .order_by(IssueLabel.created_at.asc())
+            .all()
+        )
+
+    def get_root_issue_id(self, issue_id: int) -> int:
+        """
+        주어진 issue_id의 루트 이슈 ID 반환
+        parent_issue_id == id 인 것이 루트
+        """
+        from app.domains.issues.models import IssueLabel
+        
+        issue = self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+        if not issue:
+            return issue_id
+        
+        # parent가 자기 자신이면 루트
+        if issue.parent_issue_id == issue.id:
+            return issue.id
+        
+        # 아니면 parent의 루트를 재귀 탐색 (최대 1단계 - 구조상 2depth 이상 없음)
+        return issue.parent_issue_id or issue.id

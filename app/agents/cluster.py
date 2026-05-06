@@ -387,6 +387,7 @@ class ClusterAgent:
                 saved_ids.append(issue.id)
             
             self.db.commit()
+            
             msg = f"이슈 {len(saved_ids)}개 저장 완료 및 모든 이슈 분석 대기 중."
             logger.info(f"[ClusterAgent:Save] {msg}")
             

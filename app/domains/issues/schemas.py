@@ -95,6 +95,8 @@ class IssueTimelineItem(BaseModel):
     """타임라인 내 개별 이슈 아이템"""
     id: int
     name: str # 이슈명
+    phase: Optional[str] = "발생"
+    conflict_summary: Optional[str] = None
     issue_type: Optional[str] = None
     article_count: int # 관련 기사 수
     created_at: datetime
@@ -110,6 +112,7 @@ class IssueTimelineResponse(BaseModel):
     """특정 이슈에 대한 타임라인 (유사한 이슈 모음)"""
     target_issue_id: int
     target_issue_name: str
+    root_issue_id: Optional[int] = None
     timeline: List[IssueTimelineItem]
 
     class Config:

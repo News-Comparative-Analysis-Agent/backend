@@ -182,3 +182,42 @@ class IssueRepository:
             self.db.commit()
             return True
         return False
+
+    # =====================================================
+    # 타임라인 관련 Repository 함수
+    # =====================================================
+
+    def get_recent_issues_for_linkage(self, days: int = None, exclude_id: int = None, limit: int = 20):
+        query = self.db.query(IssueLabel).filter(IssueLabel.parent_issue_id == IssueLabel.id)
+        
+        if days is not None:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            query = query.filter(IssueLabel.created_at >= cutoff)
+            
+        if exclude_id:
+            query = query.filter(IssueLabel.id != exclude_id)
+            
+        return query.order_by(IssueLabel.created_at.desc()).limit(limit).all()
+
+    def update_issue_linkage(self, issue_id: int, parent_issue_id: int, phase: str):
+        self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).update({
+            "parent_issue_id": parent_issue_id,
+            "phase": phase
+        })
+        self.db.commit()
+
+    def get_timeline_by_root(self, root_issue_id: int):
+        return (
+            self.db.query(IssueLabel)
+            .filter(IssueLabel.parent_issue_id == root_issue_id)
+            .order_by(IssueLabel.created_at.asc())
+            .all()
+        )
+
+    def get_root_issue_id(self, issue_id: int) -> int:
+        issue = self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+        if not issue:
+            return issue_id
+        if issue.parent_issue_id == issue.id:
+            return issue.id
+        return issue.parent_issue_id or issue.id
