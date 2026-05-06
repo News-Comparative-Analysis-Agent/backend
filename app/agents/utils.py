@@ -367,3 +367,83 @@ def log_execution_time(node_name: str):
             return result
         return wrapper
     return decorator
+
+
+# ==========================================
+# Citation Annotation (인용 출처 마커 삽입)
+# ==========================================
+
+def annotate_citations(article_body: str, media_views: list) -> tuple:
+    """
+    article_body에서 작은따옴표로 감싸진 인용 문장을 찾아
+    media_views[i].evidence와 문자열 매칭 후 [N] 마커를 삽입한다.
+
+    LLM 호출 없이 순수 문자열 포함 여부로 판단하므로 추가 비용 없음.
+    WriterAgent가 evidence 원문을 그대로 인용하는 한 매칭 정확도 100%.
+
+    Args:
+        article_body : WriterAgent가 생성한 기사 본문
+        media_views  : EvidenceAgent가 생성한 언론사별 카드 배열
+                       (press, title, url, published_at, evidence, claim 포함)
+
+    Returns:
+        annotated_body : '[N]' 마커가 삽입된 본문 문자열
+        citations      : 인용 출처 메타데이터 배열
+    """
+    citations = []
+    citation_id = 1
+    press_id_map: dict = {}  # press → 이미 할당된 citation id 캐싱 (같은 언론사 재사용)
+
+    # 꺽쇠(<>) 안의 사설 제목에 있는 작은따옴표는 무시하고,
+    # "에서 '...'라고 했다" 또는 "'...'라고 했다" 패턴만 대상으로 함
+    # → 꺽쇠 블록을 먼저 플레이스홀더로 치환 후 매칭, 복원하는 방식 사용
+    angle_bracket_pattern = re.compile(r"<[^>]*>")
+    placeholders = {}
+
+    def replace_angle(m):
+        key = f"\x00AB{len(placeholders)}\x00"
+        placeholders[key] = m.group(0)
+        return key
+
+    safe_body = angle_bracket_pattern.sub(replace_angle, article_body)
+
+    # 작은따옴표 내부 10자 이상 문장만 대상 (짧은 단어·어구 제외)
+    quoted_pattern = re.compile(r"'([^']{10,}?)'")
+
+    def replace_with_marker(match):
+        nonlocal citation_id
+        quote = match.group(1)
+
+        for mv in media_views:
+            evidence = mv.get("evidence", "")
+            if quote not in evidence:
+                continue
+
+            press = mv["press"]
+
+            # 💡 각 인용마다 고유한 ID 부여 (하이라이팅 정확도 보장)
+            cid = citation_id
+            citations.append({
+                "id":            cid,
+                "press":         press,
+                "title":         mv.get("title", ""),
+                "url":           mv.get("url", ""),
+                "published_at":  mv.get("published_at", ""),
+                "article_id":    mv.get("article_id"),   # 💡 lazy-load용
+                "quote":         quote.strip(),           # 본문 인용 문장 (하이라이팅용)
+                "full_evidence": mv.get("full_content") or mv.get("evidence") or "",   # 💡 기사 원문
+            })
+            citation_id += 1
+            return f"'{quote}[{cid}]'"
+
+        # 어느 evidence에도 포함되지 않으면 마커 없이 원문 유지
+        return match.group(0)
+
+    annotated_body = quoted_pattern.sub(replace_with_marker, safe_body)
+
+    # 꺽쇠 플레이스홀더 원복
+    for key, original in placeholders.items():
+        annotated_body = annotated_body.replace(key, original)
+
+    logger.info(f"📎 [annotate_citations] 총 {len(citations)}개 언론사 citation 마커 삽입 완료")
+    return annotated_body, citations

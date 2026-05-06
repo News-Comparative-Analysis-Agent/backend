@@ -2,6 +2,34 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+
+# ==========================================
+# Citation (인용 출처) 관련 Schema
+# ==========================================
+class CitationItem(BaseModel):
+    """기사 본문의 인용 마커 [N]에 대응하는 출처 메타데이터"""
+    id: int
+    press: str           # 언론사명
+    title: str           # 사설 제목
+    url: str             # 원문 기사 URL
+    published_at: str    # 발행일 (YYYY-MM-DD)
+    article_id: Optional[int] = None  # lazy-load용 기사 ID
+    quote: str           # 본문에서 인용된 문장 (팝업 하이라이팅 대상)
+    full_evidence: str   # 짧은 근거 문장 (fallback용)
+
+class ArticleBodyResponse(BaseModel):
+    """기사 원문 lazy-load 응답"""
+    article_id: int
+    raw_content: str
+
+class DraftWithCitationsResponse(BaseModel):
+    """기사 초안 + 인용 출처 배열 응답"""
+    issue_id: int
+    title: str
+    article_body: str              # [N] 마커가 삽입된 본문
+    citations: List[CitationItem]  # 언론사별 출처 배열
+
+
 # ==========================================
 # Chat (채팅) 관련 Schema
 # ==========================================
