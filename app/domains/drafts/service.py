@@ -456,20 +456,25 @@ class DraftService:
         # citation 마커 실시간 삽입
         annotated_body, raw_citations = annotate_citations(article_body, media_views)
 
-        citations = [
-            CitationItem(
-                id=c["id"],
-                press=c["press"],
-                title=c["title"],
-                url=c["url"],
-                published_at=c["published_at"],
-                article_id=c.get("article_id"),  # 💡 lazy-load용
-                quote=c["quote"],
-            )
-            for c in raw_citations
-        ]
+        citations = []
+        for c in raw_citations:
+            try:
+                citations.append(
+                    CitationItem(
+                        id=c.get("id", 0),
+                        press=c.get("press", "알수없음"),
+                        title=c.get("title", ""),
+                        url=c.get("url", ""),
+                        published_at=c.get("published_at", ""),
+                        article_id=c.get("article_id"),
+                        quote=c.get("quote", ""),
+                        evidence=c.get("evidence", "")
+                    )
+                )
+            except Exception as e:
+                logger.error(f"❌ [DraftService] CitationItem 변환 실패: {str(e)}")
 
-        logger.info(f"📎 [DraftService] issue_id={issue_id} citation 언론사 {len(citations)}개 매칭")
+        logger.info(f"📎 [DraftService] issue_id={issue_id} | 원본 {len(raw_citations)}개 -> 변환 {len(citations)}개")
 
         return DraftWithCitationsResponse(
             issue_id=issue_id,

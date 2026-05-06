@@ -450,6 +450,10 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
     citation_id = 1
     press_id_map: dict = {}  # press → 이미 할당된 citation id 캐싱 (같은 언론사 재사용)
 
+    # 💡 0. 기존에 박혀있는 마커([1], [2] 등) 제거
+    # (이전 생성 결과가 저장된 경우 중복 마커 방지)
+    article_body = re.sub(r"\[\d+\]", "", article_body)
+
     # 꺽쇠(<>) 안의 사설 제목에 있는 작은따옴표는 무시하고,
     # "에서 '...'라고 했다" 또는 "'...'라고 했다" 패턴만 대상으로 함
     # → 꺽쇠 블록을 먼저 플레이스홀더로 치환 후 매칭, 복원하는 방식 사용
@@ -463,36 +467,64 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
 
     safe_body = angle_bracket_pattern.sub(replace_angle, article_body)
 
-    # 작은따옴표 내부 10자 이상 문장만 대상 (짧은 단어·어구 제외)
-    quoted_pattern = re.compile(r"'([^']{10,}?)'")
+    # 💡 1. 따옴표 짝을 정확히 맞추는 정규식 (홑, 쌍, 전각 홑, 전각 쌍)
+    # 각 따옴표 그룹별로 매칭하여 중첩된 다른 종류의 따옴표를 허용함
+    quoted_pattern = re.compile(
+        r"'(?P<q1>.{10,1000}?)'|" +           # '홑따옴표'
+        r"\"(?P<q2>.{10,1000}?)\"|" +         # \"쌍따옴표\"
+        r"“(?P<q3>.{10,1000}?)”|" +           # “전각쌍”
+        r"‘(?P<q4>.{10,1000}?)’",             # ‘전각홑’
+        re.DOTALL
+    )
+
+    def normalize_text(t):
+        """매칭 확률을 높이기 위해 모든 따옴표, 공백, 문장 부호 제거"""
+        if not t: return ""
+        return re.sub(r"['\"“”‘’\s\.,!?]", "", t)
 
     def replace_with_marker(match):
         nonlocal citation_id
-        quote = match.group(1)
+        # 매칭된 그룹 중 실제 내용이 있는 그룹 추출
+        quote = (match.group('q1') or match.group('q2') or 
+                 match.group('q3') or match.group('q4') or "").strip()
+        
+        full_match = match.group(0)
+        opening_quote = full_match[0]
+        closing_quote = full_match[-1]
+        
+        clean_target = normalize_text(quote)
+        
+        # 💡 플레이스홀더가 포함되어 있다면 복원 후 정규화 (매칭 확률 제고)
+        if "\x00AB" in quote:
+            temp_quote = quote
+            for key, original in placeholders.items():
+                temp_quote = temp_quote.replace(key, original)
+            clean_target = normalize_text(temp_quote)
+
+        if not clean_target: return full_match
 
         for mv in media_views:
             evidence = mv.get("evidence", "")
-            if quote not in evidence:
-                continue
+            clean_evidence = normalize_text(evidence)
+            
+            if clean_target and clean_evidence and (clean_target in clean_evidence or clean_evidence in clean_target):
+                press = mv["press"]
+                cid = citation_id
+                
+                citations.append({
+                    "id":            cid,
+                    "press":         press,
+                    "title":         mv.get("title", ""),
+                    "url":           mv.get("url", ""),
+                    "published_at":  mv.get("published_at", ""),
+                    "article_id":    mv.get("article_id"),
+                    "quote":         quote,
+                    "evidence":      evidence, 
+                })
+                citation_id += 1
+                return f"{opening_quote}{quote}[{cid}]{closing_quote}"
 
-            press = mv["press"]
-
-            # 💡 각 인용마다 고유한 ID 부여 (하이라이팅 정확도 보장)
-            cid = citation_id
-            citations.append({
-                "id":            cid,
-                "press":         press,
-                "title":         mv.get("title", ""),
-                "url":           mv.get("url", ""),
-                "published_at":  mv.get("published_at", ""),
-                "article_id":    mv.get("article_id"),   # 💡 lazy-load용
-                "quote":         quote.strip(),           # 본문 인용 문장 (하이라이팅용)
-            })
-            citation_id += 1
-            return f"'{quote}[{cid}]'"
-
-        # 어느 evidence에도 포함되지 않으면 마커 없이 원문 유지
-        return match.group(0)
+        return full_match
 
     annotated_body = quoted_pattern.sub(replace_with_marker, safe_body)
 

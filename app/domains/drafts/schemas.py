@@ -15,6 +15,7 @@ class CitationItem(BaseModel):
     published_at: str    # 발행일 (YYYY-MM-DD)
     article_id: Optional[int] = None  # lazy-load용 기사 ID
     quote: str           # 본문에서 인용된 문장 (팝업 하이라이팅 대상)
+    evidence: Optional[str] = None # 원문 근거 문장 (하이라이팅 보조용)
 
 class ArticleBodyResponse(BaseModel):
     """기사 원문 lazy-load 응답"""
