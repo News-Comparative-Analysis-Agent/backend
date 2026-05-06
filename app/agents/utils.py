@@ -487,7 +487,6 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
                 "published_at":  mv.get("published_at", ""),
                 "article_id":    mv.get("article_id"),   # 💡 lazy-load용
                 "quote":         quote.strip(),           # 본문 인용 문장 (하이라이팅용)
-                "full_evidence": mv.get("full_content") or mv.get("evidence") or "",   # 💡 기사 원문
             })
             citation_id += 1
             return f"'{quote}[{cid}]'"

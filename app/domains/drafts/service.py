@@ -465,7 +465,6 @@ class DraftService:
                 published_at=c["published_at"],
                 article_id=c.get("article_id"),  # 💡 lazy-load용
                 quote=c["quote"],
-                full_evidence=c["full_evidence"]
             )
             for c in raw_citations
         ]
