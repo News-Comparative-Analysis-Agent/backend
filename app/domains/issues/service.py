@@ -260,10 +260,16 @@ class IssueService:
 [기존 이슈 후보군 (최근 2개월, 루트 이슈들)]
 {candidate_texts}
  
-판단 기준:
-- 동일한 사건/의혹의 후속 보도라면 → 해당 이슈 ID 반환
-- 인물이나 키워드가 겹쳐도 사건 자체가 다르면 → null 반환
-- 확실하지 않으면 → null 반환 (새 루트로 시작하는 게 안전)
+판단 기준 (엄격하게 적용):
+- 반드시 동일한 사건/의혹/법안이어야 후속으로 인정합니다.
+- 키워드나 인물이 겹쳐도 사건 자체가 다르면 → 반드시 null 반환
+- "어린이날 행사"와 "초등생 선물"처럼 소재만 비슷한 경우 → 반드시 null 반환
+- 의심스러우면 무조건 null을 반환하세요. (새 루트로 시작하는 게 안전합니다)
+
+linkage_type 기준:
+- causal: 원인-결과 관계가 명확한 경우 (예: 법안 발의 → 국회 통과)
+- sequential: 동일 사건의 연속 보도인 경우 (예: 사고 발생 → 수사 결과)
+- none: 소재/인물만 겹치거나 전혀 다른 사건인 경우 (이 경우 parent_issue_id는 반드시 null)
  
 phase 기준:
 - 발생: 사건이 처음 알려진 단계
@@ -275,8 +281,9 @@ phase 기준:
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
     "parent_issue_id": 123 또는 null,
+    "linkage_type": "causal 또는 sequential 또는 none",
     "phase": "발생/확산/대응/교착/해소 중 하나",
-    "reason": "판단 근거 한 줄"
+    "reason": "연결 또는 비연결 판단 근거를 한 문장으로 명확히 기술"
 }}
 """
      
@@ -292,8 +299,15 @@ phase 기준:
                 raise ValueError("LLM 응답 없음")
      
             parent_id = result.get("parent_issue_id")
+            linkage_type = result.get("linkage_type", "none")
             phase = result.get("phase", "발생")
             reason = result.get("reason", "")
+            
+            # linkage_type이 none이거나 확실하지 않으면 parent_id를 null 처리
+            if linkage_type == "none" or parent_id is None:
+                parent_id = None
+                
+            logger.info(f"🧠 [Timeline:LLM] 판별 결과: linkage_type={linkage_type}, parent_id={parent_id}, reason={reason}")
      
             valid_ids = {c.id for c in candidates}
             if parent_id and parent_id not in valid_ids:
@@ -445,11 +459,16 @@ phase 기준:
             # 코사인 유사도 계산
             cosine_sim = cosine_similarity(target_emb, candidate_embs).flatten()
 
-            # 유사도 높은 순으로 인덱스 정렬
-            top_indices = np.argsort(cosine_sim)[-top_k:][::-1]
+            # 유사도 임계값 적용 및 내림차순 정렬
+            MIN_SIMILARITY = 0.40
+            # 임계값을 넘는 인덱스만 추출
+            valid_indices = np.where(cosine_sim >= MIN_SIMILARITY)[0]
+            
+            # 추출된 인덱스들을 유사도 높은 순으로 정렬
+            top_indices = valid_indices[np.argsort(cosine_sim[valid_indices])][-top_k:][::-1]
             
             selected = [candidates[i] for i in top_indices]
-            logger.info(f"🧠 [Timeline:SBERT] {len(candidates)}개 후보 중 의미 유사도 상위 {len(selected)}개 선별 완료")
+            logger.info(f"🧠 [Timeline:SBERT] {len(candidates)}개 후보 중 유사도 {MIN_SIMILARITY} 이상인 상위 {len(selected)}개 선별 완료")
             return selected
             
         except Exception as e:
