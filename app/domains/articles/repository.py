@@ -10,10 +10,7 @@ class ArticleRepository:
 
     def get_articles(self, issue_id: Optional[int] = None, target_date: Optional[date] = None, limit: int = 20) -> List[Article]:
         """기사 목록 조회 (최신순 + 필터링)"""
-        query = self.db.query(Article).options(
-            joinedload(Article.publisher),
-            joinedload(Article.issue_label)
-        )
+        query = self.db.query(Article).options(joinedload(Article.publisher))
         
         if issue_id:
             query = query.filter(Article.issue_label_id == issue_id)
@@ -32,10 +29,7 @@ class ArticleRepository:
 
         return (
             self.db.query(Article)
-            .options(
-                joinedload(Article.publisher),
-                joinedload(Article.issue_label)
-            )
+            .options(joinedload(Article.publisher))
             .filter(Article.published_at >= cutoff_dt)
             .order_by(Article.published_at.desc())
             .limit(days * limit_per_day)
@@ -44,16 +38,13 @@ class ArticleRepository:
 
     def get_article(self, article_id: int) -> Optional[Article]:
         """기사 상세 조회"""
-        return self.db.query(Article).options(
-            joinedload(Article.publisher),
-            joinedload(Article.issue_label)
-        ).filter(Article.id == article_id).first()
+        return self.db.query(Article).options(joinedload(Article.publisher)).filter(Article.id == article_id).first()
 
     def get_articles_by_issue(self, issue_label_id: int, limit: int = 20) -> List[Article]:
         """이슈 라벨(클러스터)별 기사 목록 조회"""
         return self.db.query(Article).filter(
             Article.issue_label_id == issue_label_id
-        ).options(joinedload(Article.issue_label)).order_by(Article.published_at.desc()).limit(limit).all()
+        ).order_by(Article.published_at.desc()).limit(limit).all()
 
     def get_publishers_by_names(self, names: List[str]):
         """언론사명 리스트로 언론사 목록 조회"""
@@ -80,4 +71,4 @@ class ArticleRepository:
         """언론사별 기사 목록 조회"""
         return self.db.query(Article).filter(
             Article.publisher_id == publisher_id
-        ).options(joinedload(Article.issue_label)).order_by(Article.published_at.desc()).limit(limit).all()
+        ).order_by(Article.published_at.desc()).limit(limit).all()

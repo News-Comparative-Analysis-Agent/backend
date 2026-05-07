@@ -31,12 +31,8 @@ class ArticleService:
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
             
-            # 이슈 유형 및 기사 유형 추가
+            # 기사 유형 추가
             article.article_type = getattr(article, "article_type", None)
-            if article.issue_label:
-                article.issue_type = article.issue_label.issue_type
-            else:
-                article.issue_type = None
                 
         return articles
 
@@ -57,12 +53,8 @@ class ArticleService:
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
             
-            # 이슈 유형 및 기사 유형 추가
+            # 기사 유형 추가
             article.article_type = getattr(article, "article_type", None)
-            if article.issue_label:
-                article.issue_type = article.issue_label.issue_type
-            else:
-                article.issue_type = None
                 
             date_key = article.published_at.date().isoformat()
             grouped_data[date_key][publisher_name].append(article)
@@ -78,12 +70,8 @@ class ArticleService:
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
             
-            # 이슈 유형 및 기사 유형 추가
+            # 기사 유형 추가
             article.article_type = getattr(article, "article_type", None)
-            if article.issue_label:
-                article.issue_type = article.issue_label.issue_type
-            else:
-                article.issue_type = None
         return article
 
     def get_articles_by_issue(self, issue_label_id: int, limit: int = 20) -> List[Article]:
@@ -91,10 +79,6 @@ class ArticleService:
         articles = self.repo.get_articles_by_issue(issue_label_id=issue_label_id, limit=limit)
         for article in articles:
             article.article_type = getattr(article, "article_type", None)
-            if article.issue_label:
-                article.issue_type = article.issue_label.issue_type
-            else:
-                article.issue_type = None
         return articles
 
     def get_top_articles_by_publisher(self, limit: int = 10) -> Dict[str, List[Article]]:
@@ -113,12 +97,8 @@ class ArticleService:
                 if i == 0 and article.image_urls and len(article.image_urls) > 0:
                     article.image_url = article.image_urls[0]
                 
-                # 이슈 유형 및 기사 유형 추가
+                # 기사 유형 추가
                 article.article_type = getattr(article, "article_type", None)
-                if article.issue_label:
-                    article.issue_type = article.issue_label.issue_type
-                else:
-                    article.issue_type = None
                 
             result[pub.name] = articles
             
