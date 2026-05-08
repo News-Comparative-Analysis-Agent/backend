@@ -58,6 +58,57 @@ class IssueRepository:
 
         return query.scalar() or 0
 
+    def get_today_stats(self, target_date: Optional[date] = None) -> tuple[int, int]:
+        """주어진 날짜(기본값: 오늘)의 수집된 총 기사 수와 생성된 총 이슈 수를 반환합니다."""
+        if target_date:
+            dt_date = target_date
+        else:
+            dt_date = (datetime.utcnow() + timedelta(hours=9)).date()
+            
+        today_start = datetime.combine(dt_date, datetime.min.time())
+        today_end = datetime.combine(dt_date, datetime.max.time())
+        
+        article_count = self.db.query(func.count(Article.id)).filter(
+            Article.published_at >= today_start,
+            Article.published_at <= today_end
+        ).scalar() or 0
+        
+        issue_count = self.db.query(func.count(IssueLabel.id)).filter(
+            IssueLabel.created_at >= today_start,
+            IssueLabel.created_at <= today_end
+        ).scalar() or 0
+        
+        return article_count, issue_count
+
+    def get_articles_for_issues(self, issue_ids: List[int]) -> dict:
+        """
+        이슈 ID 목록을 받아 각 이슈에 매핑된 전체 기사들의 제목과 언론사 이름을 반환합니다.
+        """
+        if not issue_ids:
+            return {}
+            
+        articles = (
+            self.db.query(Article, Publisher.name.label("publisher_name"))
+            .join(Publisher, Article.publisher_id == Publisher.id)
+            .filter(Article.issue_label_id.in_(issue_ids))
+            .order_by(Article.published_at.desc())
+            .all()
+        )
+        
+        from collections import defaultdict
+        result = defaultdict(list)
+        seen_publishers = defaultdict(set)
+        
+        for art, pub_name in articles:
+            if pub_name not in seen_publishers[art.issue_label_id]:
+                result[art.issue_label_id].append({
+                    "title": art.title,
+                    "publisher": pub_name
+                })
+                seen_publishers[art.issue_label_id].add(pub_name)
+            
+        return dict(result)
+
     def get_issues_by_date_range(self, days: int = 7, issue_type: Optional[str] = None) -> List[IssueLabel]:
         now_kst = datetime.utcnow() + timedelta(hours=9)
         cutoff_date = (now_kst - timedelta(days=days-1)).date()

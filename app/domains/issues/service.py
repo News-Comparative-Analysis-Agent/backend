@@ -165,6 +165,9 @@ class IssueService:
 
         issue_ids = [issue.id for issue in issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
+        articles_map = self.repo.get_articles_for_issues(issue_ids)
+        
+        today_article_count, today_issue_count = self.repo.get_today_stats()
 
         issue_items: List[IssueFeedItem] = []
         for idx, issue in enumerate(issues):
@@ -180,6 +183,7 @@ class IssueService:
                 article_count=issue.total_count,
                 rank=skip + idx + 1,
                 created_at=created_at,
+                articles=articles_map.get(issue.id, []),
                 image_urls=image_urls_map.get(issue.id, [])
             ))
 
@@ -189,7 +193,9 @@ class IssueService:
             total_count=total_count,
             page=page,
             page_size=page_size,
-            total_pages=total_pages
+            total_pages=total_pages,
+            today_article_count=today_article_count,
+            today_issue_count=today_issue_count
         )
 
     def get_grouped_issues(self, days: int = 7, issue_type: Optional[str] = None) -> IssueGroupedResponse:

@@ -195,10 +195,12 @@ class ScoutAgent:
         content = ""
         image_urls = []
         
-        # 메인 썸네일 추가
+        # 메인 썸네일 추가 (네이버 디폴트 로고 필터링)
         img_tag = soup.select_one('meta[property="og:image"]')
         if img_tag and img_tag.get('content'):
-            image_urls.append(img_tag['content'])
+            og_url = img_tag['content']
+            if not any(d in og_url for d in ["static.news/image/news/ogtag", "navernews_800x420", "mimgnews.pstatic.net/image/news/m"]):
+                image_urls.append(og_url)
 
         if content_area:
             # 본문에 있는 이미지들도 추출(이미지 저장소를 위해)
@@ -626,11 +628,13 @@ class ScoutAgent:
         if date_meta:
             pub_date = date_meta.get('content', '')
 
-        # 썸네일
+        # 썸네일 (디폴트 이미지 필터링)
         image_urls = []
         og_img = soup.select_one('meta[property="og:image"]')
         if og_img and og_img.get('content'):
-            image_urls.append(og_img['content'])
+            og_url = og_img['content']
+            if not any(d in og_url for d in ["static.news/image/news/ogtag", "navernews_800x420", "mimgnews.pstatic.net/image/news/m"]):
+                image_urls.append(og_url)
 
         logger.info(f"✅ [{press_name}] 자체사이트 사설 본문 수집 성공!: {title[:40]}")
         return {
