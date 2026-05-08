@@ -18,6 +18,7 @@ class ArticleResponse(ArticleBase):
     
     # 추가 정보 (Relation)
     publisher_name: Optional[str] = None 
+    article_type: Optional[str] = None
 
     class Config:
         from_attributes = True

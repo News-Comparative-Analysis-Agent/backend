@@ -30,6 +30,9 @@ class ArticleService:
                 article.publisher_name = article.publisher.name
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
+            
+            # 기사 유형 추가
+            article.article_type = getattr(article, "article_type", None)
                 
         return articles
 
@@ -49,6 +52,9 @@ class ArticleService:
                 
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
+            
+            # 기사 유형 추가
+            article.article_type = getattr(article, "article_type", None)
                 
             date_key = article.published_at.date().isoformat()
             grouped_data[date_key][publisher_name].append(article)
@@ -63,11 +69,17 @@ class ArticleService:
                 article.publisher_name = article.publisher.name
             if article.image_urls and len(article.image_urls) > 0:
                 article.image_url = article.image_urls[0]
+            
+            # 기사 유형 추가
+            article.article_type = getattr(article, "article_type", None)
         return article
 
     def get_articles_by_issue(self, issue_label_id: int, limit: int = 20) -> List[Article]:
         """이슈 라벨(클러스터)별 기사 목록 조회"""
-        return self.repo.get_articles_by_issue(issue_label_id=issue_label_id, limit=limit)
+        articles = self.repo.get_articles_by_issue(issue_label_id=issue_label_id, limit=limit)
+        for article in articles:
+            article.article_type = getattr(article, "article_type", None)
+        return articles
 
     def get_top_articles_by_publisher(self, limit: int = 10) -> Dict[str, List[Article]]:
         """언론사별 상위(최신) 기사 조회"""
@@ -84,6 +96,9 @@ class ArticleService:
                 # 1위 기사에 대해서만 대표 이미지 URL 설정
                 if i == 0 and article.image_urls and len(article.image_urls) > 0:
                     article.image_url = article.image_urls[0]
+                
+                # 기사 유형 추가
+                article.article_type = getattr(article, "article_type", None)
                 
             result[pub.name] = articles
             
