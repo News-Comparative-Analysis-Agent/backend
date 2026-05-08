@@ -272,3 +272,37 @@ class IssueRepository:
         if issue.parent_issue_id == issue.id:
             return issue.id
         return issue.parent_issue_id or issue.id
+
+    def get_same_day_sibling(self, root_id: int, date_val: date, exclude_id: int) -> Optional[IssueLabel]:
+        """같은 날, 같은 루트에 연결된 이슈 조회"""
+        return (
+            self.db.query(IssueLabel)
+            .filter(
+                IssueLabel.parent_issue_id == root_id,
+                func.date(IssueLabel.created_at) == date_val,
+                IssueLabel.id != exclude_id
+            )
+            .first()
+        )
+
+    def merge_into_existing(self, target_id: int, source_id: int):
+        """source 이슈를 target에 흡수 (기사 수 합산, source 삭제)"""
+        source = self.get_by_id(source_id)
+        target = self.get_by_id(target_id)
+        
+        if not source or not target:
+            return
+
+        # 기사들 재연결
+        self.db.query(Article).filter(
+            Article.issue_label_id == source_id
+        ).update({"issue_label_id": target_id})
+        
+        # total_count 합산
+        self.db.query(IssueLabel).filter(IssueLabel.id == target_id).update({
+            "total_count": target.total_count + source.total_count
+        })
+        
+        # source 이슈 삭제 (이미 조회된 객체가 있으므로 delete 호출)
+        self.db.delete(source)
+        self.db.commit()

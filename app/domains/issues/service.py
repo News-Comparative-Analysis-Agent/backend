@@ -322,6 +322,21 @@ phase 기준:
      
             final_parent_id = parent_id if parent_id else new_issue_id
      
+            # ✅ 동일 날짜, 동일 루트 중복 이슈 체크 및 흡수(Merge) 로직 추가
+            if parent_id:
+                same_day_sibling = self.repo.get_same_day_sibling(
+                    root_id=parent_id,
+                    date_val=new_issue.created_at.date(),
+                    exclude_id=new_issue_id
+                )
+                if same_day_sibling:
+                    self.repo.merge_into_existing(
+                        target_id=same_day_sibling.id,
+                        source_id=new_issue_id
+                    )
+                    logger.info(f"✨ [Timeline] 이슈 {new_issue_id} -> {same_day_sibling.id}에 흡수 (같은 날 중복)")
+                    return
+
             self.repo.update_issue_linkage(
                 issue_id=new_issue_id,
                 parent_issue_id=final_parent_id,
