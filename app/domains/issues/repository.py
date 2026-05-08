@@ -97,11 +97,15 @@ class IssueRepository:
         
         from collections import defaultdict
         result = defaultdict(list)
+        seen_publishers = defaultdict(set)
+        
         for art, pub_name in articles:
-            result[art.issue_label_id].append({
-                "title": art.title,
-                "publisher": pub_name
-            })
+            if pub_name not in seen_publishers[art.issue_label_id]:
+                result[art.issue_label_id].append({
+                    "title": art.title,
+                    "publisher": pub_name
+                })
+                seen_publishers[art.issue_label_id].add(pub_name)
             
         return dict(result)
 
