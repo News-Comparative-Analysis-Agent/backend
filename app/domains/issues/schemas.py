@@ -53,6 +53,10 @@ class IssueDraftResponse(BaseModel):
         from_attributes = True
 
 
+class ArticleBasicInfo(BaseModel):
+    title: str
+    publisher: str
+
 class IssueFeedItem(BaseModel):
     """피드용 이슈 응답 스키마"""
     id: int
@@ -62,6 +66,9 @@ class IssueFeedItem(BaseModel):
     article_count: int
     rank: Optional[int] = None           # 중요도(기사 수 등)에 따른 순위
     created_at: datetime
+
+    # 각 이슈에 묶인 기사 리스트
+    articles: List[ArticleBasicInfo] = []
 
     # 기사 대표 이미지 URL 목록
     image_urls: List[str] = []           # 소속 기사들의 이미지 URL
@@ -86,6 +93,8 @@ class IssueFeedResponse(BaseModel):
     page: int                             # 현재 페이지
     page_size: int                        # 페이지당 아이템 수
     total_pages: int                      # 전체 페이지 수
+    today_article_count: int = 0          # 오늘 수집된 총 기사 수
+    today_issue_count: int = 0            # 오늘 생성된 총 이슈 수
 
     class Config:
         from_attributes = True
