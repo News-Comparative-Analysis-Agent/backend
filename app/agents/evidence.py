@@ -87,8 +87,7 @@ class EvidenceAgent:
         → 판단·논조 우선 선택 기준: 언론사가 직접 평가하거나 주장하는 문장
         → 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
         → 5문장 미만이거나 8문장 이상이면 규칙 위반이다.
-        → 여러 문장이면 공백 한 칸으로 이어 붙인다.
-
+        
         [출력 JSON 예시]
         {{
             "claim": "정치적 이유가 있는 것 아니냐는 의구심이 생길 수밖에 없다.",
@@ -159,6 +158,7 @@ class EvidenceAgent:
                 if card_data:
                     claim_cards.append(card_data)
                     media_views.append({
+                        "article_id": card_data.get("article_id"),
                         "press": card_data.get("press", ""),
                         "title": card_data.get("title", ""),
                         "published_at": card_data.get("published_at", ""),

@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import re
 import time
@@ -358,9 +358,6 @@ def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> 
     
     return call_gemini(prompt, schema=schema)
 
-
-
-
 def log_execution_time(node_name: str):
     """노드의 실행 시간을 측정하여 로깅하는 데코레이터"""
     def decorator(func):
@@ -379,82 +376,87 @@ def log_execution_time(node_name: str):
         return wrapper
     return decorator
 
+def agent_guard(agent_name: str, recoverable: bool = True):
+    """에이전트 내결함성 데코레이터. 에러 발생 시 로그를 남기고 상태를 유지합니다."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(state: any):
+            try:
+                return func(state)
+            except Exception as e:
+                logger.error(f"❌ [{agent_name}] 에러 발생: {e}", exc_info=True)
+                if recoverable:
+                    error_count = state.get("error_count", 0) + 1
+                    return {**state, "error_count": error_count, "last_error": str(e), "next_node": "evidence"}
+                raise e
+        return wrapper
+    return decorator
+
 
 # ==========================================
 # Citation Annotation (인용 출처 마커 삽입)
 # ==========================================
 
 def annotate_citations(article_body: str, media_views: list) -> tuple:
-    """
-    article_body에서 작은따옴표로 감싸진 인용 문장을 찾아
-    media_views[i].evidence와 문자열 매칭 후 [N] 마커를 삽입한다.
-
-    LLM 호출 없이 순수 문자열 포함 여부로 판단하므로 추가 비용 없음.
-    WriterAgent가 evidence 원문을 그대로 인용하는 한 매칭 정확도 100%.
-
-    Args:
-        article_body : WriterAgent가 생성한 기사 본문
-        media_views  : EvidenceAgent가 생성한 언론사별 카드 배열
-                       (press, title, url, published_at, evidence, claim 포함)
-
-    Returns:
-        annotated_body : '[N]' 마커가 삽입된 본문 문자열
-        citations      : 인용 출처 메타데이터 배열
-    """
+    """본문에 인용 출처 마커 [N]를 삽입하고 상세 데이터를 생성합니다 (고도화 버전)."""
     citations = []
     citation_id = 1
-    press_id_map: dict = {}  # press → 이미 할당된 citation id 캐싱 (같은 언론사 재사용)
+    
+    # 0. 기존 마커 제거
+    article_body = re.sub(r"\[\d+\]", "", article_body)
 
-    # 꺽쇠(<>) 안의 사설 제목에 있는 작은따옴표는 무시하고,
-    # "에서 '...'라고 했다" 또는 "'...'라고 했다" 패턴만 대상으로 함
-    # → 꺽쇠 블록을 먼저 플레이스홀더로 치환 후 매칭, 복원하는 방식 사용
+    # 1. 꺽쇠(<>) 보호
     angle_bracket_pattern = re.compile(r"<[^>]*>")
     placeholders = {}
-
     def replace_angle(m):
         key = f"\x00AB{len(placeholders)}\x00"
         placeholders[key] = m.group(0)
         return key
-
     safe_body = angle_bracket_pattern.sub(replace_angle, article_body)
 
-    # 작은따옴표 내부 10자 이상 문장만 대상 (짧은 단어·어구 제외)
-    quoted_pattern = re.compile(r"'([^']{10,}?)'")
+    # 2. 따옴표 짝 매칭 (홑, 쌍, 전각 쌍, 전각 홑 지원)
+    quoted_pattern = re.compile(
+        r"'(?P<q1>.{10,1000}?)'|" + 
+        r"\"(?P<q2>.{10,1000}?)\"|" + 
+        r"“(?P<q3>.{10,1000}?)”|" + 
+        r"‘(?P<q4>.{10,1000}?)’", 
+        re.DOTALL
+    )
+
+    def normalize_text(t):
+        if not t: return ""
+        return re.sub(r"['\"“”‘’\s\.,!?]", "", t)
 
     def replace_with_marker(match):
         nonlocal citation_id
-        quote = match.group(1)
+        quote = (match.group('q1') or match.group('q2') or match.group('q3') or match.group('q4') or "").strip()
+        full_match = match.group(0)
+        if not quote: return full_match
+        opening_quote, closing_quote = full_match[0], full_match[-1]
+        
+        # 매칭 시 플레이스홀더 복원 후 정규화
+        temp_quote = quote
+        if "\x00AB" in quote:
+            for k, v in placeholders.items(): temp_quote = temp_quote.replace(k, v)
+        
+        clean_target = normalize_text(temp_quote)
 
         for mv in media_views:
             evidence = mv.get("evidence", "")
-            if quote not in evidence:
-                continue
-
-            press = mv["press"]
-
-            # 💡 각 인용마다 고유한 ID 부여 (하이라이팅 정확도 보장)
-            cid = citation_id
-            citations.append({
-                "id":            cid,
-                "press":         press,
-                "title":         mv.get("title", ""),
-                "url":           mv.get("url", ""),
-                "published_at":  mv.get("published_at", ""),
-                "article_id":    mv.get("article_id"),   # 💡 lazy-load용
-                "quote":         quote.strip(),           # 본문 인용 문장 (하이라이팅용)
-                "full_evidence": mv.get("full_content") or mv.get("evidence") or "",   # 💡 기사 원문
-            })
-            citation_id += 1
-            return f"'{quote}[{cid}]'"
-
-        # 어느 evidence에도 포함되지 않으면 마커 없이 원문 유지
-        return match.group(0)
+            clean_evidence = normalize_text(evidence)
+            if clean_target and clean_evidence and (clean_target in clean_evidence or clean_evidence in clean_target):
+                cid = citation_id
+                citations.append({
+                    "id": cid, "press": mv["press"], "title": mv.get("title", ""),
+                    "url": mv.get("url", ""), "published_at": mv.get("published_at", ""),
+                    "article_id": mv.get("article_id"), "quote": quote, "full_evidence": evidence
+                })
+                citation_id += 1
+                return f"{opening_quote}{quote}[{cid}]{closing_quote}"
+        return full_match
 
     annotated_body = quoted_pattern.sub(replace_with_marker, safe_body)
-
-    # 꺽쇠 플레이스홀더 원복
-    for key, original in placeholders.items():
-        annotated_body = annotated_body.replace(key, original)
-
-    logger.info(f"📎 [annotate_citations] 총 {len(citations)}개 언론사 citation 마커 삽입 완료")
-    return annotated_body, citations
+    for k, v in placeholders.items(): annotated_body = annotated_body.replace(k, v)
+    
+    logger.info(f"📎 [annotate_citations] 총 {len(citations)}개 인용 마커 삽입 완료")
+    return annotated_body, citations

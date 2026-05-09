@@ -458,14 +458,14 @@ class DraftService:
 
         citations = [
             CitationItem(
-                id=c["id"],
-                press=c["press"],
-                title=c["title"],
-                url=c["url"],
-                published_at=c["published_at"],
-                article_id=c.get("article_id"),  # 💡 lazy-load용
-                quote=c["quote"],
-                full_evidence=c["full_evidence"]
+                id=c.get("id", 0),
+                press=c.get("press", "알수없음"),
+                title=c.get("title", ""),
+                url=c.get("url", ""),
+                published_at=c.get("published_at", ""),
+                article_id=c.get("article_id"),
+                quote=c.get("quote", ""),
+                full_evidence=c.get("full_evidence", "")
             )
             for c in raw_citations
         ]
