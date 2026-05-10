@@ -15,7 +15,7 @@ class Article(Base):
     __tablename__ = "articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    issue_label_id = Column(Integer, ForeignKey("issue_labels.id"), nullable=True) # 소속 이슈 (클러스터링 결과)
+    issue_label_id = Column(Integer, ForeignKey("issue_labels.id"), nullable=True, index=True) # 소속 이슈 (클러스터링 결과)
     publisher_id = Column(Integer, ForeignKey("publishers.id")) # 언론사 ID
     article_type = Column(String, nullable=False, default="editorial", server_default="editorial") # 기사 유형 (editorial 또는 politics)
     
@@ -53,7 +53,7 @@ class ArticleBody(Base):
 class ArticleClaim(Base):
     __tablename__ = "article_claim_card"
     id = Column(Integer, primary_key=True, index=True)
-    issue_id = Column(Integer, ForeignKey("issue_labels.id"))
+    issue_id = Column(Integer, ForeignKey("issue_labels.id"), index=True)
     article_id = Column(Integer, ForeignKey("articles.id"))
 
     press = Column(String, nullable=False)   # 언론사
