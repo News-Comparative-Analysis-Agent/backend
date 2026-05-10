@@ -451,9 +451,15 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
         clean_target = normalize_text(temp_quote)
 
         for mv in media_views:
+            # claim과 evidence를 모두 합쳐서 매칭 대상(pool)으로 삼음
+            claim = mv.get("claim", "")
             evidence = mv.get("evidence", "")
-            clean_evidence = normalize_text(evidence)
-            if clean_target and clean_evidence and (clean_target in clean_evidence or clean_evidence in clean_target):
+            full_text_pool = f"{claim} {evidence}"
+            
+            clean_pool = normalize_text(full_text_pool)
+            
+            # 인용구가 합쳐진 텍스트 안에 있거나, 거꾸로 텍스트가 인용구 안에 포함되는지 확인
+            if clean_target and clean_pool and (clean_target in clean_pool or clean_pool in clean_target):
                 cid = citation_id
                 citations.append({
                     "id": cid, "press": mv["press"], "title": mv.get("title", ""),
