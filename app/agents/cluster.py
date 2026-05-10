@@ -130,10 +130,11 @@ class ClusterAgent:
                 if sim_matrix[i][j] >= merge_threshold:
                     logger.info(f" 🔀 클러스터 병합: '{current_topic['titles'][0][:20]}...' ← '{clustered_topics[j]['titles'][0][:20]}...' (유사도: {sim_matrix[i][j]:.2f})")
                     current_topic["titles"].extend(clustered_topics[j]["titles"])
+                    current_topic["snippets"].extend(clustered_topics[j]["snippets"])
                     current_topic["article_ids"].extend(clustered_topics[j]["article_ids"])
                     current_topic["count"] += clustered_topics[j]["count"]
-                    # 언론사 정보도 함께 합치어 press_count 정확도 보질
                     current_topic["presses"].extend(clustered_topics[j]["presses"])
+                    current_topic["snippet_presses"].extend(clustered_topics[j].get("snippet_presses", []))
                     merged_indices.add(j)
             
             final_topics.append(current_topic)
@@ -158,45 +159,81 @@ class ClusterAgent:
                 
         return df.drop(index=list(duplicates)).copy()
 
+    def _extract_snippet(self, content: str, total_chars: int = 600) -> str:
+        """앞/중/뒤 균등 샘플링으로 기사 전체 맥락 확보"""
+        if not content:
+            return ""
+        length = len(content)
+        if length <= total_chars:
+            return content
+        chunk = total_chars // 3
+        front  = content[:chunk]
+        middle = content[length//2 - chunk//2 : length//2 + chunk//2]
+        end    = content[length - chunk:]
+        return f"{front} [...] {middle} [...] {end}"
+
     @traceable(name="Agent 0: Cluster (이슈 라벨링 LLM) 🏷️")
-    def _generate_issue_details_with_llm(self, titles: List[str], state: Dict[str, Any]) -> Tuple[str, str, str, dict]:
+    def _generate_issue_details_with_llm(self, titles: List[str], snippets: List[str], state: Dict[str, Any], snippet_presses: List[str] = None) -> Tuple[str, str, str, dict]:
         """이슈 그룹에 대해 제목과 배경 등을 생성. (title, desc, background, usage) 4-tuple 반환"""
         empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        
+        # combined_snippets 구성 시 언론사 출처 명시
+        if not snippet_presses:
+            snippet_presses = [f"기사{i+1}" for i in range(len(snippets))]
+            
+        combined_snippets = "\n\n".join([
+            f"[{snippet_presses[i] if i < len(snippet_presses) else f'기사{i+1}'}]\n{s}"
+            for i, s in enumerate(snippets)
+        ])
+
         try:
             prompt = f"""
-            당신은 뉴스 기사 제목을 분석하여 사건의 핵심 맥락을 정리하는 전문가입니다.
-            아래 기사 제목들은 동일한 뉴스 사건을 다룬 여러 언론사의 제목입니다.
-            제목들을 바탕으로 이 사건의 핵심 정보를 정리하십시오.
+            당신은 뉴스 기사 본문을 분석하여 사건의 핵심 팩트를 정리하는 전문가입니다.
+            아래 [기사 본문 근거]는 동일한 사건을 다룬 여러 언론사의 보도입니다.
+            각 언론사의 본문에 공통으로 등장하는 팩트(사실관계)만 추출하여 정리하십시오.
 
             [기사 제목 목록]
-            {titles[:15]} (총 {len(titles)}건)
+            {titles[:10]} (총 {len(titles)}건)
 
-            [작성 규칙]
+            [기사 본문 근거 - 언론사별]
+            {combined_snippets}
+
+            [작성 규칙 - 절대 엄수]
             1. title: 반드시 아래 형식을 따른다.
                형식: "[사건명/의혹명], '[A 진영 핵심 입장]'-'[B 진영 핵심 입장]' [대립 강도]"
-               → 앞부분: 인물명·사건명·의혹명 등 핵심 키워드를 명사형으로 압축한다. (10자 내외)
-               → 따옴표 안: 각 진영의 입장을 명사형 또는 짧은 동사구로 압축한다. (8자 내외)
-               → 대립 강도: '팽팽', '엇갈려', '충돌' 중 문맥에 맞는 단어를 선택한다.
-               → 예시: "쌍방울 진술회유 의혹, '녹취록 공개'-'국정조사' 팽팽"
-               → 예시: "채상병 특검 거부, '위헌'-'정치수사 방지' 충돌"
+               → 앞부분: 사건의 핵심 키워드를 명사형으로 압축 (10자 내외)
+               → 따옴표 안: 각 진영의 입장을 짧은 동사구로 압축 (8자 내외)
+               → 대립 강도: '팽팽', '엇갈려', '충돌' 중 선택
 
-            2. description: 무슨 사건인지, 누가 관련되었는지, 어떤 주장이 제기되었는지를
-               사실 중심으로 2~3문장으로 서술하라.
-               → 첫 문장은 반드시 행위 주체를 주어로 쓴다. (예: "더불어민주당이 ~했다")
-               → 언론사 간 반응이 엇갈리는 경우 그 구도를 한 문장으로 덧붙여라.
+            2. description: 아래 조건을 모두 만족하는 문장 4~6개로 구성한다.
+                → 조건 1: [기사 본문 근거]의 1개 이상 언론사에 등장하는 팩트만 사용한다.
+                → 조건 2: 특정 언론사의 주장·평가·논조가 아닌, 객관적 사실(날짜, 인물, 행위)만 담는다.
+                → 조건 3: 반드시 [기사 본문 근거]에 실제로 있는 표현을 사용한다.
+                → 조건 4: 반드시 포함할 항목:
+                    ① 누가 언제 어디서 무엇을 공개했는지 (행위 주체, 일시, 장소)
+                    ② 핵심 발언 직접 인용 (따옴표 포함 원문 그대로)
+                    ③ 이 사건의 배경 (사건의 성격, 관련 의혹)
+                    ④ 관련 인물의 법적 상태 (판결, 기소 여부)
+                    ⑤ 상대방의 반박 입장
 
-            3. background: 이 사건의 배경을 1~2문장으로 서술하라.
-               → 반드시 행위 주체(누가 무엇을 했는지)를 주어로 쓴다.
-               → 수동형("~이 제기되었다", "~이 공개되면서") 대신 능동형("~가 공개했다", "~가 제기했다")을 사용한다.
-               → 사실에 기반하고 기사 제목에 없는 내용을 추측하지 마라.
+            3. background: 아래 조건을 모두 만족하는 문장 2~3개로 구성한다.
+                → 조건 1: 이 사건이 왜 발생했는지, 무엇이 계기가 됐는지를 설명하는 팩트만 담는다.
+                → 조건 2: [기사 본문 근거]에 실제로 있는 표현을 사용한다.
+                → 조건 3: 수동형("~이 제기됐다") 대신 능동형("[주체]가 ~했다")으로 쓴다.
+                → 조건 4: 반드시 포함할 항목:
+                    ① 핵심 행위 주체가 무엇을 공개·제기했는지 (사건명 포함)
+                    ② 공개된 내용의 핵심 정황 또는 의혹의 성격
+                    ③ 이 사건이 어떤 더 큰 맥락(재판, 수사, 정치적 상황)과 연결되는지
 
-            4. 할루시네이션 방지: 제공된 제목에 없는 사실을 추가하지 마라. 제목에 나타난 단어(예: '조작', '회유', '가짜뉴스')는 그대로 활용하라.
+            4. 할루시네이션 방지:
+               → [기사 본문 근거]에 없는 인물명, 날짜, 발언, 사실을 절대 추가하지 마라.
+               → 불확실하면 해당 내용을 생략하라.
 
             [응답 예시]
             {{
                 "title": "쌍방울 진술회유 의혹, '녹취록 공개'-'국정조사' 팽팽",
-                "description": "더불어민주당이 쌍방울 대북송금 사건을 수사한 박상용 검사가 변호인에게 '이재명이 주범이 되는 자백이 있어야 한다'고 말한 녹취를 공개해 파문이 일고 있다. 주요 언론사들은 '전체 녹취를 공개해야 한다'는 입장과 '국정조사에서 진상을 규명해야 한다'는 입장으로 엇갈렸다.",
-                "background": "더불어민주당이 쌍방울 대북송금 사건 수사 과정에서 검사가 피의자 측 변호인에게 특정 진술을 유도했다는 녹취록을 공개하며 진술 회유 의혹을 제기했다."
+                "description": "민주당은 29일 국회 기자간담회를 열고 2023년 6월 19일 박 검사와 이화영 전 경기도 부지사 변호인이었던 서민석 변호사의 통화 녹취 일부를 공개했다. 박 검사는 서 변호사에게 "이재명 씨가 완전히 주범이 되고 이 사람(이화영)이 종범이 되는 식의 자백이 있어야 저희가 그거를 할 수가 있고, 보석으로 나가는 거라든지 추가 영장을 안 한다든지 다 가능해지는 것"이라고 말했다. 이 전 부지사는 지난해 6월 대법원에서 뇌물 혐의로 징역 7년 8월을 확정받았다. 이 대통령의 제3자뇌물 혐의 사건 재판은 대통령의 불소추특권으로 정지됐다. 박 검사는 '녹취는 짜깁기되어 마치 역으로 제가 제안한 것처럼 둔갑되어 있다'며 서민석 변호사 본인이 이화영 종범 의율 제안을 한 녹취를 공개하라고 반발했다. 민주당은 향후 국정조사에서 전체 녹취가 공개될 것이라는 입장이다.",
+                "background": "더불어민주당이 쌍방울 대북송금 사건을 수사한 박상용 검사의 '진술 회유' 정황이 담긴 녹취록을 공개해 파문이 일고 있다. 공개된 녹취에는 박 검사가 이재명 대통령을 주범으로 지목하는 자백을 해야 이화영 전 부지사에게 선처가 가능하다는 내용이 담겼다."
             }}
             """
             
@@ -214,10 +251,15 @@ class ClusterAgent:
             parsed, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema)
             
             if parsed:
+                def to_str(val):
+                    if isinstance(val, list):
+                        return " ".join([str(v) for v in val])
+                    return str(val) if val else ""
+
                 return (
-                    parsed.get("title", titles[0]), 
-                    parsed.get("description", "이슈 요약 부재"),
-                    parsed.get("background", "배경 정보 부재"),
+                    to_str(parsed.get("title", titles[0])), 
+                    to_str(parsed.get("description", "이슈 요약 부재")),
+                    to_str(parsed.get("background", "배경 정보 부재")),
                     usage
                 )
             return titles[0], "요약 생성 실패", "배경 부재", empty_usage
@@ -325,11 +367,19 @@ class ClusterAgent:
                 is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
                 
                 if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= max_ratio_limit:
+                    # 언론사별 대표 기사 1개씩 선택 (균등 샘플링)
+                    representative = topic_articles.groupby('press').first().reset_index()
+
                     intermediate_topics.append({
                         "topic_id": int(topic_id),
                         "count": int(count),
                         "press_count": int(unique_press),
                         "titles": topic_articles['title'].tolist(),
+                        "snippets": [
+                            self._extract_snippet(row['content'])
+                            for _, row in representative.iterrows()
+                        ],
+                        "snippet_presses": representative['press'].tolist(),  # 어느 언론사 본문인지
                         "article_ids": topic_articles['article_id'].tolist(),
                         "presses": topic_articles['press'].tolist() # 병합 후 재계산용
                     })
@@ -371,8 +421,13 @@ class ClusterAgent:
         try:
             for t in topics:
                 time.sleep(0.5)
-                # ✅ 4-tuple로 usage까지 받아서 로컬에서 누적
-                ai_label, desc, bg, usage = self._generate_issue_details_with_llm(t["titles"], state)
+                # ✅ 4-tuple로 usage까지 받아서 로컬에서 누적, snippet_presses 전달
+                ai_label, desc, bg, usage = self._generate_issue_details_with_llm(
+                    t["titles"], 
+                    t.get("snippets", []), 
+                    state, 
+                    snippet_presses=t.get("snippet_presses", [])
+                )
                 node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
                 

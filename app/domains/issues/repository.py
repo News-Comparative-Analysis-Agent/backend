@@ -298,6 +298,12 @@ class IssueRepository:
             Article.issue_label_id == source_id
         ).update({"issue_label_id": target_id})
         
+        # 주장 카드(ArticleClaim) 재연결
+        from app.domains.articles.models import ArticleClaim
+        self.db.query(ArticleClaim).filter(
+            ArticleClaim.issue_id == source_id
+        ).update({"issue_id": target_id})
+        
         # total_count 합산
         self.db.query(IssueLabel).filter(IssueLabel.id == target_id).update({
             "total_count": target.total_count + source.total_count

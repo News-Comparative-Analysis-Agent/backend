@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import re
 import time
@@ -399,6 +399,12 @@ def agent_guard(agent_name: str, recoverable: bool = True):
 
 def annotate_citations(article_body: str, media_views: list) -> tuple:
     """본문에 인용 출처 마커 [N]를 삽입하고 상세 데이터를 생성합니다 (고도화 버전)."""
+    # 입력 타입 방어 (리스트인 경우 줄바꿈으로 합침)
+    if isinstance(article_body, list):
+        article_body = "\n\n".join([str(s) for s in article_body])
+    elif not isinstance(article_body, str):
+        article_body = str(article_body or "")
+
     citations = []
     citation_id = 1
     
@@ -425,7 +431,10 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
 
     def normalize_text(t):
         if not t: return ""
-        return re.sub(r"['\"“”‘’\s\.,!?]", "", t)
+        # 입력 타입 방어
+        if isinstance(t, list):
+            t = " ".join([str(i) for i in t])
+        return re.sub(r"['\"“”‘’\s\.,!?]", "", str(t))
 
     def replace_with_marker(match):
         nonlocal citation_id

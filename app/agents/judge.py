@@ -142,13 +142,6 @@ class JudgeAgent:
             msg = f"✅ 검수 완료: {status} (통합 G-EVAL 점수: {g_score}점)"
             log_llm_event("agent_judge", msg, details={"g_eval": g_eval_result, "thought": thought})
             
-            
-            # 🚨 최대 재시도 도달 시 강제 통과 처리
-            if retry_count >= 2 and status != "PASS":
-                logger.warning(f"⚖️ [JudgeAgent] 최대 재시도(3회) 도달. 현재 상태({status})를 무시하고 강제 PASS 처리하여 초안을 저장합니다.")
-                status = "PASS"
-                msg += " -> [강제 PASS]"
-                
             if status == "PASS":
                 logger.success(f"⚖️ [JudgeAgent] {msg}")
                 # 최종 통과 시 DB에 모든 분석 결과 저장

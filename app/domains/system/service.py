@@ -13,7 +13,7 @@ class SystemService:
         """
         settings = self.db.query(SystemSettings).filter(SystemSettings.id == 1).first()
         if not settings:
-            settings = SystemSettings(id=1, llm_mode="gemini_only")
+            settings = SystemSettings(id=1, llm_mode="local_only")
             self.db.add(settings)
             self.db.commit()
             self.db.refresh(settings)
