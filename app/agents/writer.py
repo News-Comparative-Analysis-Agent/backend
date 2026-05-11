@@ -53,6 +53,15 @@ class WriterAgent:
         if not title and not media_views:
             return {"draft_article": {"article_body": "입력 데이터가 부족합니다."}, "messages": ["데이터 부재로 Writer 중단"]}
 
+        # 언론사 출력 순서 제어
+        ORDER = ["조선일보", "한국일보", "경향신문", "한겨레"]
+        
+        # media_views를 ORDER 순서에 따라 정렬 (포함되지 않은 언론사는 뒤로 보냄)
+        media_views = sorted(
+            media_views,
+            key=lambda x: ORDER.index(x.get("press")) if x.get("press") in ORDER else len(ORDER)
+        )
+
         # 언론사별 블록 포매팅 — 날짜를 Python에서 직접 가공하여 전달
         media_blocks = ""
         for i, mv in enumerate(media_views, 1):

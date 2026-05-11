@@ -1,7 +1,6 @@
 import json
 from sqlalchemy.orm import Session
 
-import google.generativeai as genai
 from app.agents.state import ReviewState
 from app.core.logger import logger
 
@@ -24,16 +23,16 @@ class ReviewAgent:
         [Node 1] DB에서 이슈 정보, 분석 메타데이터(배경, 쟁점, 요약) 및 관련 기사의 메타 정보를 가져옵니다.
         """
         issue_id = state.get("issue_id")
-        logger.info(f"🔍 [ReviewAgent] Node1: 이슈({issue_id}) 분석 데이터 로드 시작")
-
+        from app.domains.drafts.repository import DraftRepository
+        repo = DraftRepository(self.db)
+        
         try:
-            from app.domains.drafts.repository import DraftRepository
-            repo = DraftRepository(self.db)
-
+            # 1. 이슈 기본 정보 조회
             issue = repo.get_issue_by_id(issue_id)
             if not issue:
-                return {"error": f"이슈 ID {issue_id}를 찾을 수 없습니다.", "messages": ["이슈 없음 - 검토 중단"]}
-
+                return {"error": "이슈 정보를 찾을 수 없습니다."}
+            
+            # 2. 관련 기사 메타데이터 및 본문 로드 (비교용)
             articles = repo.get_articles_meta_by_issue(issue_id)
             articles_meta = []
             for art in articles:
@@ -47,42 +46,42 @@ class ReviewAgent:
                     "published_at": art.published_at.strftime("%Y-%m-%dT%H:%M") if art.published_at else ""
                 })
 
-            # pre_generated_draft에서 실제 본문 추출 (JSON 구조 고려)
+            # 3. 초안 내용 로드 및 JSON 파싱 처리
             raw_draft = issue.pre_generated_draft or ""
             parsed_draft = raw_draft
             try:
                 if raw_draft.strip().startswith('{'):
+                    import json
                     draft_json = json.loads(raw_draft)
                     parsed_draft = draft_json.get("article_body", raw_draft)
             except Exception:
                 pass
 
-            logger.info(f"🔍 [ReviewAgent] Node1: 이슈 '{issue.name}', 분석 메타데이터 및 기사 {len(articles_meta)}건 로드 완료")
             return {
                 "issue_name": issue.name,
-                "issue_description": issue.description or "",
-                "issue_background": issue.background or "",
-                "conflict_summary": issue.conflict_summary or "",
+                "issue_description": issue.description,
+                "issue_background": issue.background,
+                "conflict_summary": issue.conflict_summary,
                 "pre_generated_draft": parsed_draft,
                 "articles_meta": articles_meta,
-                "messages": [f"이슈 분석 데이터 및 기사 {len(articles_meta)}건 로드 완료"]
+                "messages": ["이슈 및 기사 데이터 로드 완료"]
             }
-
         except Exception as e:
-            msg = f"데이터 로드 실패: {e}"
-            logger.error(f"🔍 [ReviewAgent] {msg}")
-            return {"error": msg, "messages": [msg]}
-
+            logger.error(f"⚖️ [ReviewAgent] 데이터 로드 실패: {e}")
+            return {"error": str(e), "messages": [f"데이터 로드 실패: {e}"]}
 
     # -----------------------------------------------------------
-    # Node 3: 가이드라인 검증 + AI 종합 의견 (Gemini/Local LLM)
+    # Node 2: 기사 신뢰도/충실도 점수 계산 (Python Logic)
+    # -----------------------------------------------------------
+    # (필요시 추가 로직 구현 가능, 현재는 LLM이 통합 수행)
+
+    # -----------------------------------------------------------
+    # Node 3: 최종 검토 및 종합 의견 생성 (LLM)
     # -----------------------------------------------------------
     def node_analyze_and_opine(self, state: ReviewState) -> dict:
         """
-        [Node 3] LLM을 사용하여 가이드라인 검증 점수(공정성, 원문충실도, 무해성)에 필요한 값을 추출하고 종합 의견을 생성합니다.
+        [Node 3] 초안과 원본 데이터를 대조하여 품질을 검토하고 종합 의견을 생성합니다.
         """
-        from app.agents.utils import call_llm, update_total_tokens
-        
         pre_generated_draft = state.get("pre_generated_draft", "")
         issue_name = state.get("issue_name", "")
         issue_background = state.get("issue_background", "")
@@ -146,6 +145,7 @@ class ReviewAgent:
             }}
         """
 
+        from app.agents.utils import call_llm, update_total_tokens
         response_schema = {
             "type": "object",
             "properties": {
@@ -247,7 +247,7 @@ class ReviewAgent:
         except Exception as e:
             msg = f"LLM 분석 오류: {e}"
             logger.error(f"⚖️ [ReviewAgent] {msg}")
-            # 에러 발생 시 기본 통과 점수로 처리
+            # 에러 발생 시 기본 통과 점수로 처리 (스키마 일관성 유지)
             scores = {
                 "fairness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
                 "faithfulness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},

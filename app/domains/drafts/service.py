@@ -20,6 +20,8 @@ from app.domains.drafts.schemas import (
     CitationItem, DraftWithCitationsResponse
 )
 from app.core.logger import logger
+from app.agents.utils import call_llm
+from app.scroller.repository import ScrollerRepository
 
 # Gemini 초기 설정 (신규 SDK 방식)
 _draft_genai_client = None
@@ -139,33 +141,34 @@ class DraftService:
                     user_prompt += f"[이전 대화 히스토리]\n{history_text}\n\n"
                 user_prompt += f"[사용자 질문]\n{last_user_input}"
 
-                # 3. Gemini API 호출 (System Instruction 분리 및 Schema 적용)
-                response = client.models.generate_content(
-                    model=get_gemini_model_name(),
-                    contents=user_prompt,
-                    config={
-                        "system_instruction": system_prompt,
-                        "response_mime_type": "application/json",
-                        "response_schema": ChatAIOutputSchema
-                    }
-                )
+                # 3. 시스템 설정에서 LLM 모드 가져오기
+                scroller_repo = ScrollerRepository(self.repo.db)
+                settings = scroller_repo.get_system_settings()
+                llm_mode = settings.llm_mode if settings else "local_only"
                 
+                # state 객체 시뮬레이션 (call_llm 요구사항)
+                state = {"llm_mode": llm_mode}
+
+                # 4. LLM 호출 (utils.call_llm 사용으로 로컬/제미나이 통합 제어)
                 try:
-                    # [개선] 명확한 JSON 파싱 및 에러 핸들링
-                    if not response.text:
-                         return ChatResponse(response="AI가 응답을 생성하지 못했습니다. 다시 시도해주세요.", modified_content=None)
-                         
-                    result_data = json.loads(response.text)
-                    return ChatResponse(
-                        response=result_data.get("response", ""),
-                        modified_content=result_data.get("modified_content")
+                    result_data, usage = call_llm(
+                        prompt=user_prompt,
+                        model_size="local",
+                        state=state,
+                        schema=ChatAIOutputSchema
                     )
-                except json.JSONDecodeError as e:
-                    logger.error(f"❌ JSON 파싱 에러: {str(e)} | Response: {response.text}")
-                    return ChatResponse(
-                        response="AI 응답을 처리하는 중 형식이 맞지 않는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-                        modified_content=None
-                    )
+                except Exception as e:
+                    logger.error(f"❌ Chat LLM Call Error: {str(e)}")
+                    return ChatResponse(response=f"AI 응답 생성 중 오류가 발생했습니다: {str(e)}", modified_content=None)
+                
+                if not result_data:
+                    return ChatResponse(response="AI가 응답을 생성하지 못했습니다. 다시 시도해주세요.", modified_content=None)
+                
+                # 5. 결과 반환
+                return ChatResponse(
+                    response=result_data.get("response", ""),
+                    modified_content=result_data.get("modified_content")
+                )
             else:
                 return ChatResponse(response="무엇을 도와드릴까요?", modified_content=None)
         except Exception as e:

@@ -32,3 +32,18 @@ class IssueLabel(Base):
     created_at = Column(DateTime, default=func.now(), index=True) # 생성 일시
 
     articles = relationship("Article", back_populates="issue_label")
+
+class DailyStats(Base):
+    """
+    당일 서비스 통계 정보 테이블
+    - 대시보드 상단에 표시될 요약 수치들을 저장합니다.
+    """
+    __tablename__ = "daily_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    target_date = Column(DateTime, unique=True, index=True) # 집계 대상 날짜 (시간 제외)
+    article_count = Column(Integer, default=0) # 오늘 수집된 총 기사 수
+    issue_count = Column(Integer, default=0)   # 오늘 생성된 총 이슈 수
+    publisher_count = Column(Integer, default=0) # 참여 언론사 수 (기사 소속 기준)
+    critique_count = Column(Integer, default=0)  # 오늘 생성된 비평/초안 기사 수
+    last_updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

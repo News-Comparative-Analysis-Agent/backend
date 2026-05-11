@@ -6,10 +6,23 @@ from app.domains.issues.service import IssueService
 from app.domains.issues.schemas import (
     IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse, 
     IssueTimelineResponse, IssueGroupedResponse, IssueFeedLegacyResponse,
-    HeadlineRecommendationResponse
+    HeadlineRecommendationResponse, DailyStatsResponse
 )
 
 router = APIRouter()
+
+@router.get("/stats/today",
+            response_model=DailyStatsResponse,
+            summary="오늘의 서비스 통계 조회",
+            description="오늘 수집된 기사 수, 생성된 이슈 수, 참여 언론사 수, 비평 기사 수 등을 반환합니다.")
+def get_today_stats(
+    db: Session = Depends(get_db)
+):
+    """
+    오늘의 서비스 운영 지표 조회
+    """
+    service = IssueService(db)
+    return service.get_today_stats()
 
 @router.get("/daily-issues",
             response_model=IssueFeedResponse,
