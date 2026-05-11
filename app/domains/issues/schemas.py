@@ -160,3 +160,14 @@ class HeadlineRecommendationResponse(BaseModel):
     """초안 기반 헤드라인 추천 응답"""
     headlines: List[str]
 
+class DailyStatsResponse(BaseModel):
+    """당일 서비스 통계 응답 스키마"""
+    article_count: int
+    issue_count: int
+    publisher_count: int
+    critique_count: int
+    last_updated_at: datetime
+
+    class Config:
+        from_attributes = True
+

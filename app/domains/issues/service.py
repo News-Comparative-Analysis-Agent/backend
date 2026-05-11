@@ -8,7 +8,7 @@ from app.domains.issues.schemas import (
     IssueDraftResponse, ClaimCardResponse, IssueGroupedResponse,
     IssueTimelineItem, IssueTimelineResponse,
     IssueFeedLegacyItem, IssueFeedLegacyResponse,
-    HeadlineRecommendationResponse
+    HeadlineRecommendationResponse, DailyStatsResponse
 )
 from collections import defaultdict
 from app.agents.utils import call_llm
@@ -167,7 +167,8 @@ class IssueService:
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
         articles_map = self.repo.get_articles_for_issues(issue_ids)
         
-        today_article_count, today_issue_count = self.repo.get_today_stats()
+        # 오늘 통계 가져오기 (dict 형식으로 변경됨)
+        stats_dict = self.repo.get_today_stats(target_date)
 
         issue_items: List[IssueFeedItem] = []
         for idx, issue in enumerate(issues):
@@ -194,15 +195,23 @@ class IssueService:
             page=page,
             page_size=page_size,
             total_pages=total_pages,
-            today_article_count=today_article_count,
-            today_issue_count=today_issue_count
+            today_article_count=stats_dict["article_count"],
+            today_issue_count=stats_dict["issue_count"]
         )
+
+    def get_today_stats(self) -> DailyStatsResponse:
+        """오늘의 서비스 통계(기사, 이슈, 언론사, 비평 수)를 조회합니다."""
+        today_date = (datetime.utcnow() + timedelta(hours=9)).date()
+        # 실시간 집계 및 동기화
+        stats = self.repo.sync_daily_stats(today_date)
+        return DailyStatsResponse.model_validate(stats)
 
     def get_grouped_issues(self, days: int = 7, issue_type: Optional[str] = None) -> IssueGroupedResponse:
         issues = self.repo.get_issues_by_date_range(days=days, issue_type=issue_type)
 
         issue_ids = [issue.id for issue in issues]
         image_urls_map = self.repo.get_image_urls_by_issue_ids(issue_ids)
+        articles_map = self.repo.get_articles_for_issues(issue_ids)
 
         grouped_data: Dict[str, List[IssueFeedItem]] = defaultdict(list)
 
@@ -222,6 +231,7 @@ class IssueService:
                 article_count=issue.total_count,
                 rank=rank_in_day,
                 created_at=created_at,
+                articles=articles_map.get(issue.id, []),
                 image_urls=image_urls_map.get(issue.id, [])
             ))
 
