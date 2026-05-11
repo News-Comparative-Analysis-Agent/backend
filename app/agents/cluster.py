@@ -285,7 +285,8 @@ class ClusterAgent:
                     'article_id': a.id,
                     'title': a.title,
                     'content': content,
-                    'press': a.publisher.name if a.publisher else "알수없음"
+                    'press': a.publisher.name if a.publisher else "알수없음",
+                    'published_at': a.published_at  # 언론사별 최신 기사 우선 선택용
                 })
             
             msg = f"미분류 기사 {len(data)}건 로드됨"
@@ -367,21 +368,30 @@ class ClusterAgent:
                 is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
                 
                 if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= max_ratio_limit:
-                    # 언론사별 대표 기사 1개씩 선택 (균등 샘플링)
-                    representative = topic_articles.groupby('press').first().reset_index()
+                    # 언론사별 대표 기사 1개씩 선택 (최신 기사 우선)
+                    # published_at이 없으면 원래 순서 유지
+                    if 'published_at' in topic_articles.columns:
+                        representative = (
+                            topic_articles.sort_values('published_at', ascending=False)
+                            .groupby('press').first().reset_index()
+                        )
+                    else:
+                        representative = topic_articles.groupby('press').first().reset_index()
 
                     intermediate_topics.append({
                         "topic_id": int(topic_id),
-                        "count": int(count),
-                        "press_count": int(unique_press),
-                        "titles": topic_articles['title'].tolist(),
+                        # count와 press_count를 실제 저장 기사(언론사별 1개) 기준으로 통일
+                        "count": int(len(representative)),
+                        "press_count": int(len(representative)),
+                        "titles": representative['title'].tolist(),  # 대표 기사 제목만 사용
                         "snippets": [
                             self._extract_snippet(row['content'])
                             for _, row in representative.iterrows()
                         ],
-                        "snippet_presses": representative['press'].tolist(),  # 어느 언론사 본문인지
-                        "article_ids": topic_articles['article_id'].tolist(),
-                        "presses": topic_articles['press'].tolist() # 병합 후 재계산용
+                        "snippet_presses": representative['press'].tolist(),
+                        # ✅ article_ids도 언론사별 1개만 저장 (중복 언론사 방지)
+                        "article_ids": representative['article_id'].tolist(),
+                        "presses": representative['press'].tolist()
                     })
 
             # 4. 유사 클러스터 후처리 병합
