@@ -162,7 +162,44 @@ class ScrollerRepository:
         )
         
         return query.all()
-                
+
+    def search_issues_by_keyword(self, keyword: str, limit: int = 20) -> list:
+        """
+        검색어를 공백으로 분리한 토큰 단위로 이슈를 OR 검색합니다.
+        각 토큰이 name / description / background / conflict_summary 중
+        하나라도 포함된 이슈를 최신순으로 반환합니다.
+
+        예) "이재명 탄핵" → '이재명' OR '탄핵' 포함 이슈 모두 반환
+
+        Args:
+            keyword (str): 검색어 (자연어 문장 가능)
+            limit (int): 최대 결과 수
+        """
+        from sqlalchemy import or_
+
+        # 2글자 이상 토큰만 사용 (조사·단어 노이즈 방지)
+        tokens = [t for t in keyword.split() if len(t) >= 2]
+
+        # 토큰이 없으면 전체 검색어를 그대로 사용
+        if not tokens:
+            tokens = [keyword]
+
+        conditions = []
+        for token in tokens:
+            pattern = f"%{token}%"
+            conditions.append(IssueLabel.name.ilike(pattern))
+            conditions.append(IssueLabel.description.ilike(pattern))
+            conditions.append(IssueLabel.background.ilike(pattern))
+            conditions.append(IssueLabel.conflict_summary.ilike(pattern))
+
+        return (
+            self.db.query(IssueLabel)
+            .filter(or_(*conditions))
+            .order_by(IssueLabel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
     def save_issue_and_relations(self, ai_label: str, 
                                     description: str, 
                                     count: int, 
