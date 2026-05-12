@@ -21,7 +21,7 @@ class IssueLabel(Base):
     phase = Column(String(10), default="발생", server_default="발생")
     
     # ORM에서 부모-자식 관계를 편하게 탐색하기 위한 Self-referencing 설정
-    parent = relationship("IssueLabel", remote_side=[id], backref="children")
+    parent = relationship("IssueLabel", remote_side=[id], backref="children", post_update=True)
     
     # 추가 필드 (Repository에서 사용 중)
     background = Column(Text, nullable=True) # 이슈의 배경 정보
