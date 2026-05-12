@@ -285,7 +285,8 @@ class NLPSearchService:
 
     def generate_briefing(self, query, articles_data):
         try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            gemini_model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash")
+            model = genai.GenerativeModel(gemini_model_name)
             context_text = ""
             for i, art in enumerate(articles_data):
                 content = art.get('full_text', art['description']) 
@@ -311,7 +312,7 @@ class NLPSearchService:
                 "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"]
             }}
             """
-            log_llm_event("NLPSearch", "Requesting gemini-2.0-flash for briefing", details=prompt)
+            log_llm_event("NLPSearch", f"Requesting {gemini_model_name} for briefing", details=prompt)
             response = model.generate_content(prompt)
             log_llm_event("NLPSearch", "Response received", details=response.text)
             parsed = self.nodes._parse_llm_json(response.text)
@@ -323,9 +324,29 @@ class NLPSearchService:
     def execute_search_briefing(self, user_query):
         logger.info(f"🔍 '{user_query}' 관련 기사 내부 DB 검색 중...")
         items = self.repo.search_articles_by_keyword(user_query, limit=15)
-        if not items: 
+
+        # ── 이슈 검색 ──────────────────────────────────────────────────────────
+        matched_issue_objects = self.repo.search_issues_by_keyword(user_query, limit=10)
+        matched_issues = [
+            {
+                "id": issue.id,
+                "name": issue.name,
+                "description": issue.description,
+                "issue_type": issue.issue_type,
+                "created_at": issue.created_at.strftime("%Y-%m-%d") if issue.created_at else None,
+            }
+            for issue in matched_issue_objects
+        ]
+        logger.info(f"📌 '{user_query}' 관련 이슈 {len(matched_issues)}건 검색됨")
+        # ───────────────────────────────────────────────────────────────────────
+
+        if not items:
             logger.info(f"ℹ️ '{user_query}' 관련 검색 결과 없음")
-            return {"success": False, "message": "내부 DB에 해당 키워드를 포함한 기사가 없습니다."}
+            return {
+                "success": False,
+                "message": "내부 DB에 해당 키워드를 포함한 기사가 없습니다.",
+                "data": {"matched_issues": matched_issues}
+            }
 
         processed_articles = []
         source_counter = Counter()
@@ -335,6 +356,7 @@ class NLPSearchService:
             content = item.body.raw_content if getattr(item, 'body', None) else ""
             
             art_data = {
+                "article_db_id": item.id,           # 실제 DB article id
                 "title": item.title,
                 "link": item.url,
                 "description": content[:150] + "...",
@@ -358,7 +380,7 @@ class NLPSearchService:
         for idx, art in enumerate(processed_articles):
             matched = [k for k in final_keywords if k in art['title'] or k in art['description']]
             formatted_articles.append({
-                "id": f"news_{idx+1:03d}",
+                "id": art["article_db_id"],          # 실제 DB article id로 교체
                 "title": art['title'],
                 "source": art['source'],
                 "description": art['description'],
@@ -437,6 +459,7 @@ class NLPSearchService:
             "success": True,
             "data": {
                 "original_query": user_query,
+                "matched_issues": matched_issues,   # ← 이슈 검색 결과 추가
                 "generated_keywords": final_keywords,
                 "ai_summary": ai_summary_text,
                 "ai_summary_structured": structured_summary,
@@ -445,3 +468,4 @@ class NLPSearchService:
                 "by_source": dict(source_counter)
             }
         }
+
