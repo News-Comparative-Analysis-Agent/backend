@@ -24,6 +24,10 @@ class IssueAnalysisResponse(BaseModel):
     background: Optional[str] = None
     issue_type: Optional[str] = None
     created_at: datetime
+    
+    # 인용 정보 매핑 (마커 인덱스 -> 기사 ID)
+    description_citations: Optional[Dict[str, int]] = {}
+    background_citations: Optional[Dict[str, int]] = {}
 
     # 해당 이슈와 관련된 모든 주장 카드 리스트
     claim_cards: List[ClaimCardResponse] = []
@@ -43,6 +47,10 @@ class IssueDraftResponse(BaseModel):
     issue_type: Optional[str] = None
     created_at: datetime
     pre_generated_draft: Optional[str] = None
+    
+    # 인용 정보 매핑 (마커 인덱스 -> 기사 ID)
+    description_citations: Optional[Dict[str, int]] = {}
+    background_citations: Optional[Dict[str, int]] = {}
     # 해당 이슈와 관련된 모든 주장 카드 리스트
     claim_cards: List[ClaimCardResponse] = []
 

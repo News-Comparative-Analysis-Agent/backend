@@ -322,7 +322,7 @@ class ClusterAgent:
                 distance_threshold = 0.92
             else:
                 docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
-                distance_threshold = 0.8 # TODO 배포시 0.8로 변경
+                distance_threshold = 1.1 # TODO 배포시 0.8로 변경
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
