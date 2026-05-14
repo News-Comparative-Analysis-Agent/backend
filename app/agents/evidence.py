@@ -185,9 +185,9 @@ class EvidenceAgent:
                     self.article_service.save_article_claim(
                         issue_id=issue_id,
                         article_id=card['article_id'],
-                        press=card.get('press', '알수없음'),
-                        claim=card.get('claim', ''),
-                        evidence=card.get('evidence', '')
+                        press=card.get('press') or '알수없음',
+                        claim=card.get('claim') or '',
+                        evidence=card.get('evidence') or ''
                     )
                     saved_claims_count += 1
                 except Exception as e:
@@ -197,7 +197,8 @@ class EvidenceAgent:
             if claim_cards:
                 logger.info(f"🔍 [EvidenceAgent:Extract] 추출된 주장 카드 목록:")
                 for i, card in enumerate(claim_cards, 1):
-                    logger.info(f"   {i}. [{card.get('press')}] {card.get('claim')[:50]}...")
+                    claim_text = str(card.get('claim') or "")
+                    logger.info(f"   {i}. [{card.get('press')}] {claim_text[:50]}...")
                     # 상세 내용은 log_llm_event로 남김
                     log_llm_event("agent_evidence", f"Card {i} Details", details=json.dumps(card, ensure_ascii=False, indent=2))
             

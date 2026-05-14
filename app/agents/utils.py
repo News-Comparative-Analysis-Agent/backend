@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import re
 import time
@@ -154,7 +154,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
     if json_mode or schema:
         payload["response_format"] = {"type": "json_object"}
 
-    max_retries = 3
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             log_llm_event(target_name, f"Requesting {LLM_MODEL_NAME} (Attempt {attempt+1})", details=prompt)
@@ -196,8 +196,15 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
             
         except (requests.exceptions.RequestException, Exception) as e:
             if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + 0.5 # Exponential backoff with simple jitter
-                logger.warning(f"로컬 LLM 호출 실패 (시도 {attempt+1}): {e}. {wait_time}초 후 재시도...")
+                wait_time = (2 ** attempt) + 1.0 # 기본 Exponential backoff
+                
+                error_str = str(e)
+                if "429" in error_str or "Too Many Requests" in error_str:
+                    wait_time = 15 * (attempt + 1) # 429 발생 시 15초, 30초 대기
+                elif "500" in error_str:
+                    wait_time = 5 * (attempt + 1) # 500 에러 시 서버 안정화 대기
+                    
+                logger.warning(f"로컬/DeepInfra LLM 호출 실패 (시도 {attempt+1}): {e}. {wait_time}초 후 재시도...")
                 time.sleep(wait_time)
             else:
                 log_llm_event(target_name, f"Error after {max_retries} attempts: {e}")

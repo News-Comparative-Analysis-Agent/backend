@@ -167,7 +167,8 @@ def create_comparison_graph(db: Session):
             final_state = analysis_subgraph.invoke(sub_initial_state)
             
             # 🚨 최종 검수 실패 시 삭제 처리 (JudgeAgent의 강제 PASS 제거 대응)
-            if final_state.get("judge_status") != "PASS":
+            # 정치 모드(politics)는 Writer와 Judge를 건너뛰므로 점수 검사를 생략합니다.
+            if article_mode != "politics" and final_state.get("judge_status") != "PASS":
                 raise ValueError(f"품질 검수 최종 실패 (점수 미달)")
 
             # ✅ 타임라인 연결 (이슈 갈등 구도 및 Evidence 분석이 완료되어 DB에 저장된 시점)
@@ -226,7 +227,7 @@ def create_comparison_graph(db: Session):
         
         logger.info(f"🗺️ [Graph] 총 {len(issue_ids)}개 이슈에 대한 병렬 분석 분기 시작 (Map)")
         # 서브 그래프로 작업 분배
-        return [Send("analysis_worker", {"issue_id": iid, "llm_mode": state.get("llm_mode")}) for iid in issue_ids]
+        return [Send("analysis_worker", {"issue_id": iid, "llm_mode": state.get("llm_mode"), "article_mode": state.get("article_mode", "editorial")}) for iid in issue_ids]
 
     workflow.add_conditional_edges("cluster_cleanup", map_analysis_tasks, ["analysis_worker", END])
     
