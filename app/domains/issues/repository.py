@@ -270,7 +270,14 @@ class IssueRepository:
         # 4. 이슈 레이블 삭제
         issue = self.get_by_id(issue_id)
         if issue:
+            # ✅ 자기 참조(Root 이슈) 순환 의존성 에러 방지: 삭제 전 외래키 관계 해제
+            if issue.parent_issue_id == issue.id:
+                issue.parent_issue_id = None
+                self.db.flush()
+                
             self.db.delete(issue)
+        
+        self.db.commit()
             
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
