@@ -386,7 +386,7 @@ def log_execution_time(node_name: str):
     return decorator
 
 def agent_guard(agent_name: str, recoverable: bool = True):
-    """에이전트 내결함성 데코레이터. 에러 발생 시 로그를 남기고 상태를 유지합니다."""
+    """에이전트 내결함성 데코레이터. 에러 발생 시 로그를 남기고 상태를 유지합니다"""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(state: any):
