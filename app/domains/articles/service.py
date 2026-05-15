@@ -104,9 +104,9 @@ class ArticleService:
             
         return result
 
-    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str):
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence_front: str = None, evidence_back: str = None):
         """에이전트 1의 추출 결과를 저장합니다."""
-        db_claim = self.repo.save_article_claim(issue_id, article_id, press, claim, evidence)
+        db_claim = self.repo.save_article_claim(issue_id, article_id, press, claim, evidence_front, evidence_back)
         self.db.commit() # 트랜잭션 관리
         return db_claim
 

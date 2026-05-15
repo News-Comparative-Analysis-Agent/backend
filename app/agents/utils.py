@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import re
 import time
@@ -117,6 +117,8 @@ def parse_llm_json(text: str) -> any:
             if 'metrics' in obj: score += 50
             if 'details' in obj: score += 50
             if 'ai_opinion' in obj: score += 50
+            if 'response' in obj: score += 50
+            if 'modified_content' in obj: score += 50
         return score
 
     results.sort(key=score_object, reverse=True)
@@ -451,11 +453,15 @@ def annotate_citations(article_body: str, media_views: list) -> tuple:
         clean_target = normalize_text(temp_quote)
 
         for mv in media_views:
-            # claim과 evidence를 모두 합쳐서 매칭 대상(pool)으로 삼음
+            # claim과 evidence(front, back 합침)를 모두 합쳐서 매칭 대상(pool)으로 삼음
             claim = mv.get("claim", "")
-            evidence = mv.get("evidence", "")
-            full_text_pool = f"{claim} {evidence}"
             
+            # 신규 필드 지원 (front/back 합치기)
+            evidence_front = mv.get("evidence_front", "")
+            evidence_back = mv.get("evidence_back", "")
+            evidence = mv.get("evidence", "") # 구버전 호환성
+            
+            full_text_pool = f"{claim} {evidence_front} {evidence_back} {evidence}"
             clean_pool = normalize_text(full_text_pool)
             
             # 인용구가 합쳐진 텍스트 안에 있거나, 거꾸로 텍스트가 인용구 안에 포함되는지 확인

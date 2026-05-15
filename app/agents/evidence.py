@@ -81,26 +81,26 @@ class EvidenceAgent:
         - 단 한 글자도 바꾸지 마라.
 
         [evidence 추출 규칙]
-        1. 이 언론사의 핵심 주장이 담긴 문단을 통째로 가져온다.
+
+        1. evidence를 반드시 두 필드로 분리하여 추출한다.
+
+        evidence_front (판단·해석·문제 제기 문단):
+        → 언론사의 판단, 해석, 문제 제기가 담긴 문단을 통째로 가져온다.
         → 문단 내 문장을 선별하거나 생략하지 마라. 문단 전체를 그대로 가져온다.
-        → 판단·평가 문장이 중심이 되는 문단을 우선 선택한다.
         → 맥락 유지를 위해 해당 문단 앞뒤의 연결 문장도 포함한다.
 
-        2. 필요하면 2개 문단까지 가져올 수 있다.
-        → 첫 번째 문단: 언론사의 판단·해석·문제 제기가 담긴 문단
-        → 두 번째 문단: 언론사의 결론·요구·주장이 담긴 문단
+        evidence_back (결론·요구·주장 문단):
+        → 언론사의 결론, 요구, 주장이 담긴 문단을 통째로 가져온다.
+        → evidence_front와 내용이 겹치지 않아야 한다.
+        → 별도 결론 문단이 없으면 evidence_front의 마지막 문장들로 채운다.
 
-        3. 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
-
-        4. 아래 문장은 포함하지 않는다.
-        → 기사 도입부의 단순 사건 요약 문장 (언론사 고유 판단이 없는 문장)
-        → 다른 언론사나 인물의 발언만 전달하는 중계 문장
-            (단, 해당 발언에 대한 언론사의 평가·판단이 이어지면 포함 가능)
+        2. 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
 
         [출력 JSON 예시]
         {{
             "claim": "정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다.",
-            "evidence": "통화 녹취가 이뤄진 것은 이화영씨가 검찰에서 '쌍방울의 이재명 경기지사 방북 비용 대납을 이 지사에게 보고했다'고 진술한 직후다. 이미 이런 진술이 나왔는데 검찰이 이화영씨를 회유할 이유가 무엇인지 의문이다. 특히 그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다. 이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 그런데 민주당은 '핵심적인 부분들을 조금씩 공개하겠다'고 한다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
+            "evidence_front": "통화 녹취가 이뤄진 것은 이화영씨가 검찰에서 '쌍방울의 이재명 경기지사 방북 비용 대납을 이 지사에게 보고했다'고 진술한 직후다. 이미 이런 진술이 나왔는데 검찰이 이화영씨를 회유할 이유가 무엇인지 의문이다. 특히 그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다.",
+            "evidence_back": "이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 그런데 민주당은 '핵심적인 부분들을 조금씩 공개하겠다'고 한다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
         }}
         """
         
@@ -111,9 +111,10 @@ class EvidenceAgent:
                 "type": "OBJECT",
                 "properties": {
                     "claim": {"type": "STRING"},
-                    "evidence": {"type": "STRING"}
+                    "evidence_front": {"type": "STRING"},
+                    "evidence_back": {"type": "STRING"}
                 },
-                "required": ["claim", "evidence"]
+                "required": ["claim", "evidence_front", "evidence_back"]
             }
             
             # call_llm이 내부적으로 llm_mode 판단 후 제미나이/로컬 분기 및 JSON 파싱을 모두 수행함!
@@ -172,7 +173,8 @@ class EvidenceAgent:
                         "title": card_data.get("title", ""),
                         "published_at": card_data.get("published_at", ""),
                         "claim": card_data.get("claim", ""),
-                        "evidence": card_data.get("evidence", ""),
+                        "evidence_front": card_data.get("evidence_front", ""),
+                        "evidence_back": card_data.get("evidence_back", ""),
                         "url": card_data.get("url", "")
                     })
                     
@@ -187,7 +189,8 @@ class EvidenceAgent:
                         article_id=card['article_id'],
                         press=card.get('press', '알수없음'),
                         claim=card.get('claim', ''),
-                        evidence=card.get('evidence', '')
+                        evidence_front=card.get('evidence_front', ''),
+                        evidence_back=card.get('evidence_back', '')
                     )
                     saved_claims_count += 1
                 except Exception as e:

@@ -51,14 +51,17 @@ class ArticleRepository:
         from app.domains.publishers.models import Publisher
         return self.db.query(Publisher).filter(Publisher.name.in_(names)).all()
 
-    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str) -> ArticleClaim:
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence_front: str = None, evidence_back: str = None) -> ArticleClaim:
         """에이전트 1이 추출한 주장 데이터를 저장합니다."""
+        # DB 컬럼 호환성을 위해 두 영역을 합쳐서 저장
+        combined_evidence = f"[판단·해석]\n{evidence_front or ''}\n\n[결론·요구]\n{evidence_back or ''}".strip()
+        
         db_claim = ArticleClaim(
             issue_id=issue_id,
             article_id=article_id,
             press=press,
             claim=claim,
-            evidence=evidence
+            evidence=combined_evidence
         )
         self.db.add(db_claim)
         return db_claim

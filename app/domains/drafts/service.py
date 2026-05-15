@@ -164,6 +164,14 @@ class DraftService:
                 if not result_data:
                     return ChatResponse(response="AI가 응답을 생성하지 못했습니다. 다시 시도해주세요.", modified_content=None)
                 
+                # LLM 응답 타입 방어 (리스트로 올 경우 첫 번째 요소 추출)
+                if isinstance(result_data, list) and len(result_data) > 0:
+                    result_data = result_data[0]
+                
+                if not isinstance(result_data, dict):
+                    logger.error(f"❌ Unexpected AI Output Format: {type(result_data)}")
+                    return ChatResponse(response="AI 응답 형식이 올바르지 않습니다.", modified_content=None)
+
                 # 5. 결과 반환
                 return ChatResponse(
                     response=result_data.get("response", ""),

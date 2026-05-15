@@ -73,7 +73,7 @@ class ComparisonState(TypedDict):
     conflict_summary: str
 
     # EvidenceAgent가 추출하고 IssueAgent가 분석에 참여하며 Writer가 사용하는 최종 media 뷰
-    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url}, ...]
+    media_views: List[Dict[str, Any]]  # [{press, claim, evidence_front, evidence_back, url}, ...]
 
     # 최종 이슈 프레임(최상단 메타)
     title: str
