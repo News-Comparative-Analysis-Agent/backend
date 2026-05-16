@@ -17,6 +17,7 @@ class IssueLabel(Base):
     issue_type = Column(String, nullable=False, default="editorial", server_default="editorial") # 이슈 유형 (editorial 또는 politics)
     
     # 타임라인/상태 추적 필드
+    status = Column(String(20), default="analyzing", server_default="analyzing", index=True) # analyzing, success, failed
     parent_issue_id = Column(Integer, ForeignKey("issue_labels.id", ondelete="SET NULL"), nullable=True)
     phase = Column(String(10), default="발생", server_default="발생")
     

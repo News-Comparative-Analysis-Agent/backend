@@ -39,9 +39,11 @@ def run_editorial_pipeline():
             "article_mode": article_mode,
             "issue_id": None,
             "all_issue_ids": [],
+            "remaining_ids": [],
+            "failed_issue_ids": [],
             "raw_articles": [],
             "unclustered_articles": [],
-            "clustered_topic": [],
+            "clustered_topics": [],
             "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0},
             "messages": [],
             "error": ""
@@ -61,6 +63,25 @@ def run_editorial_pipeline():
             if issue_ids:
                 logger.success(f"✅ 총 {len(issue_ids)}개 사설 이슈의 비평 기사 생성이 완료되었습니다! (Issue IDs: {issue_ids})")
             
+            # 🔄 실패한 이슈들에 대해 재시도 로직 수행
+            failed_ids = final_state.get("failed_issue_ids", [])
+            if failed_ids:
+                logger.warning(f"⚠️  분석에 실패한 이슈 {len(failed_ids)}개가 발견되었습니다: {failed_ids}")
+                logger.info("🔄 실패한 이슈들에 대해 재시도를 시작합니다...")
+                
+                # 재시도용 초기 상태 설정 (이미 생성된 이슈 ID들만 가지고 다시 실행)
+                retry_state = initial_state.copy()
+                retry_state["remaining_ids"] = list(failed_ids)
+                retry_state["failed_issue_ids"] = [] # 초기화
+                
+                final_state = app.invoke(retry_state, config={"configurable": {"thread_id": "editorial_retry"}})
+                
+                still_failed = final_state.get("failed_issue_ids", [])
+                if still_failed:
+                    logger.error(f"❌ 재시도 후에도 실패한 이슈가 존재합니다: {still_failed}")
+                else:
+                    logger.success("✅ 모든 실패 이슈가 재시도를 통해 정상 처리되었습니다.")
+
             tokens = final_state.get("total_tokens", {})
             logger.info(f"📊 Total Tokens used in this run: {tokens}")
 

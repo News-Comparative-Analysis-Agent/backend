@@ -75,6 +75,12 @@ class IssueAgent:
             
             conflict_summary = result.get("conflict_summary", "") if isinstance(result, dict) else ""
             
+            # ✅ [사용자 요청] 핵심 요약(conflict_summary)이 비어있으면 에러로 간주
+            if not conflict_summary or len(conflict_summary.strip()) < 5:
+                err_msg = "갈등 요약(conflict_summary) 추출 실패: 결과가 비어있거나 너무 짧습니다."
+                logger.error(f"❌ [IssueAgent:Validation] {err_msg}")
+                raise ValueError(err_msg)
+
             # 3. DB 업데이트 (이슈 레이블의 요약 정보 반영)
             issue_id = state.get("issue_id")
             if issue_id and self.issue_repo:

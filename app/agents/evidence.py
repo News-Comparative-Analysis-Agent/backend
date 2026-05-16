@@ -59,21 +59,31 @@ class EvidenceAgent:
 
     def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str, state: ComparisonState) -> tuple[dict | None, dict]:
         
+        # 이전 시도의 피드백이 있으면 프롬프트에 추가
+        feedback_section = ""
+        redo_instruction = state.get("judge_feedback", "")
+        if redo_instruction:
+            feedback_section = f"""
+        [이전 시도의 피드백 (반드시 반영할 것)]
+        {redo_instruction}
+        """
+
         prompt = f"""
         당신은 미디어 비평 기사 작성을 위한 원문 문장 추출 전문가입니다.
         아래 [뉴스 원문]에서 기사 작성에 그대로 사용할 수 있는 문단을 추출하세요.
         추출한 문장은 기사에서 다음과 같이 사용됩니다:
         → "[{art['press']}]는 {art['published_at']} 사설 <{art['title']}>에서 '...'라며 '...'라고 했다."
-
+        {feedback_section}
         [뉴스 원문]
         언론사: {art['press']}
         발행일: {art['published_at']}
         제목: {art['title']}
         내용: {art['content'][:2500]}
-
+        
         [추출 원칙]
         이 언론사가 이 사설에서 말하고자 하는 핵심 주장과 근거가 담긴 문단을 찾아라.
         미디어스 기자가 해당 언론사의 입장을 독자에게 전달할 때 직접 인용할 수 있는 문장들이어야 한다.
+        만약 위에 [이전 시도의 피드백]이 있다면, 해당 내용을 최우선으로 반영하여 문장을 선별하라.
 
         [claim 추출 규칙]
         - 이 언론사가 가장 강조하는 핵심 주장 1문장을 원문 그대로 가져온다.
@@ -81,26 +91,26 @@ class EvidenceAgent:
         - 단 한 글자도 바꾸지 마라.
 
         [evidence 추출 규칙]
-        1. 이 언론사의 핵심 주장이 담긴 문단을 통째로 가져온다.
+
+        1. evidence를 반드시 두 필드로 분리하여 추출한다.
+
+        evidence_front (판단·해석·문제 제기 문단):
+        → 언론사의 판단, 해석, 문제 제기가 담긴 문단을 통째로 가져온다.
         → 문단 내 문장을 선별하거나 생략하지 마라. 문단 전체를 그대로 가져온다.
-        → 판단·평가 문장이 중심이 되는 문단을 우선 선택한다.
         → 맥락 유지를 위해 해당 문단 앞뒤의 연결 문장도 포함한다.
 
-        2. 필요하면 2개 문단까지 가져올 수 있다.
-        → 첫 번째 문단: 언론사의 판단·해석·문제 제기가 담긴 문단
-        → 두 번째 문단: 언론사의 결론·요구·주장이 담긴 문단
+        evidence_back (결론·요구·주장 문단):
+        → 언론사의 결론, 요구, 주장이 담긴 문단을 통째로 가져온다.
+        → evidence_front와 내용이 겹치지 않아야 한다.
+        → 별도 결론 문단이 없으면 evidence_front의 마지막 문장들로 채운다.
 
-        3. 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
-
-        4. 아래 문장은 포함하지 않는다.
-        → 기사 도입부의 단순 사건 요약 문장 (언론사 고유 판단이 없는 문장)
-        → 다른 언론사나 인물의 발언만 전달하는 중계 문장
-            (단, 해당 발언에 대한 언론사의 평가·판단이 이어지면 포함 가능)
+        2. 단 한 글자도 바꾸지 마라. 요약·합치기·표현 변형은 절대 금지한다.
 
         [출력 JSON 예시]
         {{
             "claim": "정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다.",
-            "evidence": "통화 녹취가 이뤄진 것은 이화영씨가 검찰에서 '쌍방울의 이재명 경기지사 방북 비용 대납을 이 지사에게 보고했다'고 진술한 직후다. 이미 이런 진술이 나왔는데 검찰이 이화영씨를 회유할 이유가 무엇인지 의문이다. 특히 그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다. 이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 그런데 민주당은 '핵심적인 부분들을 조금씩 공개하겠다'고 한다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
+            "evidence_front": "통화 녹취가 이뤄진 것은 이화영씨가 검찰에서 '쌍방울의 이재명 경기지사 방북 비용 대납을 이 지사에게 보고했다'고 진술한 직후다. 이미 이런 진술이 나왔는데 검찰이 이화영씨를 회유할 이유가 무엇인지 의문이다. 특히 그때는 가만있다가 3년이 지나서야 녹취록 일부를 공개한 서 변호사는 지금 민주당 소속으로 청주시장 출마를 준비 중이다. 정치적 이유가 있는 것 아니냐는 의구심이 생길 수 있다.",
+            "evidence_back": "이런 의문을 없앨 방법은 간단하다. 녹취록 전문을 공개하면 된다. 그런데 민주당은 '핵심적인 부분들을 조금씩 공개하겠다'고 한다. 민주당은 이 대통령 사건 공소 취소를 추진하고 있다고 한다. 그렇다면 먼저 각종 녹취록 전체를 국민 앞에 공개해야 한다."
         }}
         """
         
@@ -111,9 +121,10 @@ class EvidenceAgent:
                 "type": "OBJECT",
                 "properties": {
                     "claim": {"type": "STRING"},
-                    "evidence": {"type": "STRING"}
+                    "evidence_front": {"type": "STRING"},
+                    "evidence_back": {"type": "STRING"}
                 },
-                "required": ["claim", "evidence"]
+                "required": ["claim", "evidence_front", "evidence_back"]
             }
             
             # call_llm이 내부적으로 llm_mode 판단 후 제미나이/로컬 분기 및 JSON 파싱을 모두 수행함!
@@ -141,9 +152,6 @@ class EvidenceAgent:
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode", "local_only")
         
-        if not articles:
-            return {"messages": ["로드된 기사가 없습니다."]}
-            
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
         workers = 1 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
@@ -165,6 +173,11 @@ class EvidenceAgent:
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
 
                 if card_data:
+                    # [사용자 요청] 핵심 내용이 부재한 경우(빈 문자열)는 유효하지 않은 카드로 간주
+                    if not card_data.get("claim") or not (card_data.get("evidence_front") or card_data.get("evidence_back")):
+                        logger.warning(f"⚠️ [EvidenceAgent] {card_data.get('press')} 기사의 핵심 내용이 비어있어 유효하지 않은 카드로 간주합니다.")
+                        continue
+                        
                     claim_cards.append(card_data)
                     media_views.append({
                         "article_id": card_data.get("article_id"),
@@ -172,7 +185,8 @@ class EvidenceAgent:
                         "title": card_data.get("title", ""),
                         "published_at": card_data.get("published_at", ""),
                         "claim": card_data.get("claim", ""),
-                        "evidence": card_data.get("evidence", ""),
+                        "evidence_front": card_data.get("evidence_front", ""),
+                        "evidence_back": card_data.get("evidence_back", ""),
                         "url": card_data.get("url", "")
                     })
                     
@@ -185,9 +199,10 @@ class EvidenceAgent:
                     self.article_service.save_article_claim(
                         issue_id=issue_id,
                         article_id=card['article_id'],
-                        press=card.get('press') or '알수없음',
-                        claim=card.get('claim') or '',
-                        evidence=card.get('evidence') or ''
+                        press=card.get('press', '알수없음'),
+                        claim=card.get('claim', ''),
+                        evidence_front=card.get('evidence_front', ''),
+                        evidence_back=card.get('evidence_back', '')
                     )
                     saved_claims_count += 1
                 except Exception as e:
@@ -209,6 +224,14 @@ class EvidenceAgent:
             self.db.rollback()
             msg = f"주장 카드 생성 완료({len(claim_cards)}건) 및 DB 저장 실패: {e}"
             logger.error(f"🔍 [EvidenceAgent:Extract] {msg}")
+            raise e # 에러를 상위(Worker)로 전파하여 실패로 처리
+
+        # ✅ [사용자 요청] 모든 언론사의 Evidence가 하나라도 부재라면 실패로 간주
+        if len(claim_cards) < len(articles):
+            missing_count = len(articles) - len(claim_cards)
+            err_msg = f"일부 언론사 Evidence 추출 실패 (입력:{len(articles)}, 성공:{len(claim_cards)}). {missing_count}개 매체 누락으로 인해 분석을 중단합니다."
+            logger.error(f"❌ [EvidenceAgent:StrictCheck] {err_msg}")
+            raise ValueError(err_msg)
         
         # 전체 상태 업데이트
         total_tokens = update_total_tokens(state, node_usage, "EvidenceAgent")

@@ -9,7 +9,7 @@ from app.core.logger import logger
 from app.agents.utils import log_execution_time
 
 # 자동 재시도 정책 정의
-RETRY_POLICY = RetryPolicy(max_attempts=3)
+RETRY_POLICY = RetryPolicy(max_attempts=2)
 
 def create_crawl_graph(db: Session):
     """뉴스 크롤링 및 AI 분석 파이프라인 그래프 (LangGraph) 생성"""
@@ -101,15 +101,22 @@ def create_analysis_subgraph():
     
     workflow.add_edge("writer", "judge")
     
-    # 순환 라우팅 (재작성/재교정)
+    # 순환 라우팅 (근거 추출부터 다시 시작)
     def route_from_judge(state: ComparisonState) -> str:
         status = state.get("judge_status", "")
         retry = state.get("retry_count", 0)
-        if retry >= 3 or status == "PASS":
+        
+        if status == "PASS":
             return END
-        return "writer"
+        
+        if retry >= 3:
+            logger.error(f"⚠️ [SubGraph] 최대 재시도 횟수({retry})를 초과하여 분석을 중단합니다. (Issue: {state.get('issue_id')})")
+            return END
+            
+        logger.warning(f"🔄 [SubGraph] 품질 미달로 재시도를 결정합니다. 'evidence' 단계부터 다시 시작합니다. (현재 재시도: {retry}/3)")
+        return "evidence"
 
-    workflow.add_conditional_edges("judge", route_from_judge, {"writer": "writer", END: END})
+    workflow.add_conditional_edges("judge", route_from_judge, {"evidence": "evidence", END: END})
     
     return workflow.compile()
 
@@ -171,12 +178,17 @@ def create_comparison_graph(db: Session):
             if article_mode != "politics" and final_state.get("judge_status") != "PASS":
                 raise ValueError(f"품질 검수 최종 실패 (점수 미달)")
 
-            # ✅ 타임라인 연결 (이슈 갈등 구도 및 Evidence 분석이 완료되어 DB에 저장된 시점)
+            # ✅ 타임라인 연결 및 상태 성공 처리
             with SessionLocal() as db:
                 from app.domains.issues.service import IssueService
+                from app.scroller.repository import ScrollerRepository
                 issue_service = IssueService(db)
-                logger.info(f"⏳ [Graph:Timeline] 이슈 {issue_id}의 분석이 완료되어 타임라인(상태 전개)을 분석합니다...")
+                repo = ScrollerRepository(db)
+                
+                logger.info(f"⏳ [Graph:Timeline] 이슈 {issue_id}의 분석이 완료되어 타임라인을 분석하고 상태를 'success'로 변경합니다...")
                 issue_service.link_parent_issue(issue_id)
+                repo.update_issue_status(issue_id, 'success')
+                db.commit()
             
             # ✅ 메인 그래프(OverallState)로 돌려보낼 데이터 추출 (저장 및 후속 처리를 위해 필드 확장)
             return {
@@ -186,30 +198,60 @@ def create_comparison_graph(db: Session):
             }
 
         except Exception as e:
-            logger.error(f"❌ [Graph:Cleanup] 분석 실패 또는 품질 미달로 인한 데이터 삭제 시작 (Issue: {issue_id}): {e}")
-            with SessionLocal() as db:
-                from app.domains.issues.repository import IssueRepository
-                # 이슈 및 연관된 모든 데이터(기사 링크, 주장 카드 등) 연쇄 삭제
-                IssueRepository(db).delete_issue(issue_id)
-                db.commit()
+            logger.error(f"❌ [Graph:Worker] 분석 실패 (Issue: {issue_id}): {e}")
             
-            # 메인 그래프에 실패 메시지 전달
+            # [사용자 요청] 실패한 이슈는 삭제하지 않고 'failed' 상태로 보존하여 대시보드에서 숨깁니다.
+            # 기록을 위해 conflict_summary에 에러 메시지를 남깁니다.
+            with SessionLocal() as db:
+                from app.scroller.repository import ScrollerRepository
+                repo = ScrollerRepository(db)
+                repo.update_issue_analysis_results(
+                    issue_id=issue_id, 
+                    conflict_summary=f"분석 실패: {e}",
+                    status='failed'
+                )
+                db.commit()
+                
             return {
-                "conflict_summary": "분석 실패 (삭제됨)",
-                "messages": [f"이슈 {issue_id} 분석 중 오류 발생: {e} (데이터 삭제 완료)"],
+                "conflict_summary": f"분석 실패: {e}",
+                "failed_issue_ids": [issue_id],
+                "messages": [f"❌ [Issue {issue_id}] 분석 최종 실패: {e} (상태: failed)"],
                 "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0}
             }
+    
+    def sequencer(state: OverallState):
+        """남은 이슈 목록에서 다음 분석 대상을 하나씩 꺼내옵니다 (수직적 처리)."""
+        rem = state.get("remaining_ids", [])
+        if not rem:
+            return {"issue_id": None}
+        
+        # 첫 번째 요소를 꺼내고 나머지를 업데이트
+        next_id = rem[0]
+        remaining = rem[1:]
+        
+        logger.info(f"🔄 [Graph:Sequencer] 다음 분석 대상 이슈 선정: {next_id} (남은 작업: {len(remaining)}건)")
+        return {"issue_id": next_id, "remaining_ids": remaining}
         
     workflow.add_node("analysis_worker", run_analysis_worker)
+    workflow.add_node("sequencer", sequencer)
     
     # 라우팅 1: 시작 시점
     def route_start(state: OverallState) -> str:
+        # 수직적(순차적) 처리 목록이 이미 주입되었다면 바로 시퀀서로 이동
+        if state.get("remaining_ids") and len(state["remaining_ids"]) > 0:
+            return "sequencer"
+            
         if state.get("issue_id"): return "analysis_worker"
         if state.get("unclustered_articles") and len(state["unclustered_articles"]) > 0:
             return "cluster"
         return "crawl"
 
-    workflow.add_conditional_edges(START, route_start, {"crawl": "crawl", "analysis_worker": "analysis_worker", "cluster": "cluster"})
+    workflow.add_conditional_edges(START, route_start, {
+        "crawl": "crawl", 
+        "analysis_worker": "analysis_worker", 
+        "cluster": "cluster",
+        "sequencer": "sequencer"
+    })
     
     # 공통 흐름
     workflow.add_edge("crawl", "save")
@@ -217,22 +259,18 @@ def create_comparison_graph(db: Session):
     workflow.add_edge("cluster_fetch", "cluster")
     workflow.add_edge("cluster", "cluster_save")
     workflow.add_edge("cluster_save", "cluster_cleanup")
+    workflow.add_edge("cluster_cleanup", "sequencer")
     
-    # 라우팅 2: Map (Send)
-    def map_analysis_tasks(state: OverallState):
-        issue_ids = state.get("all_issue_ids", [])
-        if not issue_ids:
-            logger.info("🏁 [Graph] 분석할 이슈가 없어 파이프라인을 종료합니다.")
-            return END
-        
-        logger.info(f"🗺️ [Graph] 총 {len(issue_ids)}개 이슈에 대한 병렬 분석 분기 시작 (Map)")
-        # 서브 그래프로 작업 분배
-        return [Send("analysis_worker", {"issue_id": iid, "llm_mode": state.get("llm_mode"), "article_mode": state.get("article_mode", "editorial")}) for iid in issue_ids]
+    # 라우팅 2: 수직적 루프 (Sequencer)
+    def route_sequencer(state: OverallState):
+        if state.get("issue_id"):
+            return "analysis_worker"
+        return END
 
-    workflow.add_conditional_edges("cluster_cleanup", map_analysis_tasks, ["analysis_worker", END])
+    workflow.add_conditional_edges("sequencer", route_sequencer, {"analysis_worker": "analysis_worker", END: END})
     
-    # 분석 완료 후 종료
-    workflow.add_edge("analysis_worker", END)
+    # 분석 완료 후 다시 Sequencer로 돌아가 다음 이슈 확인
+    workflow.add_edge("analysis_worker", "sequencer")
     
     checkpointer = MemorySaver()
     return workflow.compile(checkpointer=checkpointer)

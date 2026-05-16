@@ -20,6 +20,7 @@ class JudgeAgent:
         [Node] 데스크를 통과한 최종 기사(edited_article)를 원본 데이터(media_views 등)와 대조 검증합니다.
         """
         # (방어코드) 중간 예외 발생 시 UnboundLocalError 방지를 위해 지역 변수 최상단 초기화
+        issue_id = state.get("issue_id")
         retry_count = state.get("retry_count", 0)
         total_tokens = {"prompt_tokens": 0, "completion_tokens": 0}
         
@@ -122,10 +123,16 @@ class JudgeAgent:
             # G-EVAL 모델 호출 (call_llm이 schema와 함께 호출되면 이미 파싱된 dict를 반환함)
             g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema)
             
-            # ✅ 방어적 코드: 결과가 dict가 아닌 경우 예외 처리 (AttributeError 방지)
-            if not isinstance(g_eval_result, dict):
-                logger.error(f"⚖️ [JudgeAgent] G-EVAL 응답 파싱 실패 (결과 타입: {type(g_eval_result)}). 기본값으로 대체합니다.")
-                g_eval_result = {"total_score": 75, "redo_instruction": "", "thought": "응답 파싱 실패로 자동 통과 처리"}
+            # ✅ [사용자 요청] 결과가 유효하지 않거나 필수 값이 비어있으면 에러로 간주 (자동 PASS 대신 재시도 유도)
+            if not isinstance(g_eval_result, dict) or not g_eval_result.get("thought"):
+                err_msg = "Judge 응답 파싱 실패 또는 내용이 비어있습니다. 재시도를 위해 FAIL 처리합니다."
+                logger.error(f"⚖️ [JudgeAgent:Validation] {err_msg}")
+                # 75점 자동 PASS 대신 낮은 점수(0점)로 FAIL 처리하여 재시도 유발
+                g_eval_result = {
+                    "total_score": 0, 
+                    "redo_instruction": "검수 시스템 오류로 인해 전체 내용을 다시 한번 정밀하게 작성해주십시오.", 
+                    "thought": err_msg
+                }
                 
             total_tokens = update_total_tokens(state, usage, "JudgeAgent")
             g_score = g_eval_result.get("total_score", 0)
@@ -139,7 +146,7 @@ class JudgeAgent:
                 status = "FAIL_WRITER"
                 feedback = f"통합 G-EVAL 개선 지시 (점수: {g_score}점). 판단 사유: {thought} | 지시사항: {redo_instruction}"
                 
-            msg = f"✅ 검수 완료: {status} (통합 G-EVAL 점수: {g_score}점)"
+            msg = f"✅ [Issue {issue_id}] 검수 완료: {status} (통합 G-EVAL 점수: {g_score}점)"
             log_llm_event("agent_judge", msg, details={"g_eval": g_eval_result, "thought": thought})
             
             if status == "PASS":

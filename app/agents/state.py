@@ -47,6 +47,8 @@ class OverallState(TypedDict):
     article_mode: str                         # "editorial" 또는 "politics"
     issue_id: int                             # (Optional)
     all_issue_ids: List[int]
+    remaining_ids: List[int]                  # 수직적(순차적) 처리를 위한 잔여 이슈 목록
+    failed_issue_ids: Annotated[List[int], operator.add] # 분석 실패한 이슈 ID 목록 (재시도용)
     
     # 공통 데이터
     raw_articles: List[Dict[str, Any]]
@@ -73,7 +75,7 @@ class ComparisonState(TypedDict):
     conflict_summary: str
 
     # EvidenceAgent가 추출하고 IssueAgent가 분석에 참여하며 Writer가 사용하는 최종 media 뷰
-    media_views: List[Dict[str, Any]]  # [{press, claim, evidence, url}, ...]
+    media_views: List[Dict[str, Any]]  # [{press, claim, evidence_front, evidence_back, url}, ...]
 
     # 최종 이슈 프레임(최상단 메타)
     title: str

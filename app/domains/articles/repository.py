@@ -51,16 +51,33 @@ class ArticleRepository:
         from app.domains.publishers.models import Publisher
         return self.db.query(Publisher).filter(Publisher.name.in_(names)).all()
 
-    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence: str) -> ArticleClaim:
-        """에이전트 1이 추출한 주장 데이터를 저장합니다."""
-        db_claim = ArticleClaim(
-            issue_id=issue_id,
-            article_id=article_id,
-            press=press,
-            claim=claim,
-            evidence=evidence
-        )
-        self.db.add(db_claim)
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence_front: str = None, evidence_back: str = None) -> ArticleClaim:
+        """에이전트 1이 추출한 주장 데이터를 저장합니다 (기존 데이터가 있으면 덮어씌움)."""
+        # DB 컬럼 호환성을 위해 두 영역을 합쳐서 저장
+        combined_evidence = f"[판단·해석]\n{evidence_front or ''}\n\n[결론·요구]\n{evidence_back or ''}".strip()
+        
+        # 기존 데이터 존재 여부 확인 (issue_id와 article_id 쌍으로 검색)
+        db_claim = self.db.query(ArticleClaim).filter(
+            ArticleClaim.issue_id == issue_id,
+            ArticleClaim.article_id == article_id
+        ).first()
+
+        if db_claim:
+            # 기존 데이터가 있으면 필드 업데이트 (덮어씌우기)
+            db_claim.press = press
+            db_claim.claim = claim
+            db_claim.evidence = combined_evidence
+        else:
+            # 없으면 새 객체 생성
+            db_claim = ArticleClaim(
+                issue_id=issue_id,
+                article_id=article_id,
+                press=press,
+                claim=claim,
+                evidence=combined_evidence
+            )
+            self.db.add(db_claim)
+            
         return db_claim
 
     def get_claims_by_issue(self, issue_id: int) -> list[ArticleClaim]:

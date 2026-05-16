@@ -368,15 +368,29 @@ class ClusterAgent:
                 is_noise = self._is_noise_cluster(topic_articles['title'].tolist(), article_mode)
                 
                 if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= max_ratio_limit:
-                    # 언론사별 대표 기사 1개씩 선택 (최신 기사 우선)
-                    # published_at이 없으면 원래 순서 유지
+                    # ✅ [사용자 요청] 주요 언론사 우선순위 정의
+                    PRIORITY_PRESS = ["한겨레", "조선일보", "경향신문", "한국일보", "동아일보"]
+
+                    # 언론사별 대표 기사 1개씩 선택 (우선순위 언론사 + 최신 기사 우선)
                     if 'published_at' in topic_articles.columns:
+                        temp_df = topic_articles.copy()
+                        temp_df['is_priority'] = temp_df['press'].apply(lambda x: x in PRIORITY_PRESS)
                         representative = (
-                            topic_articles.sort_values('published_at', ascending=False)
+                            temp_df.sort_values(['is_priority', 'published_at'], ascending=[False, False])
                             .groupby('press').first().reset_index()
                         )
+                        # 전체 결과에서도 우선순위 정렬 유지
+                        representative['is_priority'] = representative['press'].apply(lambda x: x in PRIORITY_PRESS)
+                        representative = representative.sort_values(['is_priority', 'published_at'], ascending=[False, False])
                     else:
                         representative = topic_articles.groupby('press').first().reset_index()
+                        representative['is_priority'] = representative['press'].apply(lambda x: x in PRIORITY_PRESS)
+                        representative = representative.sort_values('is_priority', ascending=False)
+
+                    # ✅ [사용자 요청] 사설 기사는 최대 4개 매체까지만 허용 (본문 길이 최적화 + 주요 언론사 우선)
+                    if article_mode == "editorial" and len(representative) > 4:
+                        logger.info(f"✂️ [ClusterAgent] 사설 기사 {len(representative)}개 중 주요 언론사 포함 상위 4개 매체만 제한합니다. (Topic: {topic_id})")
+                        representative = representative.head(4)
 
                     intermediate_topics.append({
                         "topic_id": int(topic_id),
@@ -460,6 +474,7 @@ class ClusterAgent:
             total_tokens = update_total_tokens(state, node_usage, "ClusterAgent")
             return {
                 "all_issue_ids": saved_ids, 
+                "remaining_ids": list(saved_ids), # 수직적 처리를 위해 복사본 생성
                 "saved_issue_count": len(saved_ids),
                 "total_tokens": total_tokens,
                 "messages": [msg]
