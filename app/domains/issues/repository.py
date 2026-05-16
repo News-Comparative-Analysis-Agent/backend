@@ -282,7 +282,8 @@ class IssueRepository:
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
                                      background: str = None,
-                                     conflict_summary: str = None):
+                                     conflict_summary: str = None,
+                                     status: str = None):
         """이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다."""
         issue = self.get_by_id(issue_id)
         if issue:
@@ -292,6 +293,8 @@ class IssueRepository:
                 issue.background = background
             if conflict_summary is not None:
                 issue.conflict_summary = conflict_summary
+            if status is not None:
+                issue.status = status
             self.db.commit()
             return True
         return False

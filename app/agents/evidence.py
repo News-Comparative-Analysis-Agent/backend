@@ -59,21 +59,31 @@ class EvidenceAgent:
 
     def _extract_single_card(self, art: dict, issue_id: int, llm_mode: str, state: ComparisonState) -> tuple[dict | None, dict]:
         
+        # 이전 시도의 피드백이 있으면 프롬프트에 추가
+        feedback_section = ""
+        redo_instruction = state.get("judge_feedback", "")
+        if redo_instruction:
+            feedback_section = f"""
+        [이전 시도의 피드백 (반드시 반영할 것)]
+        {redo_instruction}
+        """
+
         prompt = f"""
         당신은 미디어 비평 기사 작성을 위한 원문 문장 추출 전문가입니다.
         아래 [뉴스 원문]에서 기사 작성에 그대로 사용할 수 있는 문단을 추출하세요.
         추출한 문장은 기사에서 다음과 같이 사용됩니다:
         → "[{art['press']}]는 {art['published_at']} 사설 <{art['title']}>에서 '...'라며 '...'라고 했다."
-
+        {feedback_section}
         [뉴스 원문]
         언론사: {art['press']}
         발행일: {art['published_at']}
         제목: {art['title']}
         내용: {art['content'][:2500]}
-
+        
         [추출 원칙]
         이 언론사가 이 사설에서 말하고자 하는 핵심 주장과 근거가 담긴 문단을 찾아라.
         미디어스 기자가 해당 언론사의 입장을 독자에게 전달할 때 직접 인용할 수 있는 문장들이어야 한다.
+        만약 위에 [이전 시도의 피드백]이 있다면, 해당 내용을 최우선으로 반영하여 문장을 선별하라.
 
         [claim 추출 규칙]
         - 이 언론사가 가장 강조하는 핵심 주장 1문장을 원문 그대로 가져온다.
@@ -142,9 +152,6 @@ class EvidenceAgent:
         issue_id = state.get("issue_id")
         llm_mode = state.get("llm_mode", "local_only")
         
-        if not articles:
-            return {"messages": ["로드된 기사가 없습니다."]}
-            
         # VRAM 보호를 위해 LLM 모드별 워커 수 동적 할당
         # Gemini는 외부 API이므로 빠르게 5개, 로컬 7B는 OOM 방지를 위해 1~2개로 제한
         workers = 1 if llm_mode == "gemini_only" else 1 # TODO 몇개까지 버티는지 테스트 진행예정
@@ -166,6 +173,11 @@ class EvidenceAgent:
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
 
                 if card_data:
+                    # [사용자 요청] 핵심 내용이 부재한 경우(빈 문자열)는 유효하지 않은 카드로 간주
+                    if not card_data.get("claim") or not (card_data.get("evidence_front") or card_data.get("evidence_back")):
+                        logger.warning(f"⚠️ [EvidenceAgent] {card_data.get('press')} 기사의 핵심 내용이 비어있어 유효하지 않은 카드로 간주합니다.")
+                        continue
+                        
                     claim_cards.append(card_data)
                     media_views.append({
                         "article_id": card_data.get("article_id"),
@@ -212,6 +224,14 @@ class EvidenceAgent:
             self.db.rollback()
             msg = f"주장 카드 생성 완료({len(claim_cards)}건) 및 DB 저장 실패: {e}"
             logger.error(f"🔍 [EvidenceAgent:Extract] {msg}")
+            raise e # 에러를 상위(Worker)로 전파하여 실패로 처리
+
+        # ✅ [사용자 요청] 모든 언론사의 Evidence가 하나라도 부재라면 실패로 간주
+        if len(claim_cards) < len(articles):
+            missing_count = len(articles) - len(claim_cards)
+            err_msg = f"일부 언론사 Evidence 추출 실패 (입력:{len(articles)}, 성공:{len(claim_cards)}). {missing_count}개 매체 누락으로 인해 분석을 중단합니다."
+            logger.error(f"❌ [EvidenceAgent:StrictCheck] {err_msg}")
+            raise ValueError(err_msg)
         
         # 전체 상태 업데이트
         total_tokens = update_total_tokens(state, node_usage, "EvidenceAgent")

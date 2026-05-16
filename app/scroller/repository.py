@@ -240,6 +240,23 @@ class ScrollerRepository:
         update_query.update({"issue_label_id": issue.id}, synchronize_session=False)
         
         return issue
+        
+    def delete_issue_by_id(self, issue_id: int):
+        """
+        특정 이슈를 삭제하고 소속 기사들의 연관관계를 해제하며, 
+        연관된 클레임 카드들을 정리합니다.
+        """
+        # 1. 소속 기사들의 관계 해제 (Article 테이블)
+        self.db.query(Article).filter(Article.issue_label_id == issue_id).update({"issue_label_id": None}, synchronize_session=False)
+        
+        # 2. 연관된 클레임 카드 삭제
+        self.db.query(ArticleClaim).filter(ArticleClaim.issue_id == issue_id).delete(synchronize_session=False)
+        
+        # 3. 이슈 삭제
+        self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).delete(synchronize_session=False)
+        
+        self.db.flush()
+        logger.info(f"🗑️ [ScrollerRepository] 이슈 ID {issue_id} 및 연관 데이터(Claims) 삭제 완료.")
 
     def get_issue_by_id(self, issue_id: int) -> IssueLabel:
         """
@@ -312,7 +329,8 @@ class ScrollerRepository:
     def update_issue_analysis_results(self, issue_id: int, 
                                      description: str = None,
                                      background: str = None,
-                                     conflict_summary: str = None):
+                                     conflict_summary: str = None,
+                                     status: str = None):
         """
         이슈 레이블의 분석 결과 필드들을 부분 업데이트합니다.
         """
@@ -324,6 +342,19 @@ class ScrollerRepository:
                 issue.background = background
             if conflict_summary is not None:
                 issue.conflict_summary = conflict_summary
+            if status is not None:
+                issue.status = status
+            self.db.flush()
+            return True
+        return False
+
+    def update_issue_status(self, issue_id: int, status: str):
+        """
+        이슈의 상태(analyzing, success, failed)를 업데이트합니다.
+        """
+        issue = self.db.query(IssueLabel).filter(IssueLabel.id == issue_id).first()
+        if issue:
+            issue.status = status
             self.db.flush()
             return True
         return False

@@ -460,6 +460,7 @@ class ClusterAgent:
             total_tokens = update_total_tokens(state, node_usage, "ClusterAgent")
             return {
                 "all_issue_ids": saved_ids, 
+                "remaining_ids": list(saved_ids), # 수직적 처리를 위해 복사본 생성
                 "saved_issue_count": len(saved_ids),
                 "total_tokens": total_tokens,
                 "messages": [msg]
