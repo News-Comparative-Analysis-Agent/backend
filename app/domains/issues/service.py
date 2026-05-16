@@ -370,6 +370,9 @@ phase 기준:
             raise HTTPException(status_code=404, detail="해당 이슈를 찾을 수 없습니다.")
      
         root_id = self.repo.get_root_issue_id(issue_id)
+        root_issue = self.repo.get_by_id(root_id) if root_id else None
+        root_issue_name = root_issue.name if root_issue else None
+
         timeline_issues = self.repo.get_timeline_by_root(root_id)
      
         issue_ids = [iss.id for iss in timeline_issues]
@@ -396,6 +399,7 @@ phase 기준:
             target_issue_id=issue_id,
             target_issue_name=issue.name,
             root_issue_id=root_id,
+            root_issue_name=root_issue_name,
             timeline=timeline_items
         )
 

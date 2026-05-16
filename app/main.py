@@ -44,6 +44,9 @@ app.include_router(articles_router.router, prefix="/articles", tags=["articles"]
 app.include_router(issues_router.router, prefix="/issues", tags=["issues"])
 app.include_router(drafts_router, prefix="/draft", tags=["drafts"])
 app.include_router(system_router.router, prefix="/system", tags=["system"])
+
+from app.scroller import router as scroller_router
+app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "백엔드 서버 실행중"}
