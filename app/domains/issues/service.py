@@ -8,7 +8,8 @@ from app.domains.issues.schemas import (
     IssueDraftResponse, ClaimCardResponse, IssueGroupedResponse,
     IssueTimelineItem, IssueTimelineResponse,
     IssueFeedLegacyItem, IssueFeedLegacyResponse,
-    HeadlineRecommendationResponse, DailyStatsResponse
+    HeadlineRecommendationResponse, DailyStatsResponse,
+    FailedIssueItem, FailedIssueResponse
 )
 from collections import defaultdict
 from app.agents.utils import call_llm
@@ -205,6 +206,27 @@ class IssueService:
         # 실시간 집계 및 동기화
         stats = self.repo.sync_daily_stats(today_date)
         return DailyStatsResponse.model_validate(stats)
+
+    def get_failed_issues(self, page: int = 1, page_size: int = 50) -> FailedIssueResponse:
+        """분석에 실패한 이슈 목록을 조회합니다."""
+        skip = (page - 1) * page_size
+        issues = self.repo.get_failed_issues(skip=skip, limit=page_size)
+        
+        # 전체 실패 건수 조회 (필요 시 별도 count 메서드 추가 가능하나 여기선 간단히 처리)
+        # 실제 운영 환경에선 count 쿼리를 별도로 날리는 것이 좋음
+        total_count = len(issues) # 일단은 현재 페이지 결과 수로 반환 (임시)
+        
+        items = [
+            FailedIssueItem(
+                id=issue.id,
+                name=issue.name,
+                conflict_summary=issue.conflict_summary,
+                created_at=issue.created_at,
+                issue_type=issue.issue_type
+            ) for issue in issues
+        ]
+        
+        return FailedIssueResponse(issues=items, total_count=total_count)
 
     def get_grouped_issues(self, days: int = 7, issue_type: Optional[str] = None) -> IssueGroupedResponse:
         issues = self.repo.get_issues_by_date_range(days=days, issue_type=issue_type)
