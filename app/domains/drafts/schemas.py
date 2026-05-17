@@ -92,6 +92,16 @@ class ReviewScores(BaseModel):
     hate_speech_list: List[str] = []
     distortions_count: int = 0
 
+class SpellCheckError(BaseModel):
+    original: str
+    corrected: str
+    help_msg: str
+
+class SpellCheckResult(BaseModel):
+    error_count: int
+    errors: List[SpellCheckError]
+    corrected_text: str
+
 class FinalReviewResponse(BaseModel):
     """이슈 상세 분석 응답 (고도화 버전)"""
     id: int
@@ -105,6 +115,7 @@ class FinalReviewResponse(BaseModel):
     sources: List[ArticleSourceItem] = [] # 신뢰도 점수 대신 소스 기사 목록만 직접 노출
     scores: ReviewScores
     ai_opinion: str
+    spell_check: Optional[SpellCheckResult] = None
     class Config:
         from_attributes = True
 
