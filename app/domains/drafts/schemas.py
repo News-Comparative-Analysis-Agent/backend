@@ -52,7 +52,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage] # 대화 내역
-    draft_content: Optional[str] = "" # 현재 작성 중인 초안 내용 (Context)
+    draft_content: Optional[str] = Field(default="", alias="current_content") # 현재 작성 중인 초안 내용 (Context)
     issue_id: Optional[int] = None # DB에서 기사 생성본을 가져오기 위한 파라미터
     
 class ChatResponse(BaseModel):

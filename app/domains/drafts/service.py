@@ -136,10 +136,10 @@ class DraftService:
                 last_user_input = request.messages[-1].content
                 
                 # 2. 최종 프롬프트 구성
-                user_prompt = f"{context_message}"
+                user_prompt = f"{system_prompt}\n\n{context_message}"
                 if history_text:
                     user_prompt += f"[이전 대화 히스토리]\n{history_text}\n\n"
-                user_prompt += f"[사용자 질문]\n{last_user_input}"
+                user_prompt += f"[사용자 질문]\n{last_user_input}\n\n[출력 형식]\n반드시 다음 JSON 스키마를 엄격히 준수하여 응답하세요:\n{{\n  \"response\": \"안내 멘트\",\n  \"modified_content\": \"수정된 기사 전문 (해당될 경우)\"\n}}"
 
                 # 3. 시스템 설정에서 LLM 모드 가져오기
                 scroller_repo = ScrollerRepository(self.repo.db)

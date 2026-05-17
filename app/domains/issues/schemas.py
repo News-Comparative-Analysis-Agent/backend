@@ -130,6 +130,7 @@ class IssueTimelineResponse(BaseModel):
     target_issue_id: int
     target_issue_name: str
     root_issue_id: Optional[int] = None
+    root_issue_name: Optional[str] = None
     timeline: List[IssueTimelineItem]
 
     class Config:
