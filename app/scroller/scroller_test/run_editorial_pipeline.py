@@ -49,7 +49,7 @@ def run_editorial_pipeline():
             "error": ""
         }
         
-        config = {"configurable": {"thread_id": f"editorial_pipeline"}}
+        config = {"configurable": {"thread_id": f"editorial_pipeline"}, "recursion_limit": 150}
         logger.info("🏃 사설 그래프 워크플로우를 시작합니다.")
         
         final_state = app.invoke(initial_state, config=config)
@@ -74,7 +74,7 @@ def run_editorial_pipeline():
                 retry_state["remaining_ids"] = list(failed_ids)
                 retry_state["failed_issue_ids"] = [] # 초기화
                 
-                final_state = app.invoke(retry_state, config={"configurable": {"thread_id": "editorial_retry"}})
+                final_state = app.invoke(retry_state, config={"configurable": {"thread_id": "editorial_retry"}, "recursion_limit": 150})
                 
                 still_failed = final_state.get("failed_issue_ids", [])
                 if still_failed:
