@@ -124,3 +124,4 @@ class ReviewState(TypedDict):
     
     # 토큰 사용량 추적
     total_tokens: Dict[str, int]               # {"prompt_tokens": 0, "completion_tokens": 0}
+    spell_check: Dict[str, Any]                # 맞춤법 검사 결과 저장용

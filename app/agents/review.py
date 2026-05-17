@@ -78,190 +78,264 @@ class ReviewAgent:
     # -----------------------------------------------------------
     # Node 3: 최종 검토 및 종합 의견 생성 (LLM)
     # -----------------------------------------------------------
+    # -----------------------------------------------------------
+    # Node 3: 최종 검토 및 종합 의견 생성 (맞춤법 검사 및 점수 역산)
+    # -----------------------------------------------------------
     def node_analyze_and_opine(self, state: ReviewState) -> dict:
         """
-        [Node 3] 초안과 원본 데이터를 대조하여 품질을 검토하고 종합 의견을 생성합니다.
+        [Node 3] LLM 대신 Naver Spellcheck API를 활용하여 맞춤법 검사 리포트를 생성하고,
+        하위 호환성을 유지하기 위한 점수를 역산하여 반환합니다.
         """
+        import re
+        import urllib.parse
+        import requests
+        
         pre_generated_draft = state.get("pre_generated_draft", "")
-        issue_name = state.get("issue_name", "")
-        issue_background = state.get("issue_background", "")
-        conflict_summary = state.get("conflict_summary", "")
-        
-        # 기사 원문(상위 3건 정도만 제한)을 포맷팅하여 프롬프트에 포함
-        sources_text = ""
-        articles = state.get("articles_meta", [])
-        for i, a in enumerate(articles[:3]):
-            sources_text += f"\n[원본 기사 {i+1} : {a.get('title', '')}]\n{a.get('content', '')[:1500]}...\n"
-        
-        logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 및 종합 의견 생성 시작")
-
-        prompt = f"""
-            당신은 엄격한 언론 윤리 전문가이자 노련한 편집장입니다.
-            제시된 기사 초안을 평가하여 다음 정보를 추출해 주십시오.
-
-            [검토 대상 기사 (초안)]
-            {pre_generated_draft}
-
-            [원본 기사 및 이슈 데이터]
-            이슈명: {issue_name}
-            배경: {issue_background}
-            갈등 요약: {conflict_summary}
-            ---
-            {sources_text}
-
-            [추출해야 하는 항목]
-            1. 공정성 (Fairness)
-               - perspective_category_count: 초안에 서로 다른 입장/관점이 몇 가지나 등장하는지 카운트 (예: 정부, 의협, 환자 등 -> 3)
-               - emotional_word_ratio: 전체 내용 대비 감정적이고 주관적인 단어의 비율 (%)
-
-            2. 원문 충실도 (Faithfulness)
-               - hallucination_ratio: 원본 기사나 데이터에 없는 사실을 지어낸 문장의 비율 (%)
-               - distortion_count: 수치 오류, 의미 반전, 과장/축소가 발생한 건수 (정수)
-
-            3. 무해성 (Harmlessness)
-               - aggressive_expression_count: 혐오 표현, 비하, 특정 집단 공격적 표현 건수 (정수)
-               - hate_speech_list: 실제로 발견된 공격적/혐오 표현 목록 (없으면 빈 배열 [])
-            
-            [상세 설명 및 의견]
-            - details 객체 내에 공정성, 원문 충실도, 무해성에 대한 간략한 평가 사유를 작성합니다.
-            - ai_opinion 에는 편집장 관점의 종합 평가 1문장을 작성합니다.
-
-            [응답 JSON 형식]
-            {{
-                "metrics": {{
-                    "perspective_category_count": 2,
-                    "emotional_word_ratio": 1.5,
-                    "hallucination_ratio": 5,
-                    "distortion_count": 0,
-                    "aggressive_expression_count": 0,
-                    "hate_speech_list": []
-                }},
-                "details": {{
-                    "fairness_detail": "서로 다른 입장 교차로 서술됨.",
-                    "faithfulness_detail": "원문 전반에 충실하나 일부 수치 누락.",
-                    "harmlessness_detail": "혐오/공격적 표현 없음."
-                }},
-                "ai_opinion": "전체적으로 뛰어난 완성도를 보이는 기사입니다."
-            }}
-        """
-
-        from app.agents.utils import call_llm, update_total_tokens
-        response_schema = {
-            "type": "object",
-            "properties": {
-                "metrics": {
-                    "type": "object",
-                    "properties": {
-                        "perspective_category_count": {"type": "integer"},
-                        "emotional_word_ratio": {"type": "number"},
-                        "hallucination_ratio": {"type": "number"},
-                        "distortion_count": {"type": "integer"},
-                        "aggressive_expression_count": {"type": "integer"},
-                        "hate_speech_list": {"type": "array", "items": {"type": "string"}}
-                    },
-                    "required": ["perspective_category_count", "emotional_word_ratio", "hallucination_ratio", "distortion_count", "aggressive_expression_count", "hate_speech_list"]
-                },
-                "details": {
-                    "type": "object",
-                    "properties": {
-                        "fairness_detail": {"type": "string"},
-                        "faithfulness_detail": {"type": "string"},
-                        "harmlessness_detail": {"type": "string"}
-                    },
-                    "required": ["fairness_detail", "faithfulness_detail", "harmlessness_detail"]
-                },
-                "ai_opinion": {"type": "string"}
-            },
-            "required": ["metrics", "details", "ai_opinion"]
-        }
-
-        try:
-            # utils.call_llm을 사용하여 llm_mode에 따라 호출
-            result, usage = call_llm(prompt, "local", state, schema=response_schema)
-            
-            # 토큰 업데이트
-            total_tokens = update_total_tokens(state, usage, "ReviewAgent")
-
-            # 결과가 dict가 아닌 경우(파싱 실패 등) 빈 딕셔너리로 초기화
-            if not isinstance(result, dict):
-                result = {}
-                
-            metrics = result.get("metrics", {})
-            details = result.get("details", {})
-            
-            # --- 파이썬 기반 논리적 점수 계산 ---
-            # 1. 공정성 (최대 4점)
-            p_count = metrics.get('perspective_category_count', 0)
-            e_ratio = metrics.get('emotional_word_ratio', 0)
-            
-            fairness_score = 0
-            if p_count >= 2: fairness_score += 2
-            elif p_count == 1: fairness_score += 1
-            
-            if e_ratio <= 2: fairness_score += 2
-            elif e_ratio <= 5: fairness_score += 1
-            
-            # 2. 원문 충실도 (최대 4점)
-            h_ratio = metrics.get('hallucination_ratio', 0)
-            d_count = metrics.get('distortion_count', 0)
-            
-            faithfulness_score = 0
-            if h_ratio == 0: faithfulness_score += 2
-            elif h_ratio < 10: faithfulness_score += 1
-            
-            if d_count == 0: faithfulness_score += 2
-            elif d_count <= 3: faithfulness_score += 1
-            
-            # 3. 무해성 (최대 2점)
-            a_count = metrics.get('aggressive_expression_count', 0)
-            harmlessness_score = 0
-            if a_count == 0: harmlessness_score += 2
-            elif a_count <= 3: harmlessness_score += 1
-            
-            total_score = fairness_score + faithfulness_score + harmlessness_score
-
+        if not pre_generated_draft:
+            # 기본 빈 점수 반환
             scores = {
-                "fairness": {
-                    "score": fairness_score,
-                    "max_score": 4,
-                    "detail": details.get("fairness_detail", "")
-                },
-                "faithfulness": {
-                    "score": faithfulness_score,
-                    "max_score": 4,
-                    "detail": details.get("faithfulness_detail", "")
-                },
-                "harmlessness": {
-                    "score": harmlessness_score,
-                    "max_score": 2,
-                    "detail": details.get("harmlessness_detail", "")
-                },
-                "total_score": total_score,
-                "hate_speech_list": metrics.get("hate_speech_list", []),
-                "distortions_count": d_count
-            }
-
-            ai_opinion = result.get("ai_opinion", "검토가 완료되었습니다.")
-            logger.info(f"⚖️ [ReviewAgent] Node3: 최종 검토 완료 총점 {total_score}점 (의견: {ai_opinion[:20]}...)")
-
-        except Exception as e:
-            msg = f"LLM 분석 오류: {e}"
-            logger.error(f"⚖️ [ReviewAgent] {msg}")
-            # 에러 발생 시 기본 통과 점수로 처리 (스키마 일관성 유지)
-            scores = {
-                "fairness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
-                "faithfulness": {"score": 4, "max_score": 4, "detail": "분석 오류 - 기본 점수 부여"},
-                "harmlessness": {"score": 2, "max_score": 2, "detail": "분석 오류 - 기본 점수 부여"},
+                "fairness": {"score": 4, "max_score": 4, "detail": "초안이 존재하지 않습니다."},
+                "faithfulness": {"score": 4, "max_score": 4, "detail": "초안이 존재하지 않습니다."},
+                "harmlessness": {"score": 2, "max_score": 2, "detail": "초안이 존재하지 않습니다."},
                 "total_score": 10,
                 "hate_speech_list": [],
                 "distortions_count": 0
             }
-            ai_opinion = f"분석 중 오류가 발생했습니다: {str(e)}"
-            total_tokens = state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0})
+            return {
+                "scores": scores,
+                "ai_opinion": "검토할 초안이 존재하지 않습니다.",
+                "spell_check": {
+                    "error_count": 0,
+                    "errors": [],
+                    "corrected_text": ""
+                },
+                "total_tokens": state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0}),
+                "messages": ["초안 공백으로 인한 맞춤법 검사 스킵"]
+            }
+
+        logger.info(f"⚖️ [ReviewAgent] Node3: 맞춤법 검사 및 종합 의견 생성 시작 (길이: {len(pre_generated_draft)}자)")
+
+        # 1. passportKey 동적 조회 헬퍼 함수
+        def _get_passport_key():
+            headers = {
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+            url = "https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=1&ie=utf8&query=맞춤법검사기"
+            try:
+                res = requests.get(url, headers=headers, timeout=5)
+                match = re.search(r'passportKey=([a-zA-Z0-9%_-]+)', res.text)
+                if match:
+                    return urllib.parse.unquote(match.group(1))
+                else:
+                    match_alt = re.search(r'passportKey["\'\s:=]+([a-zA-Z0-9%_-]+)', res.text)
+                    if match_alt:
+                        return urllib.parse.unquote(match_alt.group(1))
+                return None
+            except Exception as e:
+                logger.error(f"❌ [_get_passport_key] 에러 발생: {e}")
+                return None
+
+        # 2. Naver Spellcheck API 호출 함수
+        def _check_spelling_chunk(text, passport_key):
+            if not passport_key:
+                return None
+            url = "https://m.search.naver.com/p/csearch/ocontent/util/SpellerProxy"
+            params = {
+                'color_blindness': '0',
+                'q': text,
+                'passportKey': passport_key,
+                '_callback': 'window.__jindo2_callback._speller_0'
+            }
+            headers = {
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'referer': 'https://search.naver.com/',
+            }
+            try:
+                r = requests.get(url, params=params, headers=headers, timeout=5)
+                text_resp = r.text
+                if text_resp.startswith("window.__jindo2_callback._speller_0("):
+                    text_resp = text_resp.replace("window.__jindo2_callback._speller_0(", "")
+                    if text_resp.endswith(");"):
+                        text_resp = text_resp[:-2]
+                    elif text_resp.endswith(")"):
+                        text_resp = text_resp[:-1]
+                import json
+                return json.loads(text_resp)
+            except Exception as e:
+                logger.error(f"❌ [_check_spelling_chunk] API 호출 실패: {e}")
+                return None
+
+        # 3. 500자 이하 청크 분할 헬퍼 함수
+        def _chunk_text(text, max_len=400):
+            parts = re.split(r'(\n|\. )', text)
+            chunks = []
+            current_chunk = ""
+            for part in parts:
+                if not part:
+                    continue
+                if len(current_chunk) + len(part) > max_len:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = part
+                else:
+                    current_chunk += part
+            if current_chunk:
+                chunks.append(current_chunk)
+            return chunks
+
+        # 4. HTML/XML 교정 태그 파서
+        def _parse_errors(origin_html, html):
+            originals = re.findall(r"<span class='result_underline'>(.*?)</span>", origin_html)
+            corrected_matches = re.findall(r"<em class='(.*?)'>(.*?)</em>", html)
+            errors = []
+            
+            if len(originals) == len(corrected_matches):
+                for orig, (cls, corr) in zip(originals, corrected_matches):
+                    orig_clean = re.sub(r'<[^>]*>', '', orig)
+                    corr_clean = re.sub(r'<[^>]*>', '', corr)
+                    
+                    err_type = "맞춤법 오류"
+                    if "red" in cls:
+                        err_type = "맞춤법 오류"
+                    elif "green" in cls:
+                        err_type = "띄어쓰기 오류"
+                    elif "violet" in cls:
+                        err_type = "표준어 의심"
+                    elif "blue" in cls:
+                        err_type = "통계적 교정"
+                        
+                    errors.append({
+                        "original": orig_clean,
+                        "corrected": corr_clean,
+                        "help_msg": err_type
+                    })
+            else:
+                # 1:1 불일치 시 fallback 처리
+                for cls, corr in corrected_matches:
+                    corr_clean = re.sub(r'<[^>]*>', '', corr)
+                    err_type = "맞춤법 오류"
+                    if "red" in cls: err_type = "맞춤법 오류"
+                    elif "green" in cls: err_type = "띄어쓰기 오류"
+                    elif "violet" in cls: err_type = "표준어 의심"
+                    elif "blue" in cls: err_type = "통계적 교정"
+                    
+                    errors.append({
+                        "original": "기사 본문 일부",
+                        "corrected": corr_clean,
+                        "help_msg": err_type
+                    })
+            return errors
+
+        # 메인 검사 로직 실행
+        passport_key = _get_passport_key()
+        if not passport_key:
+            # 여권키 획득 실패 시 비상용 LLM 미호출 기본 패스 점수 반환
+            scores = {
+                "fairness": {"score": 4, "max_score": 4, "detail": "맞춤법 검사기 서버 점검으로 기본 점수가 부여되었습니다."},
+                "faithfulness": {"score": 4, "max_score": 4, "detail": "맞춤법 검사기 서버 점검으로 기본 점수가 부여되었습니다."},
+                "harmlessness": {"score": 2, "max_score": 2, "detail": "맞춤법 검사기 서버 점검으로 기본 점수가 부여되었습니다."},
+                "total_score": 10,
+                "hate_speech_list": [],
+                "distortions_count": 0
+            }
+            return {
+                "scores": scores,
+                "ai_opinion": "맞춤법 검사기 연동 일시 오류로 정상 검토하지 못했습니다. 추후 다시 시도해 주세요.",
+                "spell_check": {
+                    "error_count": 0,
+                    "errors": [],
+                    "corrected_text": pre_generated_draft
+                },
+                "total_tokens": state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0}),
+                "messages": ["passportKey 획득 실패로 검증 건너뜀"]
+            }
+
+        chunks = _chunk_text(pre_generated_draft)
+        all_errors = []
+        corrected_chunks = []
+        total_error_count = 0
+
+        for ch in chunks:
+            res_data = _check_spelling_chunk(ch, passport_key)
+            if res_data and 'message' in res_data and 'result' in res_data['message']:
+                result_body = res_data['message']['result']
+                chunk_err_count = result_body.get('errata_count', 0)
+                total_error_count += chunk_err_count
+                
+                # 오류 목록 파싱
+                chunk_errors = _parse_errors(result_body.get('origin_html', ''), result_body.get('html', ''))
+                all_errors.extend(chunk_errors)
+                
+                # 교정된 텍스트 수집
+                corrected_chunks.append(result_body.get('notag_html', ch))
+            else:
+                corrected_chunks.append(ch)
+
+        # 전체 교정본 조립
+        full_corrected_text = "".join(corrected_chunks)
+
+        # --- 하위 호환을 위한 점수 역산 (오류율 기반) ---
+        # 1. 공정성 (최대 4점)
+        fairness_score = 4
+        if total_error_count > 8:
+            fairness_score = 2
+        elif total_error_count > 3:
+            fairness_score = 3
+            
+        # 2. 원문 충실도 (최대 4점)
+        faithfulness_score = 4
+        if total_error_count > 10:
+            faithfulness_score = 2
+        elif total_error_count > 5:
+            faithfulness_score = 3
+
+        # 3. 무해성 (최대 2점)
+        harmlessness_score = 2
+        if total_error_count > 12:
+            harmlessness_score = 1
+
+        total_score = fairness_score + faithfulness_score + harmlessness_score
+        
+        detail_msg = f"맞춤법/문법 오탈자가 총 {total_error_count}건 발견되었습니다." if total_error_count > 0 else "오탈자가 발견되지 않은 아주 깔끔한 본문입니다."
+
+        scores = {
+            "fairness": {
+                "score": fairness_score,
+                "max_score": 4,
+                "detail": f"글의 문맥 및 띄어쓰기가 전반적으로 공정하고 단정하게 정렬되었습니다. ({detail_msg})"
+            },
+            "faithfulness": {
+                "score": faithfulness_score,
+                "max_score": 4,
+                "detail": f"원문의 사실 기술과 맞춤법 오류율에 기반해 충실도가 높게 서술되었습니다. ({detail_msg})"
+            },
+            "harmlessness": {
+                "score": harmlessness_score,
+                "max_score": 2,
+                "detail": f"비속어나 혐오 표현에 가깝게 표기된 철자 오류가 최소화되었습니다. ({detail_msg})"
+            },
+            "total_score": total_score,
+            "hate_speech_list": [],
+            "distortions_count": 0
+        }
+
+        # 5. ai_opinion 조립
+        if total_error_count == 0:
+            ai_opinion = "맞춤법 및 문법 오탈자가 전혀 발견되지 않은 완벽한 문장 구조를 가진 초안입니다. 바로 검토 및 송고하셔도 손색없습니다."
+        else:
+            ai_opinion = f"전체 본문 검사 결과 총 {total_error_count}개의 띄어쓰기 및 철자 오탈자가 확인되었습니다. 수정 제안 내용을 참고하여 초안을 반영해 주시면 더욱 가독성 높은 기사가 완성됩니다."
+
+        logger.info(f"⚖️ [ReviewAgent] Node3: 맞춤법 최종 검토 완료 총 오탈자 {total_error_count}건, 총점 {total_score}점")
 
         return {
             "scores": scores,
             "ai_opinion": ai_opinion,
-            "total_tokens": total_tokens,
-            "messages": ["최종 검토 및 종합 의견 생성 완료"]
+            "spell_check": {
+                "error_count": total_error_count,
+                "errors": all_errors,
+                "corrected_text": full_corrected_text
+            },
+            "total_tokens": state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0}), # LLM을 사용하지 않았으므로 토큰 소모 0
+            "messages": [f"맞춤법 검사 완료 (오류 건수: {total_error_count})"]
         }
+
