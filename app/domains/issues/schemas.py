@@ -180,3 +180,19 @@ class DailyStatsResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class FailedIssueItem(BaseModel):
+    """분석 실패한 이슈 아이템 스키마"""
+    id: int
+    name: str
+    conflict_summary: Optional[str] = None # 분석 실패 사유 (에러 메시지)
+    created_at: datetime
+    issue_type: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class FailedIssueResponse(BaseModel):
+    """실패한 이슈 목록 응답"""
+    issues: List[FailedIssueItem]
+    total_count: int
+

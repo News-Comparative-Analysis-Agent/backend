@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, cast, Date
+from sqlalchemy import func, desc, cast, Date, or_
 from typing import List, Optional
 from app.domains.issues.models import IssueLabel
 from app.domains.articles.models import Article
@@ -27,6 +27,12 @@ class IssueRepository:
         query = (
             self.db.query(IssueLabel)
             .outerjoin(Article, Article.issue_label_id == IssueLabel.id)
+            .filter(
+                or_(
+                    IssueLabel.issue_type == 'politics', # 정치는 무조건 노출
+                    IssueLabel.status == 'success'       # 사설은 성공한 것만 노출
+                )
+            )
         )
 
         if target_date:
@@ -48,7 +54,12 @@ class IssueRepository:
         )
 
     def get_feed_issues_count(self, target_date: Optional[date] = None, issue_type: Optional[str] = None) -> int:
-        query = self.db.query(func.count(IssueLabel.id))
+        query = self.db.query(func.count(IssueLabel.id)).filter(
+            or_(
+                IssueLabel.issue_type == 'politics', # 정치는 무조건 카운트
+                IssueLabel.status == 'success'       # 사설은 성공한 것만 카운트
+            )
+        )
 
         if target_date:
             query = query.filter(cast(IssueLabel.created_at, Date) == target_date)
@@ -80,7 +91,11 @@ class IssueRepository:
         # 2. 생성 이슈 수
         issue_count = self.db.query(func.count(IssueLabel.id)).filter(
             IssueLabel.created_at >= today_start,
-            IssueLabel.created_at <= today_end
+            IssueLabel.created_at <= today_end,
+            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
+                IssueLabel.issue_type == 'politics',
+                IssueLabel.status == 'success'
+            )
         ).scalar() or 0
 
         # 3. 참여 언론사 수 (해당 날짜 기사가 있는 언론사 유니크 카운트)
@@ -94,7 +109,11 @@ class IssueRepository:
             IssueLabel.created_at >= today_start,
             IssueLabel.created_at <= today_end,
             IssueLabel.pre_generated_draft.isnot(None),
-            IssueLabel.pre_generated_draft != ""
+            IssueLabel.pre_generated_draft != "",
+            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
+                IssueLabel.issue_type == 'politics',
+                IssueLabel.status == 'success'
+            )
         ).scalar() or 0
         
         return {
@@ -176,6 +195,12 @@ class IssueRepository:
             self.db.query(IssueLabel)
             .outerjoin(Article, Article.issue_label_id == IssueLabel.id)
             .filter(IssueLabel.created_at >= cutoff_dt)
+            .filter(
+                or_(
+                    IssueLabel.issue_type == 'politics', # 정치는 무조건 반환
+                    IssueLabel.status == 'success'       # 사설은 성공한 것만 반환
+                )
+            )
         )
 
         if issue_type:
@@ -188,6 +213,17 @@ class IssueRepository:
                 desc(publisher_count),
                 desc(article_count),
             )
+            .all()
+        )
+
+    def get_failed_issues(self, skip: int = 0, limit: int = 50) -> List[IssueLabel]:
+        """분석에 실패한 이슈들을 최신순으로 가져옵니다."""
+        return (
+            self.db.query(IssueLabel)
+            .filter(IssueLabel.status == 'failed')
+            .order_by(IssueLabel.created_at.desc())
+            .offset(skip)
+            .limit(limit)
             .all()
         )
 

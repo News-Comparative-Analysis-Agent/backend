@@ -369,7 +369,7 @@ class ClusterAgent:
                 
                 if not is_noise and count >= min_articles and unique_press >= min_press and max_press_ratio <= max_ratio_limit:
                     # ✅ [사용자 요청] 주요 언론사 우선순위 정의
-                    PRIORITY_PRESS = ["한겨레", "조선일보", "경향신문", "한국일보", "동아일보"]
+                    PRIORITY_PRESS = ["한겨레", "조선일보", "경향신문", "한국일보"]
 
                     # 언론사별 대표 기사 1개씩 선택 (우선순위 언론사 + 최신 기사 우선)
                     if 'published_at' in topic_articles.columns:

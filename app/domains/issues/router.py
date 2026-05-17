@@ -6,7 +6,7 @@ from app.domains.issues.service import IssueService
 from app.domains.issues.schemas import (
     IssueFeedResponse, IssueAnalysisResponse, IssueDraftResponse, 
     IssueTimelineResponse, IssueGroupedResponse, IssueFeedLegacyResponse,
-    HeadlineRecommendationResponse, DailyStatsResponse
+    HeadlineRecommendationResponse, DailyStatsResponse, FailedIssueResponse
 )
 
 router = APIRouter()
@@ -23,6 +23,18 @@ def get_today_stats(
     """
     service = IssueService(db)
     return service.get_today_stats()
+
+@router.get("/failed",
+            response_model=FailedIssueResponse,
+            summary="분석 실패 이슈 목록 조회",
+            description="분석 과정에서 오류가 발생하여 'failed' 상태로 남은 이슈들과 실패 사유를 반환합니다.")
+def get_failed_issues(
+    page: int = Query(1, ge=1, description="페이지 번호"),
+    page_size: int = Query(50, ge=1, le=100, description="페이지당 개수"),
+    db: Session = Depends(get_db)
+):
+    service = IssueService(db)
+    return service.get_failed_issues(page=page, page_size=page_size)
 
 @router.get("/daily-issues",
             response_model=IssueFeedResponse,
