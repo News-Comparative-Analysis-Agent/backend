@@ -344,7 +344,7 @@ def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
 @traceable(run_type="chain", name="LLM Routing (JSON)")
 def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> tuple:
     """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
-    mode = state.get("llm_mode", "gemini_only")
+    mode = state.get("llm_mode", "local_only")
     
     if mode == "local_only":
         with llm_semaphore:

@@ -37,12 +37,19 @@ def run_local_politics_test():
     
     try:
         # 2. 기사 데이터를 DB에 미리 저장 (EvidenceAgent가 DB에서 조회할 수 있도록 함)
-        from app.domains.articles.models import Article, ArticleBody
+        from app.domains.articles.models import Article, ArticleBody, ArticleClaim
         from app.domains.publishers.models import Publisher
+        from app.domains.issues.models import IssueLabel
         from datetime import datetime
         from sqlalchemy import delete
 
-        logger.info("💾 테스트용 정치 기사를 DB에 동기화 중...")
+        logger.info("💾 테스트용 정치 기사 및 이슈 테이블 초기화 중...")
+        db.execute(delete(ArticleBody))
+        db.execute(delete(ArticleClaim))
+        db.execute(delete(Article))
+        db.execute(delete(IssueLabel))
+        db.flush()
+        
         formatted_articles = []
         for item in test_articles:
             # 언론사 확인 및 생성
@@ -135,26 +142,31 @@ def run_local_politics_test():
             logger.success(f"✅ 생성된 정치 이슈 IDs: {issue_ids}")
             
             # DB에서 생성된 결과를 상세히 출력하여 검증
-            from app.domains.issues.models import Issue
+            from app.domains.issues.models import IssueLabel
             from app.domains.articles.models import Article
             
             for iid in issue_ids:
-                issue = db.query(Issue).filter(Issue.id == iid).first()
+                issue = db.query(IssueLabel).filter(IssueLabel.id == iid).first()
                 if issue:
                     logger.info("==================================================")
                     logger.success(f"📌 생성된 이슈 명칭: {issue.name}")
+                    logger.success(f"⚙️  분석 상태 (status): {issue.status}")
                     logger.info(f"📝 이슈 요약 설명 (description): {issue.description}")
                     logger.info(f"💡 이슈 배경 설명 (background): {issue.background}")
                     logger.success(f"🔥 사건의 핵심 쟁점 (conflict_summary): {issue.conflict_summary}")
                     
                     # 연결된 기사들의 분석 결과 (주장 및 근거) 확인
-                    articles = db.query(Article).filter(Article.issue_label_id == iid).all()
-                    logger.info(f"📰 연결된 기사 분석 내역 (총 {len(articles)}건):")
-                    for art in articles:
-                        logger.info(f"  - [{art.publisher.name}] {art.title}")
-                        logger.info(f"    └ 📢 주장 (claim): {art.claim}")
-                        logger.info(f"    └ 🎯 핵심 팩트 근거 (evidence_front): {art.evidence_front}")
-                        logger.info(f"    └ 💬 상대 진영/인물 반박 (evidence_back): {art.evidence_back}")
+                    from app.domains.articles.models import ArticleClaim
+                    claims = db.query(ArticleClaim).filter(ArticleClaim.issue_id == iid).all()
+                    logger.info(f"📰 연결된 기사 분석 내역 (총 {len(claims)}건):")
+                    for clm in claims:
+                        logger.info(f"  - [{clm.press}] {clm.article.title if clm.article else clm.press}")
+                        logger.info(f"    └ 📢 주장 (claim): {clm.claim}")
+                        logger.info(f"    └ 📝 추출 근거 (evidence):")
+                        if clm.evidence:
+                            for line in clm.evidence.split('\n'):
+                                if line.strip():
+                                    logger.info(f"      {line.strip()}")
                     logger.info("==================================================")
         
         tokens = final_state.get("total_tokens", {})

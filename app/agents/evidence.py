@@ -249,7 +249,8 @@ class EvidenceAgent:
                         press=card.get('press', '알수없음'),
                         claim=card.get('claim', ''),
                         evidence_front=card.get('evidence_front', ''),
-                        evidence_back=card.get('evidence_back', '')
+                        evidence_back=card.get('evidence_back', ''),
+                        issue_type=state.get("article_mode", "editorial")
                     )
                     saved_claims_count += 1
                 except Exception as e:
