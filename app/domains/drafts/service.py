@@ -423,7 +423,12 @@ class DraftService:
             if not issue:
                 raise HTTPException(status_code=404, detail="이슈를 찾을 수 없습니다.")
 
-            from app.domains.drafts.schemas import ReviewScores
+            from app.domains.drafts.schemas import ReviewScores, SpellCheckResult
+
+            spell_check_data = final_state.get("spell_check")
+            spell_check_res = None
+            if spell_check_data:
+                spell_check_res = SpellCheckResult(**spell_check_data)
 
             return FinalReviewResponse(
                 id=issue.id,
@@ -436,7 +441,8 @@ class DraftService:
                 pre_generated_draft=issue.pre_generated_draft,
                 sources=sources,
                 scores=ReviewScores(**final_state.get("scores", {})),
-                ai_opinion=final_state.get("ai_opinion", "의견을 생성할 수 없습니다.")
+                ai_opinion=final_state.get("ai_opinion", "의견을 생성할 수 없습니다."),
+                spell_check=spell_check_res
             )
 
         except Exception as e:
