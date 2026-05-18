@@ -107,6 +107,7 @@ class ScrollerRepository:
         Returns:
             Article: 저장된 기사 객체
         """
+        kst_now = datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None)
         # 1. 기사 메타데이터 객체 생성 및 추가
         article = Article(
             publisher_id=publisher_id,
@@ -115,7 +116,8 @@ class ScrollerRepository:
             image_urls=image_urls,
             published_at=published_at,
             reporter=reporter,
-            article_type=article_type
+            article_type=article_type,
+            analyzed_at=kst_now
         )
         self.db.add(article)
         self.db.flush() # article.id를 획득하기 위해 flush 수행

@@ -84,36 +84,31 @@ class IssueRepository:
         
         # 1. 수집 기사 수
         article_count = self.db.query(func.count(Article.id)).filter(
-            Article.published_at >= today_start,
-            Article.published_at <= today_end
+            Article.analyzed_at >= today_start,
+            Article.analyzed_at <= today_end
         ).scalar() or 0
         
-        # 2. 생성 이슈 수
+        # 2. 생성 이슈 수 (정치 이슈만 카운트)
         issue_count = self.db.query(func.count(IssueLabel.id)).filter(
             IssueLabel.created_at >= today_start,
             IssueLabel.created_at <= today_end,
-            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
-                IssueLabel.issue_type == 'politics',
-                IssueLabel.status == 'success'
-            )
+            IssueLabel.issue_type == 'politics'
         ).scalar() or 0
 
-        # 3. 참여 언론사 수 (해당 날짜 기사가 있는 언론사 유니크 카운트)
+        # 3. 참여 언론사 수 (해당 날짜 수집 기사가 있는 언론사 유니크 카운트)
         publisher_count = self.db.query(func.count(func.distinct(Article.publisher_id))).filter(
-            Article.published_at >= today_start,
-            Article.published_at <= today_end
+            Article.analyzed_at >= today_start,
+            Article.analyzed_at <= today_end
         ).scalar() or 0
 
-        # 4. 비평 기사 생성 수 (해당 날짜에 초안이 생성된 이슈 수)
+        # 4. 비평 기사 생성 수 (해당 날짜에 초안이 생성된 사설 이슈 수)
         critique_count = self.db.query(func.count(IssueLabel.id)).filter(
             IssueLabel.created_at >= today_start,
             IssueLabel.created_at <= today_end,
+            IssueLabel.issue_type == 'editorial',
+            IssueLabel.status == 'success',
             IssueLabel.pre_generated_draft.isnot(None),
-            IssueLabel.pre_generated_draft != "",
-            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
-                IssueLabel.issue_type == 'politics',
-                IssueLabel.status == 'success'
-            )
+            IssueLabel.pre_generated_draft != ""
         ).scalar() or 0
         
         return {

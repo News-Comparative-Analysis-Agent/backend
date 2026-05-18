@@ -1,3 +1,5 @@
+from datetime import datetime
+import pytz
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, func, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -28,7 +30,7 @@ class Article(Base):
     
     
     # AI 분석 결과 데이터
-    analyzed_at = Column(DateTime, default=func.now()) # 분석 완료 일시
+    analyzed_at = Column(DateTime, default=lambda: datetime.now(pytz.utc).astimezone(pytz.timezone('Asia/Seoul')).replace(tzinfo=None)) # 분석 완료 일시 (KST 수집 일시)
 
     # 관계 설정
     issue_label = relationship("IssueLabel", back_populates="articles")
