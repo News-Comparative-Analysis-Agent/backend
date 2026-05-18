@@ -37,7 +37,11 @@ class IssueAgent:
         원문 근거(evidence): {mv.get('evidence', '')}
         """
 
-        prompt = f"""
+        article_mode = state.get("article_mode", "editorial")
+        if article_mode == "politics":
+            prompt = ""
+        else:
+            prompt = f"""
             당신은 여러 언론사의 보도를 비교·분석하여 대립 구도를 정리하는 미디어 비평 기사 작성자입니다.
             아래 [언론사별 분석 데이터]를 바탕으로, 이 사안을 두고 언론사 간에 어떤 시각 차이가 있는지 요약하십시오.
  

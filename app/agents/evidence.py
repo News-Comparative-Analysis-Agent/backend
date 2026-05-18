@@ -68,7 +68,11 @@ class EvidenceAgent:
         {redo_instruction}
         """
 
-        prompt = f"""
+        article_mode = state.get("article_mode", "editorial")
+        if article_mode == "politics":
+            prompt = ""
+        else:
+            prompt = f"""
         당신은 미디어 비평 기사 작성을 위한 원문 문장 추출 전문가입니다.
         아래 [뉴스 원문]에서 기사 작성에 그대로 사용할 수 있는 문단을 추출하세요.
         추출한 문장은 기사에서 다음과 같이 사용됩니다:
