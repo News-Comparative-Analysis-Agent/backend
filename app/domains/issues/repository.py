@@ -122,26 +122,31 @@ class IssueRepository:
         from app.domains.issues.models import DailyStats
         return self.db.query(DailyStats).filter(cast(DailyStats.target_date, Date) == target_date).first()
 
-    def sync_daily_stats(self, target_date: date) -> Optional[IssueLabel]:
+    def sync_daily_stats(self, target_date: date, force_update_time: bool = False) -> Optional[IssueLabel]:
         """당일 통계를 집계하여 daily_stats 테이블에 동기화합니다."""
         from app.domains.issues.models import DailyStats
         stats_data = self.get_today_stats(target_date)
         
         stats = self.get_latest_daily_stats(target_date)
+        dt_start = datetime.combine(target_date, datetime.min.time())
+
         if stats:
             stats.article_count = stats_data["article_count"]
             stats.issue_count = stats_data["issue_count"]
             stats.publisher_count = stats_data["publisher_count"]
             stats.critique_count = stats_data["critique_count"]
-            stats.last_updated_at = func.now()
+            if force_update_time:
+                stats.last_updated_at = func.now()
         else:
-            dt_start = datetime.combine(target_date, datetime.min.time())
+            # 새 레코드 생성 시: force_update_time가 True면 현재 시각, False면 오늘 날짜 자정(시작 시각)으로 설정
+            last_updated = func.now() if force_update_time else dt_start
             stats = DailyStats(
                 target_date=dt_start,
                 article_count=stats_data["article_count"],
                 issue_count=stats_data["issue_count"],
                 publisher_count=stats_data["publisher_count"],
-                critique_count=stats_data["critique_count"]
+                critique_count=stats_data["critique_count"],
+                last_updated_at=last_updated
             )
             self.db.add(stats)
         

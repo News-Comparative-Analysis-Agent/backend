@@ -203,8 +203,8 @@ class IssueService:
     def get_today_stats(self) -> DailyStatsResponse:
         """오늘의 서비스 통계(기사, 이슈, 언론사, 비평 수)를 조회합니다."""
         today_date = (datetime.utcnow() + timedelta(hours=9)).date()
-        # 실시간 집계 및 동기화
-        stats = self.repo.sync_daily_stats(today_date)
+        # 실시간 집계 및 동기화 (단, 업데이트 시간은 조회 시점에 갱신하지 않고 스크립트 실행 완료 시각을 유지합니다)
+        stats = self.repo.sync_daily_stats(today_date, force_update_time=False)
         return DailyStatsResponse.model_validate(stats)
 
     def get_failed_issues(self, page: int = 1, page_size: int = 50) -> FailedIssueResponse:
