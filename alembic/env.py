@@ -55,6 +55,8 @@ def run_migrations_offline() -> None:
 
     """
     url = os.getenv("DATABASE_URL")
+    if url and "sslmode=" not in url:
+        url += ("&" if "?" in url else "?") + "sslmode=prefer"
     if not url:
         url = config.get_main_option("sqlalchemy.url")
         
@@ -79,6 +81,8 @@ def run_migrations_online() -> None:
     # 환경 변수에서 설정을 가져와서 동적으로 URL 업데이트
     db_url = os.getenv("DATABASE_URL")
     if db_url:
+        if "sslmode=" not in db_url:
+            db_url += ("&" if "?" in db_url else "?") + "sslmode=prefer"
         config.set_main_option("sqlalchemy.url", db_url)
 
     connectable = engine_from_config(
