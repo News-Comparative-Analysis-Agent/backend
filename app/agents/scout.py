@@ -189,6 +189,10 @@ class ScoutAgent:
             # 기본: 정치 섹션만 수집
             if section != "정치":
                 return None
+            # 일반 정치 기사 파이프라인에서 사설/오피니언/칼럼 기사 필터링 (사설 제외)
+            if is_editorial_title or is_editorial_section:
+                logger.info(f"🚫 [ScoutAgent] 정치 파이프라인에서 사설/칼럼 제외: {title[:40]}")
+                return None
             
         #  본문 파싱 셀렉터 강화 (포토뉴스 등 방어)
         content_area = soup.select_one('#dic_area') or soup.select_one('#newsct_article') or soup.select_one('.go_trans._article_content')
