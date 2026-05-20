@@ -51,10 +51,17 @@ class ArticleRepository:
         from app.domains.publishers.models import Publisher
         return self.db.query(Publisher).filter(Publisher.name.in_(names)).all()
 
-    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence_front: str = None, evidence_back: str = None) -> ArticleClaim:
+    def save_article_claim(self, issue_id: int, article_id: int, press: str, claim: str, evidence_front: str = None, evidence_back: str = None, issue_type: str = "editorial", **kwargs) -> ArticleClaim:
         """에이전트 1이 추출한 주장 데이터를 저장합니다 (기존 데이터가 있으면 덮어씌움)."""
+        # 하위 호환성: 옛날 코드에서 'evidence' 키워드로 전달했을 경우 대응
+        if evidence_front is None and "evidence" in kwargs:
+            evidence_front = kwargs["evidence"]
+
         # DB 컬럼 호환성을 위해 두 영역을 합쳐서 저장
-        combined_evidence = f"[판단·해석]\n{evidence_front or ''}\n\n[결론·요구]\n{evidence_back or ''}".strip()
+        if issue_type == "politics":
+            combined_evidence = f"[사건·팩트]\n{evidence_front or ''}\n\n[반응·입장]\n{evidence_back or ''}".strip()
+        else:
+            combined_evidence = f"[판단·해석]\n{evidence_front or ''}\n\n[결론·요구]\n{evidence_back or ''}".strip()
         
         # 기존 데이터 존재 여부 확인 (issue_id와 article_id 쌍으로 검색)
         db_claim = self.db.query(ArticleClaim).filter(

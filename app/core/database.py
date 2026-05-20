@@ -6,6 +6,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 load_dotenv()
 db_url = os.getenv("DATABASE_URL")
 
+# 원격 서버의 SSL 강제 정책 및 로컬 호환성을 위해 sslmode=prefer를 동적으로 추가합니다.
+if db_url and "sslmode=" not in db_url:
+    db_url += ("&" if "?" in db_url else "?") + "sslmode=prefer"
+
 engine = create_engine(
     db_url,
     connect_args={"options": "-c client_encoding=UTF8"},

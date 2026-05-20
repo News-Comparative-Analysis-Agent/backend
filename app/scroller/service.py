@@ -102,6 +102,16 @@ class ScrollerService:
 
         session_logger.success(f"✅ 뉴스 크롤링 완료: 신규 저장 {saved}건, 중복 스킵 {skipped}건")
         
+        # 스크립트/파이프라인이 성공적으로 실행되었으므로 대시보드 최근 업데이트 시간 동기화 및 갱신
+        try:
+            from app.domains.issues.repository import IssueRepository
+            issue_repo = IssueRepository(self.db)
+            today_date = (datetime.utcnow() + timedelta(hours=9)).date()
+            issue_repo.sync_daily_stats(today_date, force_update_time=True)
+            session_logger.info("⏱️  크롤링 완료로 통계 최근 업데이트 시각이 갱신되었습니다.")
+        except Exception as stats_err:
+            session_logger.warning(f"⚠️ 통계 최근 업데이트 시각 갱신 중 오류: {stats_err}")
+
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
 
@@ -168,6 +178,16 @@ class ScrollerService:
 
         session_logger.success(f"✅ 이슈 클러스터링 완료: 생성된 이슈 {saved_issues}건")
 
+        # 스크립트/파이프라인이 성공적으로 실행되었으므로 대시보드 최근 업데이트 시간 동기화 및 갱신
+        try:
+            from app.domains.issues.repository import IssueRepository
+            issue_repo = IssueRepository(self.db)
+            today_date = (datetime.utcnow() + timedelta(hours=9)).date()
+            issue_repo.sync_daily_stats(today_date, force_update_time=True)
+            session_logger.info("⏱️  클러스터링 완료로 통계 최근 업데이트 시각이 갱신되었습니다.")
+        except Exception as stats_err:
+            session_logger.warning(f"⚠️ 통계 최근 업데이트 시각 갱신 중 오류: {stats_err}")
+
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
             
@@ -227,6 +247,17 @@ class ScrollerService:
             raise e
 
         session_logger.success(f"✅ 비교 분석 완료 (Issue ID: {issue_id})")
+
+        # 스크립트/파이프라인이 성공적으로 실행되었으므로 대시보드 최근 업데이트 시간 동기화 및 갱신
+        try:
+            from app.domains.issues.repository import IssueRepository
+            issue_repo = IssueRepository(self.db)
+            today_date = (datetime.utcnow() + timedelta(hours=9)).date()
+            issue_repo.sync_daily_stats(today_date, force_update_time=True)
+            session_logger.info("⏱️  비교 분석 완료로 통계 최근 업데이트 시각이 갱신되었습니다.")
+        except Exception as stats_err:
+            session_logger.warning(f"⚠️ 통계 최근 업데이트 시각 갱신 중 오류: {stats_err}")
+
         stop_job_logging(handler_id)
         finalize_job_log(log_path, "success")
         

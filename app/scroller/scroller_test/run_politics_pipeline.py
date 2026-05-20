@@ -30,9 +30,10 @@ def run_politics_pipeline():
         from app.scroller.repository import ScrollerRepository
         repo = ScrollerRepository(db)
         settings = repo.get_system_settings()
-        llm_mode = settings.llm_mode if settings else "local_only"
         
-        logger.info(f"⚙️  DB 설정 기반 LLM 모드 로드: {llm_mode}")
+        # 제미나이 429 쿼타 에러 방지를 위해 local_only 모드로 강제 고정합니다.
+        llm_mode = "local_only"
+        logger.info(f"⚙️  정치 파이프라인 LLM 모드 (로컬 전용 강제 적용): {llm_mode}")
         
         initial_state = {
             "llm_mode": llm_mode,

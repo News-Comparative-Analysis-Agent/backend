@@ -84,36 +84,31 @@ class IssueRepository:
         
         # 1. 수집 기사 수
         article_count = self.db.query(func.count(Article.id)).filter(
-            Article.published_at >= today_start,
-            Article.published_at <= today_end
+            Article.analyzed_at >= today_start,
+            Article.analyzed_at <= today_end
         ).scalar() or 0
         
-        # 2. 생성 이슈 수
+        # 2. 생성 이슈 수 (정치 이슈만 카운트)
         issue_count = self.db.query(func.count(IssueLabel.id)).filter(
             IssueLabel.created_at >= today_start,
             IssueLabel.created_at <= today_end,
-            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
-                IssueLabel.issue_type == 'politics',
-                IssueLabel.status == 'success'
-            )
+            IssueLabel.issue_type == 'politics'
         ).scalar() or 0
 
-        # 3. 참여 언론사 수 (해당 날짜 기사가 있는 언론사 유니크 카운트)
+        # 3. 참여 언론사 수 (해당 날짜 수집 기사가 있는 언론사 유니크 카운트)
         publisher_count = self.db.query(func.count(func.distinct(Article.publisher_id))).filter(
-            Article.published_at >= today_start,
-            Article.published_at <= today_end
+            Article.analyzed_at >= today_start,
+            Article.analyzed_at <= today_end
         ).scalar() or 0
 
-        # 4. 비평 기사 생성 수 (해당 날짜에 초안이 생성된 이슈 수)
+        # 4. 비평 기사 생성 수 (해당 날짜에 초안이 생성된 사설 이슈 수)
         critique_count = self.db.query(func.count(IssueLabel.id)).filter(
             IssueLabel.created_at >= today_start,
             IssueLabel.created_at <= today_end,
+            IssueLabel.issue_type == 'editorial',
+            IssueLabel.status == 'success',
             IssueLabel.pre_generated_draft.isnot(None),
-            IssueLabel.pre_generated_draft != "",
-            or_( # ✅ 정치는 무조건, 사설은 성공만 카운트
-                IssueLabel.issue_type == 'politics',
-                IssueLabel.status == 'success'
-            )
+            IssueLabel.pre_generated_draft != ""
         ).scalar() or 0
         
         return {
@@ -127,26 +122,31 @@ class IssueRepository:
         from app.domains.issues.models import DailyStats
         return self.db.query(DailyStats).filter(cast(DailyStats.target_date, Date) == target_date).first()
 
-    def sync_daily_stats(self, target_date: date) -> Optional[IssueLabel]:
+    def sync_daily_stats(self, target_date: date, force_update_time: bool = False) -> Optional[IssueLabel]:
         """당일 통계를 집계하여 daily_stats 테이블에 동기화합니다."""
         from app.domains.issues.models import DailyStats
         stats_data = self.get_today_stats(target_date)
         
         stats = self.get_latest_daily_stats(target_date)
+        dt_start = datetime.combine(target_date, datetime.min.time())
+
         if stats:
             stats.article_count = stats_data["article_count"]
             stats.issue_count = stats_data["issue_count"]
             stats.publisher_count = stats_data["publisher_count"]
             stats.critique_count = stats_data["critique_count"]
-            stats.last_updated_at = func.now()
+            if force_update_time:
+                stats.last_updated_at = func.now()
         else:
-            dt_start = datetime.combine(target_date, datetime.min.time())
+            # 새 레코드 생성 시: force_update_time가 True면 현재 시각, False면 오늘 날짜 자정(시작 시각)으로 설정
+            last_updated = func.now() if force_update_time else dt_start
             stats = DailyStats(
                 target_date=dt_start,
                 article_count=stats_data["article_count"],
                 issue_count=stats_data["issue_count"],
                 publisher_count=stats_data["publisher_count"],
-                critique_count=stats_data["critique_count"]
+                critique_count=stats_data["critique_count"],
+                last_updated_at=last_updated
             )
             self.db.add(stats)
         
