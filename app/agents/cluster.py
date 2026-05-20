@@ -372,10 +372,10 @@ class ClusterAgent:
             articles_list = df_clean.to_dict('records')
             if article_mode == "editorial":
                 docs = [f"{str(art['title'])} {str(art['title'])} {str(art['title'])} {str(art['content'][:300])}" for art in articles_list]
-                distance_threshold = 1.1
+                distance_threshold = 0.92
             else:
                 docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
-                distance_threshold = 1.1
+                distance_threshold = 0.88
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
