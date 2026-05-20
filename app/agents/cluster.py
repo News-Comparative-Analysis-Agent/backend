@@ -372,10 +372,10 @@ class ClusterAgent:
             articles_list = df_clean.to_dict('records')
             if article_mode == "editorial":
                 docs = [f"{str(art['title'])} {str(art['title'])} {str(art['title'])} {str(art['content'][:300])}" for art in articles_list]
-                distance_threshold = 0.92
+                distance_threshold = 1.1
             else:
                 docs = [f"{str(art['title'])} {str(art['content'][:500])}" for art in articles_list]
-                distance_threshold = 0.88
+                distance_threshold = 1.1
             
             custom_stopwords = ['기자', '특파원', '대해', '밝혔다', '관련', '오늘', '오후', '오전', '대통령', '대표', '의원', '민주당', '국민의힘', '한동훈', '이재명', '윤석열', '여야', '국회']
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
@@ -463,8 +463,43 @@ class ClusterAgent:
             # 4. 유사 클러스터 후처리 병합
             clustered_topics = self._post_merge_similar_clusters(intermediate_topics, merge_threshold=0.75)
             
-            # 5. 최종 통계 업데이트
+            # 5. 최종 통계 업데이트 및 사설 기사 후처리(병합 후 재제한)
+            PRIORITY_PRESS = ["한겨레", "조선일보", "경향신문", "한국일보"]
             for t in clustered_topics:
+                if article_mode == "editorial":
+                    merged_items = list(zip(
+                        t["presses"], 
+                        t["titles"], 
+                        t.get("snippets", []), 
+                        t.get("snippet_presses", t["presses"]), 
+                        t["article_ids"]
+                    ))
+                    
+                    # 중복 언론사 제거 (먼저 나온 기사 유지)
+                    seen_presses = set()
+                    unique_items = []
+                    for item in merged_items:
+                        press_name = item[0]
+                        if press_name not in seen_presses:
+                            seen_presses.add(press_name)
+                            unique_items.append(item)
+                            
+                    # 우선순위 매체 가중치 부여하여 정렬
+                    unique_items.sort(key=lambda x: x[0] in PRIORITY_PRESS, reverse=True)
+                    
+                    # 4개로 제한
+                    if len(unique_items) > 4:
+                        logger.info(f"✂️ [ClusterAgent] 병합 후 커진 사설 클러스터({len(unique_items)}개 매체)를 상위 4개 매체로 재제한합니다. (Topic: {t['topic_id']})")
+                        unique_items = unique_items[:4]
+                    
+                    # 다시 t 딕셔너리에 반영
+                    if unique_items:
+                        t["presses"], t["titles"], t["snippets"], t["snippet_presses"], t["article_ids"] = map(list, zip(*unique_items))
+                    else:
+                        t["presses"], t["titles"], t["snippets"], t["snippet_presses"], t["article_ids"] = [], [], [], [], []
+                    
+                    t["count"] = len(unique_items)
+
                 t["press_count"] = len(set(t["presses"]))
                 del t["presses"] # 불필요한 메모리 방지
 
