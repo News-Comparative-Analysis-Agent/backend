@@ -361,7 +361,7 @@ phase 기준:
                     date_val=new_issue.created_at.date(),
                     exclude_id=new_issue_id
                 )
-                if same_day_sibling:
+                if same_day_sibling and same_day_sibling.issue_type == new_issue.issue_type:
                     self.repo.merge_into_existing(
                         target_id=same_day_sibling.id,
                         source_id=new_issue_id
