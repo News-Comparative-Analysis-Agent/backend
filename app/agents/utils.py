@@ -145,11 +145,19 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
         if not url:
             raise ValueError(f"정의되지 않은 LLM 크기입니다: {model_size}")
 
+    # 프롬프트 길이에 따라 max_tokens를 동적으로 조절하여 Context Limit (32k) 초과로 인한 400 에러를 방지합니다.
+    # 한국어 특성상 1글자당 약 1.5 토큰으로 안전하게 계산합니다.
+    estimated_prompt_tokens = int(len(prompt) * 1.5) + 500
+    
+    # 기본 최댓값을 16384로 설정하되, 컨텍스트 한도(32000)를 초과하지 않도록 계산 (최소 4096 보장)
+    calculated_max_tokens = min(16384, max(4096, 32000 - estimated_prompt_tokens))
+    
+    # 비평 기사 생성 등 풍부한 분량이 필요한 작업을 위해 프롬프트 크기가 허용하는 한 최대 크기 할당
     payload = {
         "model": LLM_MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
-        "max_tokens": 32768
+        "max_tokens": calculated_max_tokens
     }
     
     # JSON 모드 혹은 스키마가 제공된 경우 response_format 추가 지원 (vLLM, Ollama, MLX 등 OpenAI 호환 서버 대응)
