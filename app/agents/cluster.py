@@ -542,6 +542,11 @@ class ClusterAgent:
                 node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
                 node_usage["completion_tokens"] += usage.get("completion_tokens", 0)
                 
+                # ✅ [Quality Gate] AI가 분석 불가/정보 없음으로 판정한 경우 이슈 생성을 건너뜁니다. (기사는 미분류 상태 보존)
+                if "분석 불가" in ai_label or "정보 없음" in ai_label:
+                    logger.warning(f"🚫 [ClusterAgent:Save] AI 분석 불가/정보 없음 판정으로 이슈 생성을 건너뜁니다. (임시 레이블: '{ai_label}')")
+                    continue
+                
                 issue = self.repo.save_issue_and_relations(
                     ai_label=ai_label,
                     description=desc,
