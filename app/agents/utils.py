@@ -125,7 +125,7 @@ def parse_llm_json(text: str) -> any:
     return results[0]
 
 @traceable(run_type="llm", name="LocalLLM Call")
-def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None) -> str:
+def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema: dict = None, override_model: str = None) -> str:
     """온프레미스 로컬 LLM 서버에 요청을 보냅니다 (재시도 및 예외 전파 포함)."""
         
     use_deepinfra = os.getenv("LLM_USE_DEEPINFRA", "false").lower() == "true"
@@ -153,8 +153,9 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
     calculated_max_tokens = min(16384, max(4096, 32000 - estimated_prompt_tokens))
     
     # 비평 기사 생성 등 풍부한 분량이 필요한 작업을 위해 프롬프트 크기가 허용하는 한 최대 크기 할당
+    target_model = override_model if override_model else LLM_MODEL_NAME
     payload = {
-        "model": LLM_MODEL_NAME,
+        "model": target_model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "max_tokens": calculated_max_tokens
@@ -167,7 +168,7 @@ def call_local_llm(model_size: str, prompt: str, json_mode: bool = False, schema
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            log_llm_event(target_name, f"Requesting {LLM_MODEL_NAME} (Attempt {attempt+1})", details=prompt)
+            log_llm_event(target_name, f"Requesting {target_model} (Attempt {attempt+1})", details=prompt)
             res = requests.post(url, json=payload, headers=headers, timeout=300)
             
             if res.status_code == 400:
@@ -234,17 +235,18 @@ def get_gemini_client():
     return _gemini_client
 
 @traceable(run_type="llm", name="Gemini Call")
-def call_gemini(prompt: str, schema: dict = None) -> tuple:
+def call_gemini(prompt: str, schema: dict = None, override_model: str = None) -> tuple:
     """제미나이 API를 호출합니다 (429 재시도 및 동시성 제어 포함)."""
     max_retries = 3
     for attempt in range(max_retries):
         try:
             with gemini_semaphore: # 💡 동시 요청을 제한하여 분당 토큰 제한(TPM) 초과 방지
-                log_llm_event("Gemini", f"Requesting {GEMINI_MODEL_NAME} (Attempt {attempt+1})", details=prompt)
+                target_model = override_model if override_model else GEMINI_MODEL_NAME
+                log_llm_event("Gemini", f"Requesting {target_model} (Attempt {attempt+1})", details=prompt)
                 client = get_gemini_client()
                 
                 generate_kwargs = {
-                    "model": GEMINI_MODEL_NAME,
+                    "model": target_model,
                     "contents": prompt
                 }
                 
@@ -293,87 +295,17 @@ def update_total_tokens(state: dict, new_usage: dict, agent_name: str = "Unknown
     return total
 
 @traceable(run_type="chain", name="LLM Routing (Text)")
-def call_llm_text(prompt: str, model_size: str, state: dict) -> tuple:
-    """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출하여 '순수 텍스트'를 반환합니다. (반환: 텍스트, 토큰정보)"""
-    mode = state.get("llm_mode", "gemini_only")
-    
-    if mode == "local_only":
-        with llm_semaphore:
-            return call_local_llm(model_size, prompt)
-            
-    if mode == "gemini_only":
-        try:
-            log_llm_event("GeminiText", f"Requesting {GEMINI_MODEL_NAME} (Text Mode)", details=prompt)
-            client = get_gemini_client()
-            response = client.models.generate_content(
-                model=GEMINI_MODEL_NAME,
-                contents=prompt
-            )
-            
-            usage = response.usage_metadata
-            token_info = {
-                'prompt_tokens': usage.prompt_token_count or 0,
-                'completion_tokens': usage.candidates_token_count or 0
-            }
-            # log_llm_event("GeminiText", "Response received", details=response.text, token_info=token_info)
-            return response.text.strip(), token_info
-        except Exception as e:
-            logger.error(f"Gemini Text 호출 실패: {e}")
-            return "", {"prompt_tokens": 0, "completion_tokens": 0}
-            
-    if mode == "local_priority":
-        try:
-            with llm_semaphore:
-                content, usage = call_local_llm(model_size, prompt)
-            if content: return content.strip(), usage
-            raise ValueError("로컬 LLM 응답 비어있음")
-        except Exception as e:
-            logger.warning(f"로컬 LLM(Text) 실패로 인해 제미나이로 폴백합니다: {e}")
-            try:
-                log_llm_event("GeminiText", f"Fallback: Requesting {GEMINI_MODEL_NAME} (Text Mode)", details=prompt)
-                client = get_gemini_client()
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL_NAME,
-                    contents=prompt
-                )
-                usage_meta = response.usage_metadata
-                token_info = {
-                    'prompt_tokens': usage_meta.prompt_token_count or 0,
-                    'completion_tokens': usage_meta.candidates_token_count or 0
-                }
-                # log_llm_event("GeminiText", "Fallback response received", details=response.text, token_info=token_info)
-                return response.text.strip(), token_info
-            except Exception as gemini_e:
-                logger.error(f"Gemini 폴백도 실패: {gemini_e}")
-                return "", {"prompt_tokens": 0, "completion_tokens": 0}
-    
-    return "", {"prompt_tokens": 0, "completion_tokens": 0}
+def call_llm_text(prompt: str, model_size: str, state: dict, override_model: str = None) -> tuple:
+    """로컬 LLM을 호출하여 '순수 텍스트'를 반환합니다. (반환: 텍스트, 토큰정보)"""
+    with llm_semaphore:
+        return call_local_llm(model_size, prompt, override_model=override_model)
 
 @traceable(run_type="chain", name="LLM Routing (JSON)")
-def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None) -> tuple:
-    """llm_mode에 따라 제미나이 또는 로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
-    mode = state.get("llm_mode", "local_only")
-    
-    if mode == "local_only":
-        with llm_semaphore:
-            content, usage = call_local_llm(model_size, prompt, schema=schema)
-        return parse_llm_json(content), usage
-        
-    if mode == "gemini_only":
-        return call_gemini(prompt, schema=schema)
-        
-    if mode == "local_priority":
-        try:
-            with llm_semaphore:
-                content, usage = call_local_llm(model_size, prompt, schema=schema)
-            parsed = parse_llm_json(content)
-            if parsed: return parsed, usage
-            raise ValueError("로컬 LLM 응답 파싱 실패")
-        except Exception as e:
-            logger.warning(f"로컬 LLM 실패로 인해 제미나이로 폴백합니다: {e}")
-            return call_gemini(prompt, schema=schema)
-    
-    return call_gemini(prompt, schema=schema)
+def call_llm(prompt: str, model_size: str, state: dict, schema: dict = None, override_model: str = None) -> tuple:
+    """로컬 LLM을 호출합니다. (반환: 결과, 토큰정보)"""
+    with llm_semaphore:
+        content, usage = call_local_llm(model_size, prompt, schema=schema, override_model=override_model)
+    return parse_llm_json(content), usage
 
 def log_execution_time(node_name: str):
     """노드의 실행 시간을 측정하여 로깅하는 데코레이터"""

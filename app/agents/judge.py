@@ -121,7 +121,8 @@ class JudgeAgent:
                 "required": ["thought", "total_score", "redo_instruction"]
             }
             # G-EVAL 모델 호출 (call_llm이 schema와 함께 호출되면 이미 파싱된 dict를 반환함)
-            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema)
+            judge_model_name = os.getenv("JUDGE_MODEL_NAME")
+            g_eval_result, usage = call_llm(prompt=g_eval_prompt, model_size="local", state=state, schema=schema, override_model=judge_model_name)
             
             # ✅ [사용자 요청] 결과가 유효하지 않거나 필수 값이 비어있으면 에러로 간주 (자동 PASS 대신 재시도 유도)
             if not isinstance(g_eval_result, dict) or not g_eval_result.get("thought"):

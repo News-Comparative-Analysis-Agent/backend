@@ -48,7 +48,6 @@ def create_analysis_subgraph():
     from app.agents.evidence import EvidenceAgent
     from app.agents.issue import IssueAgent
     from app.agents.writer import WriterAgent
-    from app.agents.editor import EditorAgent
     from app.agents.judge import JudgeAgent
     from app.core.database import SessionLocal
     
@@ -69,10 +68,6 @@ def create_analysis_subgraph():
             
     def writer_wrapper(state):
         return WriterAgent().node_write_draft(state)
-        
-    def editor_wrapper(state):
-        with SessionLocal() as db:
-            return EditorAgent(db).node_edit_draft(state)
         
     def judge_wrapper(state):
         with SessionLocal() as db:
