@@ -212,8 +212,9 @@ class EvidenceAgent:
         node_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(self._extract_single_card, art, issue_id, llm_mode, state) for art in articles]
-            for future in concurrent.futures.as_completed(futures):
+            future_to_art = {executor.submit(self._extract_single_card, art, issue_id, llm_mode, state): art for art in articles}
+            for future in concurrent.futures.as_completed(future_to_art):
+                art = future_to_art[future]
                 card_data, usage = future.result()
                 
                 node_usage["prompt_tokens"] += usage.get("prompt_tokens", 0)
@@ -234,7 +235,8 @@ class EvidenceAgent:
                         "claim": card_data.get("claim", ""),
                         "evidence_front": card_data.get("evidence_front", ""),
                         "evidence_back": card_data.get("evidence_back", ""),
-                        "url": card_data.get("url", "")
+                        "url": card_data.get("url", ""),
+                        "raw_content": art.get("content", "")
                     })
                     
         # DB 저장
