@@ -300,8 +300,11 @@ class ClusterAgent:
                 "required": ["title", "description", "background"]
             }
             
+            import os
+            override_model = os.getenv("CLUSTER_MODEL_NAME")
+            
             # call_llm은 utils.py에 정의된 공통 함수를 사용합니다. (반환: 결과, 토큰정보)
-            parsed, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema)
+            parsed, usage = call_llm(prompt=prompt, model_size="local", state=state, schema=response_schema, override_model=override_model)
             
             if parsed:
                 def to_str(val):

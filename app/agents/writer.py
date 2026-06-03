@@ -191,6 +191,23 @@ class WriterAgent:
 
             # 응답 본문 추출 및 타입 방어
             raw_body = result.get("article_body") if isinstance(result, dict) else result
+            
+            # 방어 로직: LLM이 문자열 안에 또다시 JSON/Dict 형태로 반환한 경우 대응
+            if isinstance(raw_body, str) and raw_body.strip().startswith("{") and "article_body" in raw_body:
+                import ast
+
+                try:
+                    inner = json.loads(raw_body)
+                    if isinstance(inner, dict) and "article_body" in inner:
+                        raw_body = inner["article_body"]
+                except Exception:
+                    try:
+                        inner = ast.literal_eval(raw_body)
+                        if isinstance(inner, dict) and "article_body" in inner:
+                            raw_body = inner["article_body"]
+                    except Exception:
+                        pass
+
             if isinstance(raw_body, list):
                 llm_body = "\n\n".join([str(s) for s in raw_body])
             else:

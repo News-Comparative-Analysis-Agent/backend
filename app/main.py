@@ -47,6 +47,43 @@ app.include_router(system_router.router, prefix="/system", tags=["system"])
 
 from app.scroller import router as scroller_router
 app.include_router(scroller_router.router, prefix="/scroller", tags=["scroller"])
+
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "백엔드 서버 실행중"}
+
+from fastapi import Request, BackgroundTasks
+from fastapi.responses import JSONResponse
+import traceback
+from app.core.logger import logger
+from app.core.email import send_error_email
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = str(exc)
+    traceback_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    
+    client_host = request.client.host if request.client else 'Unknown'
+    request_info = f"URL: {request.url}\nMethod: {request.method}\nClient: {client_host}"
+    
+    logger.error(f"Unhandled Exception: {error_msg}\n{traceback_str}")
+
+    background_tasks = BackgroundTasks()
+    background_tasks.add_task(
+        send_error_email,
+        error_message=error_msg,
+        traceback_str=traceback_str,
+        request_info=request_info
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "서버 내부 오류가 발생했습니다. 관리자에게 리포트되었습니다."},
+        background=background_tasks
+    )
+
+@app.get("/api/test/error", tags=["test"])
+def test_error_email():
+    """의도적으로 500 에러를 발생시켜 이메일 알림을 테스트합니다."""
+    raise ValueError("이메일 발송 테스트용 의도된 에러입니다.")
+
