@@ -28,6 +28,7 @@ class ClusterAgent:
     BERTopic을 사용한 군집화 및 LLM을 통한 이슈 명명 기능을 제공합니다.
     """
     _topic_model = None
+    _sbert_model = None
     _model_lock = threading.Lock()  # 싱글톤 동시 초기화 방지용 Lock
 
     def __init__(self, db: Session):
@@ -71,6 +72,26 @@ class ClusterAgent:
             )
             logger.info("ClusterAgent: BERTopic 모델 로드 완료.")
             return ClusterAgent._topic_model
+
+    def _get_sbert_model(self):
+        """SBERT 모델 싱글톤 반환 (지연 로딩, 스레드 안전)"""
+        if ClusterAgent._sbert_model is not None:
+            return ClusterAgent._sbert_model
+
+        with ClusterAgent._model_lock:
+            # Lock 획득 후 재확인 (Double-Checked Locking)
+            if ClusterAgent._sbert_model is not None:
+                return ClusterAgent._sbert_model
+
+            logger.info("ClusterAgent: SBERT 모델 로딩 시작...")
+            try:
+                from sentence_transformers import SentenceTransformer
+                ClusterAgent._sbert_model = SentenceTransformer("snunlp/KR-SBERT-V40K-klueNLI-augSTS")
+                logger.info("ClusterAgent: SBERT 모델 로드 완료.")
+            except Exception as e:
+                logger.error(f"ClusterAgent: SBERT 모델 로드 중 오류 발생: {e}")
+                raise e
+            return ClusterAgent._sbert_model
 
     def _is_noise_cluster(self, titles: List[str], article_mode: str = "politics") -> bool:
         """비평 기사로서 가치가 떨어지는 노이즈 클러스터(단순 칼럼 묶음 등) 판별"""
@@ -383,9 +404,17 @@ class ClusterAgent:
             vectorizer = TfidfVectorizer(max_features=5000, stop_words=custom_stopwords, ngram_range=(1, 2))
             X = vectorizer.fit_transform(docs)
             
-            # 2. 계층적 군집화 수행
+            # 2. 계층적 군집화 수행 (TF-IDF + SBERT 가중합)
             from sklearn.metrics.pairwise import cosine_distances
-            distance_matrix = cosine_distances(X)
+            tfidf_distance_matrix = cosine_distances(X)
+            
+            # SBERT 모델 로딩 및 임베딩 계산
+            sbert_model = self._get_sbert_model()
+            sbert_embeddings = sbert_model.encode(docs, show_progress_bar=False)
+            sbert_distance_matrix = cosine_distances(sbert_embeddings)
+            
+            # 가중합 거리 행렬 계산 (SBERT: 0.1, TF-IDF: 0.9)
+            distance_matrix = 0.9 * tfidf_distance_matrix + 0.1 * sbert_distance_matrix
             
             from sklearn.cluster import AgglomerativeClustering
             clustering_model = AgglomerativeClustering(
